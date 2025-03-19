@@ -1,12 +1,14 @@
-package handlers
+package middleware
 
 import (
 	"net/http"
+
 	"github.com/gin-gonic/gin"
+	"example.com/auth/server/auth"
 )
 
 // AuthRequired 认证中间件
-func (h *AuthHandler) AuthRequired() gin.HandlerFunc {
+func AuthRequired(jwtService *auth.JWTService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		token := c.GetHeader("Authorization")
 		if token == "" {
@@ -16,7 +18,7 @@ func (h *AuthHandler) AuthRequired() gin.HandlerFunc {
 		}
 
 		// 验证JWT令牌
-		claims, err := h.jwtService.ValidateJWT(token)
+		claims, err := jwtService.ValidateJWT(token)
 		if err != nil {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "无效的认证令牌"})
 			c.Abort()
@@ -28,4 +30,4 @@ func (h *AuthHandler) AuthRequired() gin.HandlerFunc {
 		c.Set("email", claims.Email)
 		c.Next()
 	}
-} 
+}

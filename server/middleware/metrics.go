@@ -1,9 +1,11 @@
-package auth
+package middleware
 
 import (
+	"fmt"
+
+	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
-	"github.com/gin-gonic/gin"
 )
 
 var (
@@ -66,7 +68,7 @@ func MetricsMiddleware() gin.HandlerFunc {
 		apiDuration.WithLabelValues(
 			c.FullPath(),
 			c.Request.Method,
-			string(status),
+			fmt.Sprintf("%d", status),
 		).Observe(timer.ObserveDuration().Seconds())
 	}
 }
@@ -98,4 +100,9 @@ func RecordCacheMiss(cacheType string) {
 // UpdateActiveUsers 更新活跃用户数
 func UpdateActiveUsers(count float64) {
 	activeUsers.Set(count)
-} 
+}
+
+// RecordLoginDuration 记录登录耗时
+func RecordLoginDuration(provider string, duration float64) {
+	loginDuration.WithLabelValues(provider).Observe(duration)
+}

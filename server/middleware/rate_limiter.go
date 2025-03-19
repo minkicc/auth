@@ -1,4 +1,4 @@
-package auth
+package middleware
 
 import (
 	"fmt"
@@ -7,7 +7,75 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+
+	"context"
+
+	"github.com/go-redis/redis/v8"
 )
+
+// RedisStore Redis存储服务
+type RedisStore struct {
+	client *redis.Client
+	ctx    context.Context
+}
+
+// NewRedisStore 创建新的Redis存储服务
+func NewRedisStore(addr, password string, db int) (*RedisStore, error) {
+	client := redis.NewClient(&redis.Options{
+		Addr:     addr,
+		Password: password,
+		DB:       db,
+	})
+
+	ctx := context.Background()
+	if err := client.Ping(ctx).Err(); err != nil {
+		return nil, err
+	}
+
+	return &RedisStore{
+		client: client,
+		ctx:    ctx,
+	}, nil
+}
+
+// IncrRateLimit 增加限流计数并返回当前值
+func (rs *RedisStore) IncrRateLimit(key string, window time.Duration) (int, error) {
+	pipe := rs.client.Pipeline()
+	incr := pipe.Incr(rs.ctx, key)
+	pipe.Expire(rs.ctx, key, window)
+	_, err := pipe.Exec(rs.ctx)
+	if err != nil {
+		return 0, err
+	}
+	return int(incr.Val()), nil
+}
+
+// StoreRateLimit 存储速率限制信息
+func (rs *RedisStore) StoreRateLimit(ip string, count int, window time.Duration) error {
+	key := fmt.Sprintf("ratelimit:%s", ip)
+	return rs.client.Set(rs.ctx, key, count, window).Err()
+}
+
+// GetRateLimit 获取速率限制信息
+func (rs *RedisStore) GetRateLimit(ip string) (int, error) {
+	key := fmt.Sprintf("ratelimit:%s", ip)
+	count, err := rs.client.Get(rs.ctx, key).Int()
+	if err == redis.Nil {
+		return 0, nil
+	}
+	return count, err
+}
+
+// DeleteRateLimit 删除速率限制信息
+func (rs *RedisStore) DeleteRateLimit(ip string) error {
+	key := fmt.Sprintf("ratelimit:%s", ip)
+	return rs.client.Del(rs.ctx, key).Err()
+}
+
+// Close 关闭Redis连接
+func (rs *RedisStore) Close() error {
+	return rs.client.Close()
+}
 
 // RateLimiterConfig 限流器配置
 type RateLimiterConfig struct {
@@ -30,13 +98,13 @@ type RateLimiterConfig struct {
 // DefaultRateLimiterConfig 默认限流配置
 func DefaultRateLimiterConfig() RateLimiterConfig {
 	return RateLimiterConfig{
-		MaxRequests:          100,
-		Window:               time.Minute,
-		EnableIPRateLimit:    true,
-		EnableUserRateLimit:  true,
+		MaxRequests:           100,
+		Window:                time.Minute,
+		EnableIPRateLimit:     true,
+		EnableUserRateLimit:   true,
 		EnableGlobalRateLimit: false,
-		GlobalMaxRequests:    1000,
-		GlobalWindow:         time.Minute,
+		GlobalMaxRequests:     1000,
+		GlobalWindow:          time.Minute,
 	}
 }
 
@@ -86,10 +154,10 @@ func (rl *RateLimiter) RateLimitMiddleware() gin.HandlerFunc {
 		if limited {
 			// 记录限流事件
 			RecordRateLimit(identifier)
-			
+
 			// 返回429状态码
 			c.JSON(http.StatusTooManyRequests, gin.H{
-				"error": "rate limit exceeded",
+				"error":       "rate limit exceeded",
 				"retry_after": rl.config.Window.Seconds(),
 			})
 			c.Abort()
@@ -161,4 +229,4 @@ func (rl *RateLimiter) isLimited(identifier string) (bool, int, error) {
 	}
 
 	return false, count, nil
-} 
+}

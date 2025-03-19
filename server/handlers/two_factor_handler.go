@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -12,15 +14,42 @@ func (h *AuthHandler) Enable2FA(c *gin.Context) {
 		return
 	}
 
-	userID := c.GetUint("user_id")
-	key, err := h.twoFactor.GenerateSecret(userID)
+	// 从上下文中获取用户ID
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "未找到用户ID"})
+		return
+	}
+
+	// 将userID转换为字符串
+	userIDStr, ok := userID.(string)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "用户ID格式错误"})
+		return
+	}
+
+	// 获取用户信息用于账户名称
+	user, err := h.accountAuth.GetUserByID(userIDStr)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("获取用户信息失败: %v", err)})
+		return
+	}
+
+	// 使用用户昵称或ID作为账户名
+	accountName := user.Profile.Nickname
+	if accountName == "" {
+		accountName = userIDStr
+	}
+
+	// 生成双因素认证密钥
+	key, err := h.twoFactor.GenerateSecret(userIDStr, accountName)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"secret": key.Secret(),
+		"secret":  key.Secret(),
 		"qr_code": key.URL(),
 	})
 }
@@ -41,8 +70,21 @@ func (h *AuthHandler) Disable2FA(c *gin.Context) {
 		return
 	}
 
-	userID := c.GetUint("user_id")
-	if err := h.twoFactor.DisableTwoFactor(userID, req.Code); err != nil {
+	// 从上下文中获取用户ID
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "未找到用户ID"})
+		return
+	}
+
+	// 将userID转换为字符串
+	userIDStr, ok := userID.(string)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "用户ID格式错误"})
+		return
+	}
+
+	if err := h.twoFactor.DisableTwoFactor(userIDStr, req.Code); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -58,7 +100,7 @@ func (h *AuthHandler) Verify2FA(c *gin.Context) {
 	}
 
 	var req struct {
-		UserID uint   `json:"user_id" binding:"required"`
+		UserID string `json:"user_id" binding:"required"`
 		Code   string `json:"code" binding:"required"`
 	}
 
@@ -91,12 +133,25 @@ func (h *AuthHandler) GenerateRecoveryCodes(c *gin.Context) {
 		return
 	}
 
-	userID := c.GetUint("user_id")
-	codes, err := h.twoFactor.GenerateRecoveryCodes(userID, req.Code)
+	// 从上下文中获取用户ID
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "未找到用户ID"})
+		return
+	}
+
+	// 将userID转换为字符串
+	userIDStr, ok := userID.(string)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "用户ID格式错误"})
+		return
+	}
+
+	codes, err := h.twoFactor.GenerateRecoveryCodes(userIDStr, req.Code)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{"recovery_codes": codes})
-} 
+}
