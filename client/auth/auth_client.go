@@ -387,7 +387,7 @@ func (c *AuthClient) UpdateAvatar(accessToken string, fileData []byte, fileName 
 	writer := multipart.NewWriter(body)
 
 	// 添加文件
-	part, err := writer.CreateFormFile("file", fileName)
+	part, err := writer.CreateFormFile("avatar", fileName)
 	if err != nil {
 		return fmt.Errorf("创建表单文件失败: %v", err)
 	}
@@ -401,7 +401,7 @@ func (c *AuthClient) UpdateAvatar(accessToken string, fileData []byte, fileName 
 	}
 
 	// 创建请求
-	req, err := http.NewRequest("POST", c.AuthServerURL+"/authapi/avatar", body)
+	req, err := http.NewRequest("POST", c.AuthServerURL+"/authapi/avatar/upload", body)
 	if err != nil {
 		return fmt.Errorf("创建请求失败: %v", err)
 	}
