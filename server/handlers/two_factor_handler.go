@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2024 Auth Contributors (https://example.com)
+ * Copyright (c) 2025 Auth Contributors (https://example.com)
  * Licensed under the MIT License.
  */
 
