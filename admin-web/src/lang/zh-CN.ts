@@ -29,7 +29,7 @@ export default {
     username: '用户名',
     password: '密码',
     login_loading: '登录中...',
-    welcome: 'Auth admin console',
+    welcome: 'KC账号系统后台',
     signIn: '请登录',
     error_username_required: '请输入用户名',
     error_password_required: '请输入密码',
