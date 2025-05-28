@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2023-2024 Auth Contributors (https://example.com)
+ * Licensed under the MIT License.
+ */
+
 <template>
   <div class="login-container">
     <el-card class="login-card">

@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2023-2024 Auth Contributors (https://example.com)
+ * Licensed under the MIT License.
+ */
+
 <template>
   <div class="weixin-login-container">
     <button @click="handleWechatLogin" :disabled="isLoading" class="social-btn wechat-btn">

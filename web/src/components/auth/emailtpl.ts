@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2023-2024 Auth Contributors (https://example.com)
+ * Licensed under the MIT License.
+ */
+
 import i18n from "@/locales"
 
 const baseURL = location.origin
