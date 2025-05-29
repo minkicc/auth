@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2025 Auth Contributors (https://example.com)
+ * Licensed under the MIT License.
+ */
+
 import { createI18n } from 'vue-i18n'
 import enUS from './en-US'
 import zhCN from './zh-CN'

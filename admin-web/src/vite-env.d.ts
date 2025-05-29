@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2025 Auth Contributors (https://example.com)
+ * Licensed under the MIT License.
+ */
+
 /// <reference types="vite/client" />
 
 declare module '*.vue' {

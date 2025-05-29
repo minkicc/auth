@@ -1,15 +1,15 @@
+/*
+ * Copyright (c) 2025 Auth Contributors (https://example.com)
+ * Licensed under the MIT License.
+ */
+
 <template>
   <div class="app-container">
     <router-view />
   </div>
 </template>
 
-<script lang="ts">
-import { defineComponent } from 'vue'
-
-export default defineComponent({
-  name: 'App'
-})
+<script setup lang="ts">
 </script>
 
 <style lang="scss">

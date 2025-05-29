@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2025 Auth Contributors (https://example.com)
+ * Licensed under the MIT License.
+ */
+
 <template>
   <div>
     <!-- 当注册成功并发送验证邮件后显示 -->

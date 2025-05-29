@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2025 Auth Contributors (https://example.com)
+ * Licensed under the MIT License.
+ */
+
 <template>
   <div class="app-container">
     <header class="site-header">

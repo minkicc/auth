@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2025 Auth Contributors (https://example.com)
+ * Licensed under the MIT License.
+ */
+
 export default {
   common: {
     loading: '加载中...',
@@ -29,7 +34,7 @@ export default {
     username: '用户名',
     password: '密码',
     login_loading: '登录中...',
-    welcome: 'Auth admin console',
+    welcome: 'KC账号系统后台',
     signIn: '请登录',
     error_username_required: '请输入用户名',
     error_password_required: '请输入密码',
