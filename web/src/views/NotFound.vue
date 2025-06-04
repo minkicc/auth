@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2023-2024 Auth Contributors (https://example.com)
+ * Licensed under the MIT License.
+ */
+
 <template>
   <div class="not-found">
     <h1>404</h1>
