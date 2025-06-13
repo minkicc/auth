@@ -688,7 +688,7 @@ func (c *AuthClient) Logout(accessToken string) error {
 // WeixinMiniLogin 微信小程序登录
 func (c *AuthClient) WeixinMiniLogin(code string, gin *gin.Context) (*LoginVerifyResponse, error) {
 	// 创建请求URL
-	url := fmt.Sprintf("%s/weixin/miniprogram?code=%s", c.AuthServerURL, code)
+	url := fmt.Sprintf("%s/api/weixin/miniprogram?code=%s", c.AuthServerURL, code)
 
 	// 创建请求
 	req, err := http.NewRequest("GET", url, nil)
