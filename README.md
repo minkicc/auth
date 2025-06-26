@@ -45,7 +45,7 @@ docker run -d --name auth -p 8080:8080 -p 8081:8081 auth:latest
 ```bash
 docker run -d --name auth \
   -p 8080:8080 -p 8081:8081 \
-  -v /path/to/config.json:/app/server/config/config.json \
+  -v /path/to/config.yaml:/app/server/config/config.yaml \
   auth:latest
 ```
 
