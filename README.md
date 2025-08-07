@@ -1,93 +1,217 @@
-# Auth Docker部署指南
+# Auth - Unified Authentication Service
 
-本项目包含三个主要部分：
-- 后端服务器（Golang）- `/server` 目录
-- 前端页面（Vue+TS）- `/web` 目录
-- 管理后台（Vue+TS）- `/admin-web` 目录
+A simple account system implemented in Golang, supporting multiple login methods and single sign-on. Provides a complete user authentication and authorization solution.
 
-这些组件被打包在一个Docker镜像中，便于部署和管理。
+## 🚀 Features
 
-## 构建Docker镜像
+### Authentication Methods
+- **Account Password Login** - Traditional username/password authentication
+- **Email Login** - Email verification code login
+- **Phone Number Login** - SMS verification code login
+- **Third-party Login**
+  - Google OAuth2.0
+  - WeChat Login
+  - WeChat Mini Program Login
+- **JWT Tokens** - Support for access tokens and refresh tokens
+- **Session Management** - Redis-based session system
 
-使用提供的构建脚本来构建Docker镜像：
+### Core Features
+- 📱 SMS/Email verification codes
+- 🖼️ Avatar upload and management
+- 👥 User management backend
+- 📊 Real-time data statistics
+- 🌐 Multi-language support
+- 🔒 Security protection (rate limiting, IP whitelist, etc.)
+- 📈 Monitoring metrics (Prometheus)
 
-```bash
-./build.sh [标签] [push] [仓库地址]
+### Technology Stack
+- **Backend**: Go 1.23+ / Gin / GORM / Redis / MySQL
+- **Frontend**: Vue 3 / TypeScript / Vite
+- **Storage**: MinIO / AWS S3 / Alibaba Cloud OSS
+- **Deployment**: Docker / Docker Compose
+
+## 📦 Project Structure
+
+```
+auth/
+├── server/           # Backend service (Go)
+├── web/             # Frontend user interface (Vue)
+├── admin-web/       # Admin backend (Vue)
+├── client/          # Go client library
+├── quickstart/      # Quick start configuration
+└── tools/           # Utility scripts
 ```
 
-参数说明：
-- `标签`: 可选，Docker镜像标签。默认为`latest`
-- `push`: 可选，如果指定为"push"，则会将镜像推送到远程仓库
-- `仓库地址`: 可选，远程仓库地址。默认为`docker.io/username`
-
-示例：
-```bash
-# 构建标签为v1.0.0的镜像
-./build.sh v1.0.0
-
-# 构建并推送到默认仓库
-./build.sh v1.0.0 push
-
-# 构建并推送到指定仓库
-./build.sh v1.0.0 push myregistry.com/myproject
-```
-
-## 运行容器
-
-### 使用默认配置运行
+## 🚀 Quick Start
 
 ```bash
-docker run -d --name auth -p 8080:8080 -p 8081:8081 auth:latest
+cd quickstart
+docker-compose up -d
 ```
 
-### 使用自定义配置文件运行
+3. **Access Services**
+- User Interface: http://localhost:8080
+- Admin Backend: http://localhost:8081
+- MinIO Console: http://localhost:9001
 
-```bash
-docker run -d --name auth \
-  -p 8080:8080 -p 8081:8081 \
-  -v /path/to/config.yaml:/app/server/config/config.yaml \
-  auth:latest
+
+## ⚙️ Configuration
+
+### Database Configuration
+```yaml
+db:
+  user: "root"
+  password: "CHANGE_ME"
+  host: "localhost"
+  port: 3306
+  database: "auth"
+  charset: "utf8mb4"
 ```
 
-### 使用环境变量覆盖配置
-
-```bash
-docker run -d --name auth \
-  -p 8080:8080 -p 8081:8081 \
-  -e DB_HOST=your-db-host \
-  -e DB_PORT=3306 \
-  -e DB_USER=your-db-user \
-  -e DB_PASSWORD=your-db-password \
-  -e DB_NAME=auth \
-  -e REDIS_HOST=your-redis-host \
-  -e REDIS_PORT=6379 \
-  -e REDIS_PASSWORD=your-redis-password \
-  auth:latest
+### Redis Configuration
+```yaml
+redis:
+  addr: "localhost:6379"
+  password: ""
+  db: 0
 ```
 
-## 支持的环境变量
+### Storage Configuration
+Supports multiple storage providers:
+- **MinIO** (Local object storage)
+- **AWS S3** (Amazon cloud storage)
+- **Alibaba Cloud OSS** (Alibaba cloud object storage)
 
-| 环境变量 | 说明 | 默认值 |
-|---------|------|-------|
-| DB_HOST | 数据库主机 | localhost |
-| DB_PORT | 数据库端口 | 3306 |
-| DB_USER | 数据库用户名 | root |
-| DB_PASSWORD | 数据库密码 | password |
-| DB_NAME | 数据库名称 | auth |
-| REDIS_HOST | Redis主机 | localhost |
-| REDIS_PORT | Redis端口 | 6379 |
-| REDIS_PASSWORD | Redis密码 | (空) |
-| SERVER_PORT | 主服务器端口 | 8080 |
-| ADMIN_PORT | 管理服务器端口 | 8081 |
+```yaml
+storage:
+  provider: "minio"  # minio, s3, oss
+  endpoint: "localhost:9000"
+  region: "us-east-1"
+  accessKeyID: "your-access-key"
+  secretAccessKey: "your-secret-key"
+  attatchBucket: "attatch"
+```
 
-## 访问服务
+### Authentication Provider Configuration
 
-- 主要前端界面：`http://your-host:8080`
-- 管理后台：`http://your-host:8081/admin`
+#### Google OAuth2.0
+```yaml
+auth:
+  google:
+    client_id: "your-google-client-id"
+    client_secret: "your-google-client-secret"
+    redirect_url: "http://localhost:8080/auth/google/callback"
+    scopes:
+      - "https://www.googleapis.com/auth/userinfo.email"
+      - "https://www.googleapis.com/auth/userinfo.profile"
+```
 
-## 注意事项
+#### WeChat Login
+```yaml
+auth:
+  weixin:
+    app_id: "your-wechat-app-id"
+    app_secret: "your-wechat-app-secret"
+    redirect_url: "http://localhost:8080/wechat/callback"
+    domain_verify_token: "your-domain-verify-token"
+```
 
-1. 确保数据库和Redis服务器可从Docker容器访问
-2. 如果将服务暴露到公网，建议使用反向代理（如Nginx）并配置SSL
-3. 默认配置中的密钥应在生产环境中更改为强密钥
-4. 容器中的日志存储在`/app/logs`目录，如需持久化可挂载外部卷
+#### SMS Service
+```yaml
+auth:
+  sms:
+    provider: "aliyun"  # aliyun, tencent
+    access_key: "your-access-key"
+    secret_key: "your-secret-key"
+    sign_name: "Verification Code"
+    template_id: "SMS_123456789"
+    region: "cn-hangzhou"
+```
+
+#### Email Service
+```yaml
+auth:
+  smtp:
+    host: "smtp.example.com"
+    port: 587
+    username: "noreply@example.com"
+    password: "your-password"
+    from: "Auth <noreply@example.com>"
+```
+
+### Admin Backend Configuration
+- Password is generated by tools in the tools directory
+```yaml
+auth_admin:
+  enabled: true
+  secret_key: "change-this-to-a-secure-random-string"
+  accounts:
+    - username: "admin"
+      password: "$2a$10$hashed-password"
+      roles:
+        - "super_admin"
+  allowed_ips:
+    - "127.0.0.1"
+    - "::1"
+  require_tls: false
+  session_ttl: 30
+  login_timeout: 60
+```
+
+### Trusted Clients
+- Trusted clients are typically your own business backends deployed
+- Trusted clients support batch user information retrieval, etc.
+- client_secret is generated by tools in the tools directory
+```yaml
+auth_trusted_clients:
+  - client_id: "trusted-client"
+    client_secret: "YOUR_TRUSTED_CLIENT_SECRET"
+    allowed_ips:
+      - "*"
+    scopes:
+      - "read:users" 
+```
+
+## 🔧 Client Integration
+
+### Go Client
+
+```go
+import "example.com/auth/client/auth"
+
+// Create JWT client
+jwtClient := auth.NewJWTClient("http://auth-service:8080")
+
+// Create JWT middleware
+jwtMiddleware := auth.NewJWTMiddleware(jwtClient)
+
+// Use in Gin
+r := gin.Default()
+protected := r.Group("/api")
+protected.Use(jwtMiddleware.AuthRequired())
+{
+    protected.GET("/profile", func(c *gin.Context) {
+        // Handle protected resources
+    })
+}
+```
+
+## 🔒 Security Features
+
+- **JWT Tokens** - Secure stateless authentication
+- **Token Refresh** - Automatic refresh of expired tokens
+- **Rate Limiting** - Protection against brute force attacks
+- **IP Whitelist** - Admin backend access control
+- **CORS Configuration** - Cross-origin request control
+- **HTTPS Support** - Encrypted transmission in production
+
+## 🌍 Internationalization
+
+Supports multi-language interfaces:
+- Chinese (zh-CN)
+- English (en-US)
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE.txt) file for details.
+
