@@ -183,7 +183,7 @@ auth_trusted_clients:
 ### Go 客户端
 
 ```go
-import "kcaitech.com/kcauth/client/auth"
+import "minki.cc/kcauth/client/auth"
 
 // 创建JWT客户端
 jwtClient := auth.NewAuthClient("http://auth-service:8080", "", "")

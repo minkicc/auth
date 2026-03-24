@@ -13,7 +13,7 @@
 ## 安装
 
 ```bash
-go get kcaitech.com/kcauth/client
+go get minki.cc/kcauth/client
 ```
 
 ## 使用方法
