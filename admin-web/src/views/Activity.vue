@@ -87,11 +87,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { computed, defineAsyncComponent, onMounted, ref } from 'vue'
 import { ActivityData, serverApi as api } from '@/api/index'
-import { ElMessage } from 'element-plus'
-import ActivityChart from './ActivityChart.vue'
+import { ElMessage } from 'element-plus/es/components/message/index'
 import { useI18n } from 'vue-i18n'
+
+const ActivityChart = defineAsyncComponent(() => import('./ActivityChart.vue'))
 
 const { t } = useI18n()
 const loading = ref(true)
@@ -178,4 +179,4 @@ onMounted(() => {
     &.info { color: #909399; }
   }
 }
-</style> 
+</style>

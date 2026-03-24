@@ -180,7 +180,8 @@
 import { ref, PropType, onMounted, watch } from 'vue'
 import { User, SessionData, JWTSessionData } from '@/api'
 import { serverApi as api } from '@/api/index'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage } from 'element-plus/es/components/message/index'
+import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import i18n from '@/lang'
 
 const props = defineProps({
@@ -475,4 +476,4 @@ onMounted(() => {
   white-space: nowrap;
   max-width: 400px;
 }
-</style> 
+</style>

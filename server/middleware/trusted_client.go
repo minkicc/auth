@@ -16,29 +16,14 @@ import (
 	"kcaitech.com/kcauth/server/config"
 )
 
-// isLocalIP 检查IP地址是否为本地地址
-func isLocalIP(ipStr string) bool {
+// isLoopbackIP 检查IP地址是否为本地回环地址
+func isLoopbackIP(ipStr string) bool {
 	ip := net.ParseIP(ipStr)
 	if ip == nil {
 		return false
 	}
 
-	// 检查是否为本地回环地址
-	if ip.IsLoopback() {
-		return true
-	}
-
-	// 检查是否为私有网络地址
-	if ip.IsPrivate() {
-		return true
-	}
-
-	// 检查是否为链路本地地址
-	if ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
-		return true
-	}
-
-	return false
+	return ip.IsLoopback()
 }
 
 // TrustedClient 可信第三方客户端中间件
@@ -46,8 +31,8 @@ func TrustedClient(_config *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		clientIP := c.ClientIP()
 
-		// 本地访问直接通过，构建一个拥有所有权限的trustedClient
-		if isLocalIP(clientIP) {
+		// 仅在本地调试时允许回环地址跳过客户端凭据，避免生产私网默认绕过认证
+		if gin.Mode() == gin.DebugMode && isLoopbackIP(clientIP) {
 			localClient := &config.TrustedClient{
 				ClientID:     "",
 				ClientSecret: "",

@@ -49,6 +49,12 @@ cd quickstart
 docker-compose up -d
 ```
 
+## 🧰 开发环境要求
+
+- Go 1.23+
+- `web/` 和 `admin-web/` 需要 Node.js 20.12.2+ 与 npm 10.5.0+
+- 在仓库根目录执行 `nvm use`，即可读取已提交的 `.nvmrc`
+
 3. **访问服务**
 - 用户界面: http://localhost:8080
 - 管理后台: http://localhost:8081
@@ -180,15 +186,12 @@ auth_trusted_clients:
 import "kcaitech.com/kcauth/client/auth"
 
 // 创建JWT客户端
-jwtClient := auth.NewJWTClient("http://auth-service:8080")
-
-// 创建JWT中间件
-jwtMiddleware := auth.NewJWTMiddleware(jwtClient)
+jwtClient := auth.NewAuthClient("http://auth-service:8080", "", "")
 
 // 在Gin中使用
 r := gin.Default()
 protected := r.Group("/api")
-protected.Use(jwtMiddleware.AuthRequired())
+protected.Use(jwtClient.AuthRequired())
 {
     protected.GET("/profile", func(c *gin.Context) {
         // 处理受保护的资源
@@ -214,4 +217,3 @@ protected.Use(jwtMiddleware.AuthRequired())
 ## 📄 许可证
 
 本项目采用 MIT 许可证 - 查看 [LICENSE](LICENSE.txt) 文件了解详情。
-

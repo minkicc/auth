@@ -22,7 +22,7 @@
         <el-form-item :label="$t('auth.username')" prop="username">
           <el-input
             v-model="loginForm.username"
-            prefix-icon="el-icon-user"
+            :prefix-icon="User"
             :placeholder="$t('auth.login_placeholder')"
           />
         </el-form-item>
@@ -31,7 +31,7 @@
           <el-input
             v-model="loginForm.password"
             type="password"
-            prefix-icon="el-icon-lock"
+            :prefix-icon="Lock"
             :placeholder="$t('auth.password_placeholder')"
             show-password
           />
@@ -64,6 +64,7 @@
 <script setup lang="ts">
 import { reactive, ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { Lock, User } from '@element-plus/icons-vue'
 import { context } from '@/context'
 import { useI18n } from 'vue-i18n'
 import type { FormInstance, FormRules } from 'element-plus'
@@ -91,9 +92,14 @@ const rules = reactive<FormRules>({
 })
 
 // 如果已经登录，重定向到首页
-onMounted(() => {
+onMounted(async () => {
   if (isAuthenticated()) {
-    router.push('/')
+    try {
+      await serverApi.verifySession()
+      router.push('/')
+    } catch {
+      // Session is invalid; interceptor clears stale local state.
+    }
   }
 })
 
@@ -136,4 +142,4 @@ const handleLogin = () => {
     }
   }
 }
-</style> 
+</style>

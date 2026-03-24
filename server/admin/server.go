@@ -161,6 +161,8 @@ func (s *AdminServer) registerRoutes(r *gin.Engine, webFilePath string) {
 
 	admin.Use(s.authMiddleware())
 	{
+		admin.GET("/verify", s.handleVerifySession)
+
 		// User statistics
 		admin.GET("/stats", s.handleGetStats)
 

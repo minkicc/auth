@@ -1,6 +1,6 @@
 # KCAuth 客户端
 
-这个包提供了与KCAuth认证服务交互的客户端库和中间件，用于在业务服务中验证JWT令牌。
+这个包提供了与KCAuth认证服务交互的Go客户端，用于在业务服务中验证JWT令牌、查询用户信息和处理登录态回调。
 
 ## 功能特性
 
@@ -13,49 +13,40 @@
 ## 安装
 
 ```bash
-go get github.com/kcauth/client
+go get kcaitech.com/kcauth/client
 ```
 
 ## 使用方法
 
-### 创建JWT客户端和中间件
+### 创建客户端
 
 ```go
-// 创建JWT客户端
-jwtClient := auth.NewJWTClient("http://auth-service:8080")
-
-// 创建JWT中间件
-jwtMiddleware := auth.NewJWTMiddleware(jwtClient)
+client := auth.NewAuthClient("http://auth-service:8080", "your-client-id", "your-client-secret")
 ```
 
-### 设置令牌刷新器（可选）
+`NewAuthClient` 接收认证服务的基地址，内部会自动规范化到 `/api`。例如 `http://auth-service:8080`、`http://auth-service:8080/api` 和旧写法 `http://auth-service:8080/auth/token/validate` 都会被统一处理。
+
+如果你在本地调试自签名证书，可以显式开启：
 
 ```go
-// 创建令牌存储
-tokenStore := auth.NewMemoryTokenStore("", "", 0)
-
-// 设置令牌刷新器
-jwtMiddleware.SetTokenRefresher(tokenStore, func(tokenResp *auth.TokenResponse) {
-    log.Println("令牌已刷新")
-})
+client.UseInsecureTLS()
 ```
 
-### 在Gin中使用中间件
+### 在 Gin 中使用中间件
 
 ```go
-// 创建Gin引擎
+client := auth.NewAuthClient("http://auth-service:8080", "", "")
+
 r := gin.Default()
 
-// 公开路由
 r.GET("/", func(c *gin.Context) {
     c.JSON(http.StatusOK, gin.H{
         "message": "欢迎访问API",
     })
 })
 
-// 需要认证的路由
 protected := r.Group("/api")
-protected.Use(jwtMiddleware.AuthRequired())
+protected.Use(client.AuthRequired())
 {
     protected.GET("/profile", func(c *gin.Context) {
         c.JSON(http.StatusOK, gin.H{
@@ -64,9 +55,8 @@ protected.Use(jwtMiddleware.AuthRequired())
     })
 }
 
-// 可选认证的路由
 optional := r.Group("/public")
-optional.Use(jwtMiddleware.OptionalAuth())
+optional.Use(client.OptionalAuth())
 {
     optional.GET("/data", func(c *gin.Context) {
         authenticated, exists := c.Get("authenticated")
@@ -85,61 +75,28 @@ optional.Use(jwtMiddleware.OptionalAuth())
 }
 ```
 
-### 在业务代码中使用JWT客户端
+### 在业务代码中使用客户端
 
 ```go
-// 创建JWT客户端
-jwtClient := auth.NewJWTClient("http://auth-service:8080")
+client := auth.NewAuthClient("http://auth-service:8080", "your-client-id", "your-client-secret")
 
-// 登录获取令牌
-tokenResp, err := jwtClient.Login("user@example.com", "password")
+user, err := client.GetUserInfo(accessToken)
 if err != nil {
-    log.Fatalf("登录失败: %v", err)
+    log.Fatalf("获取用户信息失败: %v", err)
 }
 
-// 创建令牌存储
-tokenStore := auth.NewMemoryTokenStore(
-    tokenResp.AccessToken,
-    tokenResp.RefreshToken,
-    tokenResp.ExpiresIn,
-)
-
-// 使用令牌进行API调用
-// ...
-
-// 刷新令牌
-newTokenResp, err := jwtClient.RefreshToken(tokenStore.GetRefreshToken())
+users, err := client.GetUsersInfo(accessToken, []string{user.UserID})
 if err != nil {
-    log.Fatalf("刷新令牌失败: %v", err)
+    log.Fatalf("批量查询用户失败: %v", err)
 }
 
-// 更新令牌存储
-tokenStore.SetTokens(
-    newTokenResp.AccessToken,
-    newTokenResp.RefreshToken,
-    newTokenResp.ExpiresIn,
-)
-
-// 登出
-err = jwtClient.Logout(tokenStore.AccessToken)
+err = client.Logout(accessToken)
 if err != nil {
     log.Fatalf("登出失败: %v", err)
 }
+
+_ = users
 ```
-
-## 自定义令牌存储
-
-您可以实现自己的令牌存储，只需实现`TokenStore`接口：
-
-```go
-// TokenStore 令牌存储接口
-type TokenStore interface {
-    GetRefreshToken() string
-    SetTokens(accessToken, refreshToken string, expiresIn int)
-}
-```
-
-例如，您可以创建一个Redis或数据库令牌存储，以便在服务重启后保持令牌状态。
 
 ## 配置选项
 
@@ -149,6 +106,7 @@ type TokenStore interface {
 
 ## 注意事项
 
-- 确保认证服务的`/auth/validate`端点可用，用于验证令牌
+- 确保认证服务的 `/api` 路由可用，用于验证令牌和查询用户信息
 - 在生产环境中，应使用HTTPS进行通信
-- 令牌刷新应在后台进行，避免阻塞用户请求 
+- `UseInsecureTLS()` 只建议用于本地开发或测试环境，不要在生产环境启用
+- 对 `GetUserInfoById`、`GetUsersInfo`、`LoginVerify` 等接口，需要为客户端配置 `X-Client-ID` 和 `X-Client-Secret`

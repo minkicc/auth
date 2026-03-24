@@ -16,13 +16,7 @@ import (
 
 func main() {
 	// 创建JWT客户端
-	jwtClient := auth.NewAuthClient("http://auth-service:8080/auth/token/validate", "", "")
-
-	// 创建JWT中间件
-	// jwtMiddleware := auth.NewJWTMiddleware(jwtClient)
-
-	// 可选：设置令牌刷新器
-	// 创建令牌存储
+	jwtClient := auth.NewAuthClient("http://auth-service:8080", "", "")
 
 	// 创建Gin引擎
 	r := gin.Default()

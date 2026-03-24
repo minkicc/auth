@@ -15,6 +15,7 @@ import (
 	"log"
 	"mime/multipart"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -58,15 +59,46 @@ type LoginVerifyResponse struct {
 	ExpireTime time.Duration `json:"expire_time"`
 }
 
+const defaultAPIPath = "/api"
+
+func normalizeAPIAddr(apiAddr string) string {
+	trimmed := strings.TrimSpace(apiAddr)
+	trimmed = strings.TrimRight(trimmed, "/")
+	if trimmed == "" {
+		return defaultAPIPath
+	}
+
+	parsed, err := url.Parse(trimmed)
+	if err != nil || parsed.Host == "" {
+		if strings.HasSuffix(trimmed, defaultAPIPath) {
+			return trimmed
+		}
+		return trimmed + defaultAPIPath
+	}
+
+	path := strings.Trim(parsed.Path, "/")
+	switch {
+	case path == "":
+		parsed.Path = defaultAPIPath
+	case path == "api" || strings.HasPrefix(path, "api/"):
+		parsed.Path = defaultAPIPath
+	case path == "auth" || strings.HasPrefix(path, "auth/"):
+		parsed.Path = defaultAPIPath
+	default:
+		parsed.Path = strings.TrimRight(parsed.Path, "/")
+		if !strings.HasSuffix(parsed.Path, defaultAPIPath) {
+			parsed.Path += defaultAPIPath
+		}
+	}
+
+	return strings.TrimRight(parsed.String(), "/")
+}
+
 // NewAuthClient 创建新的JWT客户端
 func NewAuthClient(apiAddr string, clientID string, clientSecret string) *KCAuthClient {
 	return &KCAuthClient{
-		APIAddr: apiAddr,
+		APIAddr: normalizeAPIAddr(apiAddr),
 		HTTPClient: &http.Client{
-			// 在测试环境中跳过SSL证书验证
-			Transport: &http.Transport{
-				TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-			},
 			Timeout: 10 * time.Second,
 		},
 		Timeout:      10 * time.Second,
@@ -74,6 +106,17 @@ func NewAuthClient(apiAddr string, clientID string, clientSecret string) *KCAuth
 		cacheExpiry:  15 * time.Minute, // 默认缓存15分钟
 		ClientID:     clientID,
 		ClientSecret: clientSecret,
+	}
+}
+
+// UseInsecureTLS 仅用于本地开发或自签名证书调试场景
+func (c *KCAuthClient) UseInsecureTLS() {
+	if c.HTTPClient == nil {
+		c.HTTPClient = &http.Client{Timeout: c.Timeout}
+	}
+
+	c.HTTPClient.Transport = &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 	}
 }
 

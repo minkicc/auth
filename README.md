@@ -49,6 +49,12 @@ cd quickstart
 docker-compose up -d
 ```
 
+## 🧰 Development Prerequisites
+
+- Go 1.23+
+- Node.js 20.12.2+ and npm 10.5.0+ for `web/` and `admin-web/`
+- Run `nvm use` at the repository root to pick up the checked-in `.nvmrc`
+
 3. **Access Services**
 - User Interface: http://localhost:8080
 - Admin Backend: http://localhost:8081
@@ -180,15 +186,12 @@ auth_trusted_clients:
 import "kcaitech.com/kcauth/client/auth"
 
 // Create JWT client
-jwtClient := auth.NewJWTClient("http://auth-service:8080")
-
-// Create JWT middleware
-jwtMiddleware := auth.NewJWTMiddleware(jwtClient)
+jwtClient := auth.NewAuthClient("http://auth-service:8080", "", "")
 
 // Use in Gin
 r := gin.Default()
 protected := r.Group("/api")
-protected.Use(jwtMiddleware.AuthRequired())
+protected.Use(jwtClient.AuthRequired())
 {
     protected.GET("/profile", func(c *gin.Context) {
         // Handle protected resources
@@ -214,4 +217,3 @@ Supports multi-language interfaces:
 ## 📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE.txt) file for details.
-

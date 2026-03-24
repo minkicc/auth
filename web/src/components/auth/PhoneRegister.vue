@@ -122,6 +122,7 @@ let cooldownTimer: number | null = null
 
 // 验证码发送状态
 const isSendingCode = ref(false)
+const hasRequestedCode = ref(false)
 
 // 协议与隐私政策模态框
 // const showAgreement = ref(false)
@@ -226,12 +227,23 @@ function validateAgreement(agreement: boolean): boolean {
 // 发送验证码
 async function sendVerificationCode() {
   if (!validatePhone(formData.phone)) return
+  if (!validateNickname(formData.nickname)) return
+  if (!validatePassword(formData.password)) return
+  if (!validateConfirmPassword(formData.password, formData.confirmPassword)) return
   
   try {
     isSendingCode.value = true
     
-    // 发送验证码的API调用
-    await serverApi.sendPhoneVerificationCode(formData.phone)
+    if (hasRequestedCode.value) {
+      await serverApi.resendPhoneRegistrationCode(formData.phone)
+    } else {
+      await serverApi.startPhoneRegistration(
+        formData.phone,
+        formData.password,
+        formData.nickname,
+      )
+      hasRequestedCode.value = true
+    }
     
     // 开始倒计时
     cooldown.value = 60
@@ -244,7 +256,7 @@ async function sendVerificationCode() {
     }, 1000)
     
   } catch (error: any) {
-    emit('register-error', error.message || t('errors.sendCodeFailed'))
+    emit('register-error', error.response?.data?.error || error.message || t('errors.sendCodeFailed'))
   } finally {
     isSendingCode.value = false
   }
@@ -271,18 +283,12 @@ async function handleRegister() {
   try {
     isLoading.value = true
     
-    // 注册API调用
-    await serverApi.registerPhone(
-      formData.phone,
-      formData.code,
-      formData.password,
-      formData.nickname,
-    )
+    await serverApi.completePhoneRegistration(formData.phone, formData.code)
     
     // 注册成功
     registerSuccess.value = true
   } catch (error: any) {
-    emit('register-error', error.message || t('errors.phoneRegisterFailed'))
+    emit('register-error', error.response?.data?.error || error.message || t('errors.phoneRegisterFailed'))
   } finally {
     isLoading.value = false
   }
@@ -460,4 +466,4 @@ input.error {
   background: #bfbfbf;
   cursor: not-allowed;
 }
-</style> 
+</style>

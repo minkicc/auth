@@ -142,11 +142,12 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, ref, onMounted } from 'vue'
+import { defineAsyncComponent, reactive, ref, onMounted } from 'vue'
 import { User, serverApi as api } from '@/api/index'
-import { ElMessage } from 'element-plus'
-import UserDetail from '@/components/UserDetail.vue'
+import { ElMessage } from 'element-plus/es/components/message/index'
 import i18n from '@/lang'
+
+const UserDetail = defineAsyncComponent(() => import('@/components/UserDetail.vue'))
 
 const { t } = i18n.global
 
@@ -415,4 +416,4 @@ onMounted(() => {
     gap: 5px;
   }
 }
-</style> 
+</style>

@@ -3,6 +3,7 @@
  * Licensed under the MIT License.
  */
 
+import { serverApi } from '@/api'
 import { isAuthenticated } from '@/utils'
 import { createRouter, createWebHistory, RouteRecordRaw } from 'vue-router'
 
@@ -58,14 +59,33 @@ const router = createRouter({
 })
 
 // 路由守卫
-router.beforeEach((to, _, next) => {
+router.beforeEach(async (to) => {
   const requiresAuth = to.matched.some(record => record.meta.requiresAuth !== false)
+  const hasLocalSession = isAuthenticated()
 
-  if (requiresAuth && !isAuthenticated()) {
-    next('/login')
-  } else {
-    next()
+  if (!requiresAuth) {
+    if (to.path === '/login' && hasLocalSession) {
+      try {
+        await serverApi.verifySession()
+        return '/'
+      } catch {
+        return true
+      }
+    }
+
+    return true
+  }
+
+  if (!hasLocalSession) {
+    return '/login'
+  }
+
+  try {
+    await serverApi.verifySession()
+    return true
+  } catch {
+    return '/login'
   }
 })
 
-export default router 
+export default router

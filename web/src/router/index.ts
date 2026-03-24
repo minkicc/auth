@@ -19,7 +19,7 @@ const routes = [
     beforeEnter: () => {
       const urlParams = new URLSearchParams(window.location.search)
       const client_id = urlParams.get('client_id') || ''
-      const redirect_uri = urlParams.get('redirect_url') || undefined
+      const redirect_uri = urlParams.get('redirect_uri') || urlParams.get('redirect_url') || undefined
       serverApi.updateAuthData(client_id, redirect_uri)
     }
   },
@@ -48,4 +48,4 @@ const router = createRouter({
   routes
 })
 
-export default router 
+export default router
