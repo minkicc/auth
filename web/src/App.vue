@@ -1,9 +1,9 @@
 /*
- * Copyright (c) 2025 KCai Technology (https://kcaitech.com)
+ * Copyright (c) 2025 Minki Technology (https://kcaitech.com)
  * Licensed under the MIT License.
  */
 
-/* * Copyright (c) 2025 KCai Technology (https://kcaitech.com) * Licensed under
+/* * Copyright (c) 2025 Minki Technology (https://kcaitech.com) * Licensed under
 the MIT License. */
 
 <template>
