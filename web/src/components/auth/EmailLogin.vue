@@ -36,7 +36,6 @@
 
 <script lang="ts" setup>
 import { reactive, ref, defineEmits } from 'vue'
-import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { serverApi } from '@/api/serverApi';
 
@@ -92,15 +91,12 @@ const handleEmailLogin = async () => {
     isLoading.value = true
     
     // 实际实现邮箱登录逻辑
-    const response = await serverApi.emailLogin(formData.email, formData.password)
-    // const response = await axios.post('/email/login', {
-    //   email: formData.email,
-    //   password: formData.password
-    // })
+    await serverApi.emailLogin(formData.email, formData.password)
+    emit('login-success')
 
   } catch (error: any) {
     // 登录失败，通知父组件
-    emit('login-error', error.response?.data?.message || t('errors.emailLoginFailed'))
+    emit('login-error', error.response?.data?.error || error.message || t('errors.emailLoginFailed'))
   } finally {
     isLoading.value = false
   }
@@ -162,4 +158,4 @@ input.error {
   background: #bfbfbf;
   cursor: not-allowed;
 }
-</style> 
+</style>

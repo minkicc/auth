@@ -13,6 +13,18 @@ interface AuthResponse {
     avatar: string
 }
 
+interface NestedAuthResponse {
+    token: string
+    user?: {
+        user_id: string
+        nickname?: string
+        avatar?: string
+    }
+    user_id?: string
+    nickname?: string
+    avatar?: string
+}
+
 export type AuthProvider = 'account' | 'email' | 'google' | 'weixin' | 'phone' | 'weixin_mini'
 
 
@@ -40,8 +52,26 @@ class ServerApi {
     clientId: string = ''
     redirectUri: string = ''
 
-    updateUserInfo(response: AuthResponse) {
-        const { user_id, token, nickname, avatar } = response
+    private normalizeAuthResponse(response: AuthResponse | NestedAuthResponse): AuthResponse {
+        if ('user' in response && response.user) {
+            return {
+                user_id: response.user.user_id,
+                token: response.token,
+                nickname: response.user.nickname || '',
+                avatar: response.user.avatar || '',
+            }
+        }
+
+        return {
+            user_id: response.user_id || '',
+            token: response.token,
+            nickname: response.nickname || '',
+            avatar: response.avatar || '',
+        }
+    }
+
+    updateUserInfo(response: AuthResponse | NestedAuthResponse) {
+        const { user_id, token, nickname, avatar } = this.normalizeAuthResponse(response)
     
         // 保存信息到本地存储
         localStorage.setItem('token', token)
@@ -97,7 +127,7 @@ class ServerApi {
     // 获取当前用户信息
     async fetchCurrentUser() {
         const response = await axios.get('/user')
-        return response.data.user
+        return response.data
     }
 
     // 登出
@@ -135,6 +165,10 @@ class ServerApi {
 
     // 当前已经登陆，直接回调
     async handleLoginRedirect(): Promise<void> {
+        if (!this.redirectUri) {
+            return
+        }
+
         const response = await axios.get('/login/redirect', { params: { client_id: this.clientId, redirect_uri: this.redirectUri } })
         const url = response.data.url as string
         if (url) {
@@ -144,41 +178,49 @@ class ServerApi {
     }
 
     // 手机相关
-    async sendPhoneVerificationCode(phone: string) {
-        const response = await axios.post('/phone/send-code', { phone })
+    async sendPhoneLoginCode(phone: string) {
+        const response = await axios.post('/phone/send-login-code', { phone })
         return response.data
     }
 
     async phoneLogin(phone: string, password: string): Promise<AuthResponse> {
         const response = await axios.post('/phone/login', { phone, password, client_id: this.clientId, redirect_uri: this.redirectUri })
-        this.updateUserInfo(response.data)
-        return response.data
+        const authResponse = this.normalizeAuthResponse(response.data)
+        this.updateUserInfo(authResponse)
+        return authResponse
     }
 
     async phoneCodeLogin(phone: string, code: string): Promise<AuthResponse> {
         const response = await axios.post('/phone/code-login', { phone, code, client_id: this.clientId, redirect_uri: this.redirectUri })
-        this.updateUserInfo(response.data)
+        const authResponse = this.normalizeAuthResponse(response.data)
+        this.updateUserInfo(authResponse)
+        return authResponse
+    }
+
+    async startPhoneRegistration(phone: string, password: string, nickname: string) {
+        const response = await axios.post('/phone/preregister', { phone, password, nickname })
         return response.data
     }
 
-    async registerPhone(phone: string, code: string, password: string, nickname: string): Promise<AuthResponse> {
-        const response = await axios.post('/phone/register', { phone, code, password, nickname })
-        this.updateUserInfo(response.data)
+    async resendPhoneRegistrationCode(phone: string) {
+        const response = await axios.post('/phone/resend-verification', { phone })
         return response.data
     }
 
-    async verifyPhone(code: string) {
-        const response = await axios.post('/phone/verify', { code, client_id: this.clientId, redirect_uri: this.redirectUri })
-        return response.data
+    async completePhoneRegistration(phone: string, code: string): Promise<AuthResponse> {
+        const response = await axios.post('/phone/verify-register', { phone, code })
+        const authResponse = this.normalizeAuthResponse(response.data)
+        this.updateUserInfo(authResponse)
+        return authResponse
     }
 
     async initiatePhonePasswordReset(phone: string) {
-        const response = await axios.post('/phone/reset-password-init', { phone })
+        const response = await axios.post('/phone/reset-password/init', { phone })
         return response.data
     }
 
     async completePhonePasswordReset(phone: string, code: string, newPassword: string) {
-        const response = await axios.post('/phone/reset-password', {
+        const response = await axios.post('/phone/reset-password/complete', {
             phone,
             code,
             new_password: newPassword
@@ -189,8 +231,10 @@ class ServerApi {
     // 邮箱相关
     async emailLogin(email: string, password: string): Promise<AuthResponse> {
         const response = await axios.post('/email/login', { email, password, client_id: this.clientId, redirect_uri: this.redirectUri })
-        return response.data
+        const authResponse = this.normalizeAuthResponse(response.data)
+        this.updateUserInfo(authResponse)
+        return authResponse
     }
 }
 
-export const serverApi = new ServerApi() 
+export const serverApi = new ServerApi()

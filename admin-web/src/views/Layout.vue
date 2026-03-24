@@ -15,7 +15,7 @@
           <language-switcher class="language-switcher" />
           <span>{{ context.username }}</span>
           <el-dropdown trigger="click" @command="handleCommand">
-            <el-avatar size="small" icon="el-icon-user" />
+            <el-avatar size="small" :icon="UserFilled" />
             <template #dropdown>
               <el-dropdown-menu>
                 <el-dropdown-item command="sessions">{{ $t('common.mySessions') }}</el-dropdown-item>
@@ -38,19 +38,19 @@
             active-text-color="#409EFF"
           >
             <el-menu-item index="/">
-              <i class="el-icon-s-home"></i>
+              <el-icon><House /></el-icon>
               <span>{{ $t('layout.menu.dashboard') }}</span>
             </el-menu-item>
             <el-menu-item index="/users">
-              <i class="el-icon-user"></i>
+              <el-icon><User /></el-icon>
               <span>{{ $t('layout.menu.users') }}</span>
             </el-menu-item>
             <el-menu-item index="/activity">
-              <i class="el-icon-data-line"></i>
+              <el-icon><DataLine /></el-icon>
               <span>{{ $t('layout.menu.activity') }}</span>
             </el-menu-item>
             <el-menu-item index="/settings">
-              <i class="el-icon-setting"></i>
+              <el-icon><Setting /></el-icon>
               <span>{{ $t('layout.menu.settings') }}</span>
             </el-menu-item>
           </el-menu>
@@ -77,8 +77,10 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { DataLine, House, Setting, User, UserFilled } from '@element-plus/icons-vue'
 import { context } from '@/context'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage } from 'element-plus/es/components/message/index'
+import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import LanguageSwitcher from '@/components/LanguageSwitcher.vue'
 import { serverApi } from '@/api'
 
@@ -193,4 +195,4 @@ const handleCommand = (command: string) => {
 .fade-leave-to {
   opacity: 0;
 }
-</style> 
+</style>

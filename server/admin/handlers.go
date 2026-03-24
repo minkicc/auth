@@ -90,6 +90,17 @@ func (s *AdminServer) handleLogout(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Logout successful"})
 }
 
+// Verify current admin session
+func (s *AdminServer) handleVerifySession(c *gin.Context) {
+	username, _ := c.Get("username")
+	roles, _ := c.Get("roles")
+
+	c.JSON(http.StatusOK, gin.H{
+		"username": username,
+		"roles":    roles,
+	})
+}
+
 // Get user statistics
 func (s *AdminServer) handleGetStats(c *gin.Context) {
 	var stats struct {

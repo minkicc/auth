@@ -166,8 +166,10 @@ class ServerApi {
   /**
    * 验证会话
    */
-  async verifySession(): Promise<void> {
-    await api.get('/verify')
+  async verifySession(): Promise<UserInfo> {
+    const response = await api.get<UserInfo>('/verify')
+    localStorage.setItem('admin_session', JSON.stringify(response.data))
+    return response.data
   }
 
   // 获取统计数据

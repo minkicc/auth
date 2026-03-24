@@ -23,6 +23,7 @@ export default {
     language: '语言',
     yes: '是',
     no: '否',
+    no_data: '暂无数据',
     actions: '操作',
     more: '更多',
     mySessions: '我的会话',
@@ -271,4 +272,4 @@ export default {
     unban_account: '解封账号',
     change_status: '更改状态'
   }
-} 
+}

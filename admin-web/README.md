@@ -44,10 +44,12 @@ admin-web/
 
 ## 开发指南
 
+Node.js 版本要求：Node.js 20.12.2+，npm 10.5.0+。如果你使用 `nvm`，可以先在仓库根目录执行 `nvm use`。
+
 ### 安装依赖
 
 ```bash
-cd server/admin-web
+cd admin-web
 npm install
 ```
 
@@ -70,9 +72,10 @@ npm run build
 管理控制台通过以下API与后端进行通信：
 
 - `/login` - 管理员登录
+- `/api/verify` - 校验当前登录会话
 - `/api/stats` - 获取用户统计数据
 - `/api/users` - 获取用户列表
 - `/api/activity` - 获取用户活跃数据
 - `/api/logout` - 管理员注销
 
-所有API请求都会自动包含cookie凭证，以确保会话持续性。 
+所有API请求都会自动包含cookie凭证，以确保会话持续性。

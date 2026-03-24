@@ -23,6 +23,7 @@ export default {
     language: 'Language',
     yes: 'Yes',
     no: 'No',
+    no_data: 'No data',
     actions: 'Actions',
     more: 'More',
     mySessions: 'My Sessions',
@@ -264,4 +265,4 @@ export default {
     unban_account: 'Unban Account',
     change_status: 'Change Status'
   }
-} 
+}

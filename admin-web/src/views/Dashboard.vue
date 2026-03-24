@@ -10,7 +10,8 @@
         <div class="card-header">
           <h2>{{ $t('dashboard.title') }}</h2>
           <el-button type="primary" size="small" @click="fetchStats">
-            <i class="el-icon-refresh"></i> {{ $t('dashboard.refresh') }}
+            <el-icon class="header-icon"><Refresh /></el-icon>
+            {{ $t('dashboard.refresh') }}
           </el-button>
         </div>
       </template>
@@ -32,7 +33,8 @@
           <el-card shadow="hover" class="stat-card">
             <template #header>
               <div class="stat-header">
-                <i class="el-icon-user"></i> {{ $t('dashboard.user_overview') }}
+                <el-icon class="stat-icon"><User /></el-icon>
+                {{ $t('dashboard.user_overview') }}
               </div>
             </template>
             <div class="stat-content">
@@ -59,7 +61,8 @@
           <el-card shadow="hover" class="stat-card">
             <template #header>
               <div class="stat-header">
-                <i class="el-icon-plus"></i> {{ $t('dashboard.new_users') }}
+                <el-icon class="stat-icon"><Plus /></el-icon>
+                {{ $t('dashboard.new_users') }}
               </div>
             </template>
             <div class="stat-content">
@@ -82,7 +85,8 @@
           <el-card shadow="hover" class="stat-card">
             <template #header>
               <div class="stat-header">
-                <i class="el-icon-key"></i> {{ $t('dashboard.login_stats') }}
+                <el-icon class="stat-icon"><Key /></el-icon>
+                {{ $t('dashboard.login_stats') }}
               </div>
             </template>
             <div class="stat-content">
@@ -105,7 +109,8 @@
           <el-card shadow="hover" class="stat-card">
             <template #header>
               <div class="stat-header">
-                <i class="el-icon-connection"></i> {{ $t('dashboard.auth_stats') }}
+                <el-icon class="stat-icon"><Connection /></el-icon>
+                {{ $t('dashboard.auth_stats') }}
               </div>
             </template>
             <div class="stat-content">
@@ -135,6 +140,7 @@
 
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
+import { Connection, Key, Plus, Refresh, User } from '@element-plus/icons-vue'
 import { StatsData, serverApi as api } from '@/api/index'
 import { useI18n } from 'vue-i18n'
 
@@ -204,6 +210,11 @@ onMounted(() => {
       font-weight: 500;
     }
   }
+
+  .header-icon,
+  .stat-icon {
+    margin-right: 6px;
+  }
   
   .stats-grid {
     display: grid;
@@ -216,10 +227,6 @@ onMounted(() => {
       display: flex;
       align-items: center;
       font-weight: 500;
-      
-      i {
-        margin-right: 8px;
-      }
     }
     
     .stat-content {
@@ -259,4 +266,4 @@ onMounted(() => {
     grid-template-columns: 1fr;
   }
 }
-</style> 
+</style>

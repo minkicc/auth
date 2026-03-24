@@ -23,9 +23,47 @@ export default defineConfig(({ mode }) => {
                 '/api': 'http://localhost:8081',
             }
         },
+        css: {
+            preprocessorOptions: {
+                scss: {
+                    silenceDeprecations: ['legacy-js-api']
+                }
+            }
+        },
         build: {
             outDir: 'dist',
-            emptyOutDir: true
+            emptyOutDir: true,
+            rollupOptions: {
+                output: {
+                    manualChunks(id) {
+                        if (!id.includes('node_modules')) {
+                            return
+                        }
+
+                        if (id.includes('@element-plus/icons-vue')) {
+                            return 'element-plus-icons'
+                        }
+
+                        if (id.includes('element-plus')) {
+                            return 'element-plus'
+                        }
+
+                        if (
+                            id.includes('/vue/') ||
+                            id.includes('/@vue/') ||
+                            id.includes('vue-router') ||
+                            id.includes('pinia') ||
+                            id.includes('vue-i18n')
+                        ) {
+                            return 'framework'
+                        }
+
+                        if (id.includes('axios')) {
+                            return 'http'
+                        }
+                    }
+                }
+            }
         }
     }
 })

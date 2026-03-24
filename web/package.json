@@ -8,6 +8,10 @@
     "build": "vite build",
     "preview": "vite preview"
   },
+  "engines": {
+    "node": ">=20.12.2",
+    "npm": ">=10.5.0"
+  },
   "author": "",
   "description": "",
   "dependencies": {

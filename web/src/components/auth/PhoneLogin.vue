@@ -88,7 +88,6 @@
 
 <script lang="ts" setup>
 import { reactive, ref, defineEmits } from 'vue'
-import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { serverApi } from '@/api/serverApi';
 
@@ -96,7 +95,6 @@ const emit = defineEmits<{
   (e: 'login-error', message: string): void
 }>()
 
-const router = useRouter()
 const { t } = useI18n()
 
 // 手机登录方式 (密码登录 或 验证码登录)
@@ -188,7 +186,7 @@ async function sendVerificationCode() {
   
   try {
     isSendingCode.value = true
-    await serverApi.sendPhoneVerificationCode(codeForm.phone)
+    await serverApi.sendPhoneLoginCode(codeForm.phone)
     
     // 开始倒计时
     cooldown.value = 60
@@ -201,7 +199,7 @@ async function sendVerificationCode() {
     }, 1000)
     
   } catch (error: any) {
-    emit('login-error', error.message)
+    emit('login-error', error.response?.data?.error || error.message)
   } finally {
     isSendingCode.value = false
   }
@@ -221,9 +219,9 @@ async function handlePasswordLogin() {
   
   try {
     isLoading.value = true
-    const user = await serverApi.phoneLogin(passwordForm.phone, passwordForm.password)
+    await serverApi.phoneLogin(passwordForm.phone, passwordForm.password)
   } catch (error: any) {
-    emit('login-error', error.message)
+    emit('login-error', error.response?.data?.error || error.message)
   } finally {
     isLoading.value = false
   }
@@ -243,9 +241,9 @@ async function handleCodeLogin() {
   
   try {
     isLoading.value = true
-    const user = await serverApi.phoneCodeLogin(codeForm.phone, codeForm.code)
+    await serverApi.phoneCodeLogin(codeForm.phone, codeForm.code)
   } catch (error: any) {
-    emit('login-error', error.message)
+    emit('login-error', error.response?.data?.error || error.message)
   } finally {
     isLoading.value = false
   }
@@ -414,4 +412,4 @@ input.error {
   background: #bfbfbf;
   cursor: not-allowed;
 }
-</style> 
+</style>
