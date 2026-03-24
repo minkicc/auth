@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025 Minki Technology (https://kcaitech.com)
+ * Copyright (c) 2025 Minki Technology (https://minki.cc)
  * Licensed under the MIT License.
  */
 
@@ -13,7 +13,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/gin-gonic/gin"
-	"kcaitech.com/kcauth/server/config"
+	"minki.cc/kcauth/server/config"
 )
 
 // isLoopbackIP 检查IP地址是否为本地回环地址

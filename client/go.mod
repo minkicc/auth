@@ -1,4 +1,4 @@
-module kcaitech.com/kcauth/client
+module minki.cc/kcauth/client
 
 go 1.24.1
 

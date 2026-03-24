@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025 Minki Technology (https://kcaitech.com)
+ * Copyright (c) 2025 Minki Technology (https://minki.cc)
  * Licensed under the MIT License.
  */
 
@@ -12,7 +12,7 @@ import (
 	"math/big"
 	"time"
 
-	"kcaitech.com/kcauth/server/common"
+	"minki.cc/kcauth/server/common"
 
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"

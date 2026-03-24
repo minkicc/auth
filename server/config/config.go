@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025 Minki Technology (https://kcaitech.com)
+ * Copyright (c) 2025 Minki Technology (https://minki.cc)
  * Licensed under the MIT License.
  */
 
@@ -10,7 +10,7 @@ import (
 	"os"
 
 	"gopkg.in/yaml.v3"
-	"kcaitech.com/kcauth/server/auth/storage"
+	"minki.cc/kcauth/server/auth/storage"
 )
 
 // Config Main configuration structure

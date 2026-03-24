@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025 Minki Technology (https://kcaitech.com)
+ * Copyright (c) 2025 Minki Technology (https://minki.cc)
  * Licensed under the MIT License.
  */
 
@@ -14,7 +14,7 @@ import (
 	"github.com/go-redis/redis/v8"
 	"github.com/golang-jwt/jwt/v5"
 
-	"kcaitech.com/kcauth/server/common"
+	"minki.cc/kcauth/server/common"
 )
 
 const (

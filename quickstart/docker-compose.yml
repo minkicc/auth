@@ -47,7 +47,7 @@ services:
     environment:
       TZ: Asia/Shanghai
       MINIO_ROOT_USER: kcserver
-      MINIO_ROOT_PASSWORD: kcai1212
+      MINIO_ROOT_PASSWORD: minki1212
       MINIO_REGION: zhuhai-1
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
@@ -62,7 +62,7 @@ services:
       - "9003:9001"
 
   kcauth-server:
-    image: kcaitech/auth:latest
+    image: minkicc/auth:latest
     container_name: kcauth-server
     restart: always
     volumes:

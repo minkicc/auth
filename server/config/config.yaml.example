@@ -59,7 +59,7 @@ auth:
     password: "YOUR_SMTP_PASSWORD"
     from: "YOUR_SMTP_FROM"
   jwt:
-    issuer: "kcaitech.com"
+    issuer: "minki.cc"
 
 auth_admin:
   enabled: true

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025 Minki Technology (https://kcaitech.com)
+ * Copyright (c) 2025 Minki Technology (https://minki.cc)
  * Licensed under the MIT License.
  */
 
@@ -10,10 +10,10 @@ import (
 	"os"
 
 	"github.com/gin-gonic/gin"
-	"kcaitech.com/kcauth/server/auth"
-	"kcaitech.com/kcauth/server/auth/storage"
-	"kcaitech.com/kcauth/server/config"
-	"kcaitech.com/kcauth/server/middleware"
+	"minki.cc/kcauth/server/auth"
+	"minki.cc/kcauth/server/auth/storage"
+	"minki.cc/kcauth/server/config"
+	"minki.cc/kcauth/server/middleware"
 )
 
 // AuthHandler Authentication handler

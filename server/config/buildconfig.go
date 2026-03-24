@@ -1,11 +1,11 @@
 /*
- * Copyright (c) 2025 Minki Technology (https://kcaitech.com)
+ * Copyright (c) 2025 Minki Technology (https://minki.cc)
  * Licensed under the MIT License.
  */
 
 package config
 
-// 使用 -ldflags "-X 'kcaitech.com/kcauth/server/config.API_ROUTER_PATH=/api'" 来设置
+// 使用 -ldflags "-X 'minki.cc/kcauth/server/config.API_ROUTER_PATH=/api'" 来设置
 const (
 	API_ROUTER_PATH   = "/api"
 	ADMIN_ROUTER_PATH = "/api"

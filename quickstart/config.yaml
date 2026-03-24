@@ -28,7 +28,7 @@ auth:
   enabled_providers:
     - "account"
   jwt:
-    issuer: "kcaitech.com"
+    issuer: "minki.cc"
 
 auth_admin:
   enabled: false

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025 Minki Technology (https://kcaitech.com)
+ * Copyright (c) 2025 Minki Technology (https://minki.cc)
  * Licensed under the MIT License.
  */
 
@@ -12,8 +12,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"kcaitech.com/kcauth/server/auth"
-	"kcaitech.com/kcauth/server/common"
+	"minki.cc/kcauth/server/auth"
+	"minki.cc/kcauth/server/common"
 )
 
 // WeixinLoginURL Get WeChat login URL
