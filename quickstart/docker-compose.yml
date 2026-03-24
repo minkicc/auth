@@ -3,12 +3,12 @@ version: '3.8'
 services:
   mysql:
     image: mysql:8.0
-    container_name: kcauth-mysql
+    container_name: mkauth-mysql
     restart: always
     environment:
       MYSQL_ROOT_PASSWORD: password
-      MYSQL_DATABASE: kcauth
-      MYSQL_USER: kcauth
+      MYSQL_DATABASE: mkauth
+      MYSQL_USER: mkauth
       MYSQL_PASSWORD: password
     ports:
       - "3306:3306"
@@ -23,7 +23,7 @@ services:
 
   redis:
     image: redis:7.0
-    container_name: kcauth-redis
+    container_name: mkauth-redis
     restart: always
     ports:
       - "6379:6379"
@@ -61,9 +61,9 @@ services:
       - "9002:9000" # 测试用
       - "9003:9001"
 
-  kcauth-server:
+  mkauth-server:
     image: minkicc/auth:latest
-    container_name: kcauth-server
+    container_name: mkauth-server
     restart: always
     volumes:
       - ./config.yaml:/app/config/config.yaml

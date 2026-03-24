@@ -150,7 +150,7 @@ export default {
   },
   email: {
     verificationTitle: 'Email Verification',
-    registrationTitle: 'Register to KCAuth',
+    registrationTitle: 'Register to MKAuth',
     verificationEmailTpl: `
   <h2>Email Verification</h2>
   <p>Hello, please click the link below to verify your email:</p>

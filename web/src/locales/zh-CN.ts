@@ -150,7 +150,7 @@ export default {
   },
   email: {
     verificationTitle: '邮箱验证',
-    registrationTitle: '注册 KCAuth',
+    registrationTitle: '注册 MKAuth',
     verificationEmailTpl: `
   <h2>邮箱验证</h2>
   <p>您好，请点击以下链接验证您的邮箱：</p>

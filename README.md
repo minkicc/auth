@@ -1,4 +1,4 @@
-# KCAuth - Unified Authentication Service
+# MKAuth - Unified Authentication Service
 
 A simple account system implemented in Golang, supporting multiple login methods and single sign-on. Provides a complete user authentication and authorization solution.
 
@@ -33,7 +33,7 @@ A simple account system implemented in Golang, supporting multiple login methods
 ## 📦 Project Structure
 
 ```
-kcauth/
+mkauth/
 ├── server/           # Backend service (Go)
 ├── web/             # Frontend user interface (Vue)
 ├── admin-web/       # Admin backend (Vue)
@@ -70,7 +70,7 @@ db:
   password: "password"
   host: "localhost"
   port: 3306
-  database: "kcauth"
+  database: "mkauth"
   charset: "utf8mb4"
 ```
 
@@ -142,7 +142,7 @@ auth:
     port: 587
     username: "noreply@example.com"
     password: "your-password"
-    from: "KCAuth <noreply@example.com>"
+    from: "MKAuth <noreply@example.com>"
 ```
 
 ### Admin Backend Configuration
@@ -183,7 +183,7 @@ auth_trusted_clients:
 ### Go Client
 
 ```go
-import "minki.cc/kcauth/client/auth"
+import "minki.cc/mkauth/client/auth"
 
 // Create JWT client
 jwtClient := auth.NewAuthClient("http://auth-service:8080", "", "")

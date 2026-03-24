@@ -1,4 +1,4 @@
-# KCAuth 客户端
+# MKAuth 客户端
 
 这个包提供了与KCAuth认证服务交互的Go客户端，用于在业务服务中验证JWT令牌、查询用户信息和处理登录态回调。
 
@@ -13,7 +13,7 @@
 ## 安装
 
 ```bash
-go get minki.cc/kcauth/client
+go get minki.cc/mkauth/client
 ```
 
 ## 使用方法

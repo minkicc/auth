@@ -1,4 +1,4 @@
-# KCAuth - 统一认证服务
+# MKAuth - 统一认证服务
 
  Golang 实现的简单账号系统，支持多种登录方式，支持单点登录。提供完整的用户认证和授权解决方案
 
@@ -33,7 +33,7 @@
 ## 📦 项目结构
 
 ```
-kcauth/
+mkauth/
 ├── server/           # 后端服务 (Go)
 ├── web/             # 前端用户界面 (Vue)
 ├── admin-web/       # 管理后台 (Vue)
@@ -70,7 +70,7 @@ db:
   password: "password"
   host: "localhost"
   port: 3306
-  database: "kcauth"
+  database: "mkauth"
   charset: "utf8mb4"
 ```
 
@@ -142,7 +142,7 @@ auth:
     port: 587
     username: "noreply@example.com"
     password: "your-password"
-    from: "KCAuth <noreply@example.com>"
+    from: "MKAuth <noreply@example.com>"
 ```
 
 ### 管理后台配置
@@ -183,7 +183,7 @@ auth_trusted_clients:
 ### Go 客户端
 
 ```go
-import "minki.cc/kcauth/client/auth"
+import "minki.cc/mkauth/client/auth"
 
 // 创建JWT客户端
 jwtClient := auth.NewAuthClient("http://auth-service:8080", "", "")

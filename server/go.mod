@@ -1,4 +1,4 @@
-module minki.cc/kcauth/server
+module minki.cc/mkauth/server
 
 go 1.23.1
 

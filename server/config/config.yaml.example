@@ -3,7 +3,7 @@ db:
   password: "YOUR_DB_PASSWORD"
   host: "YOUR_DB_HOST"
   port: 3306
-  database: "kcauth"
+  database: "mkauth"
   charset: "utf8mb4"
 
 redis:

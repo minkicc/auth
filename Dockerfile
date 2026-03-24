@@ -15,7 +15,7 @@ RUN set -ex \
 
 WORKDIR /app
 COPY server .
-RUN go mod download && go mod tidy -v && go build -ldflags "-s -w" -o kcauth ./main.go
+RUN go mod download && go mod tidy -v && go build -ldflags "-s -w" -o mkauth ./main.go
 
 
 # Node.js 构建阶段
@@ -46,7 +46,7 @@ RUN set -ex \
     && apk upgrade --no-cache --available \
     && apk add --no-cache fontconfig
 
-COPY --from=builder /app/kcauth /app/
+COPY --from=builder /app/mkauth /app/
 COPY --from=builder /usr/share/zoneinfo/Asia/Shanghai /usr/share/zoneinfo/Asia/Shanghai
 
 # 从web-builder阶段复制构建好的前端资源
@@ -54,4 +54,4 @@ COPY --from=web-builder /app/web/dist /app/web/
 COPY --from=web-builder /app/admin-web/dist /app/admin-web/
 
 EXPOSE 80 81
-ENTRYPOINT [ "/app/kcauth" ]
+ENTRYPOINT [ "/app/mkauth" ]
