@@ -36,14 +36,8 @@ type CustomClaims struct {
 	UserID    string `json:"user_id"`
 	SessionID string `json:"session_id"`
 	KID       string `json:"kid"`        // For key rotation
-	TokenType string `json:"token_type"` // Identifies whether it's an access token or refresh token
+	TokenType string `json:"token_type"` // Identifies the token purpose
 	jwt.RegisteredClaims
-}
-
-// TokenPair contains access token and refresh token
-type TokenPair struct {
-	AccessToken  string `json:"access_token"`
-	RefreshToken string `json:"refresh_token"`
 }
 
 // JWTSession represents JWT session information
@@ -57,11 +51,10 @@ type JWTSession struct {
 }
 
 const (
-	defaultKeyTTL          = 24 * time.Hour     // Default key expiration time
-	TokenExpiration        = 2 * time.Hour      // Default token expiration time
-	RefreshTokenExpiration = 7 * 24 * time.Hour // Refresh token expiration time
-	AccessTokenType        = "access"           // Access token type
-	RefreshTokenType       = "refresh"          // Refresh token type
+	defaultKeyTTL     = 24 * time.Hour     // Default key expiration time
+	TokenExpiration   = 2 * time.Hour      // Default token expiration time
+	SessionExpiration = 7 * 24 * time.Hour // Browser/session persistence
+	AccessTokenType   = "access"           // Access token type
 )
 
 func generateByteSecret() ([]byte, error) {
@@ -162,26 +155,6 @@ func (s *JWTService) GenerateAccessToken(userID string, sessionID string) (strin
 	return tokenString, err
 }
 
-// GenerateTokenPair Generate access token and refresh token pair
-func (s *JWTService) GenerateTokenPair(userID string, sessionID string) (*TokenPair, error) {
-	// Generate access token
-	accessToken, _, err := s.generateToken(userID, sessionID, AccessTokenType, TokenExpiration)
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate access token: %w", err)
-	}
-
-	// Generate refresh token
-	refreshToken, _, err := s.generateToken(userID, sessionID, RefreshTokenType, RefreshTokenExpiration)
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate refresh token: %w", err)
-	}
-
-	return &TokenPair{
-		AccessToken:  accessToken,
-		RefreshToken: refreshToken,
-	}, nil
-}
-
 // ValidateJWT Validate JWT
 func (s *JWTService) ValidateJWT(tokenString string) (*CustomClaims, error) {
 	// Parse token (without validating signature) to get KeyID
@@ -224,23 +197,6 @@ func (s *JWTService) ValidateJWT(tokenString string) (*CustomClaims, error) {
 	return nil, fmt.Errorf("invalid token")
 }
 
-// RefreshJWT Get new token pair using refresh token
-func (s *JWTService) RefreshJWT(refreshTokenString string) (*TokenPair, error) {
-	// Validate refresh token
-	claims, err := s.ValidateJWT(refreshTokenString)
-	if err != nil {
-		return nil, fmt.Errorf("invalid refresh token: %w", err)
-	}
-
-	// Ensure it's a refresh token
-	if claims.TokenType != RefreshTokenType {
-		return nil, fmt.Errorf("token is not a refresh token")
-	}
-
-	// Generate new token pair
-	return s.GenerateTokenPair(claims.UserID, claims.SessionID)
-}
-
 // RevokeJWT Revoke JWT
 func (s *JWTService) RevokeJWT(tokenString string) error {
 	claims, err := s.ValidateJWT(tokenString)
@@ -252,38 +208,6 @@ func (s *JWTService) RevokeJWT(tokenString string) error {
 
 	// Delete key from Redis
 	return s.redis.client.Del(s.redis.ctx, keyID).Err()
-}
-
-// RevokeRefreshJWT Specifically revoke refresh token
-func (s *JWTService) RevokeRefreshJWT(refreshTokenString string) error {
-	// Validate refresh token
-	claims, err := s.ValidateJWT(refreshTokenString)
-	if err != nil {
-		return fmt.Errorf("invalid refresh token: %w", err)
-	}
-
-	// Ensure it's a refresh token
-	if claims.TokenType != RefreshTokenType {
-		return fmt.Errorf("token is not a refresh token")
-	}
-	keyID := s.getKeyID(claims.UserID, claims.SessionID, claims.TokenType, claims.KID)
-	// Delete key from Redis
-	return s.redis.client.Del(s.redis.ctx, keyID).Err()
-}
-
-// RevokeTokenPair Revoke both access token and refresh token
-func (s *JWTService) RevokeTokenPair(accessToken, refreshToken string) error {
-	// Revoke access token first
-	if err := s.RevokeJWT(accessToken); err != nil {
-		return fmt.Errorf("failed to revoke access token: %w", err)
-	}
-
-	// Then revoke refresh token
-	if err := s.RevokeRefreshJWT(refreshToken); err != nil {
-		return fmt.Errorf("failed to revoke refresh token: %w", err)
-	}
-
-	return nil
 }
 
 func (s *JWTService) revokeJWTByID(userID string, sessionID string, tokenType string) error {
@@ -302,9 +226,6 @@ func (s *JWTService) revokeJWTByID(userID string, sessionID string, tokenType st
 
 // RevokeJWTByID Revoke token with specified ID
 func (s *JWTService) RevokeJWTByID(userID string, sessionID string) error {
-	if err := s.revokeJWTByID(userID, sessionID, RefreshTokenType); err != nil {
-		return fmt.Errorf("failed to revoke refresh token: %w", err)
-	}
 	if err := s.revokeJWTByID(userID, sessionID, AccessTokenType); err != nil {
 		return fmt.Errorf("failed to revoke access token: %w", err)
 	}

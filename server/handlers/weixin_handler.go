@@ -138,13 +138,13 @@ func (h *AuthHandler) WeixinCallback(c *gin.Context) {
 
 	// Create session
 	clientIP := c.ClientIP()
-	session1, err := h.sessionMgr.CreateUserSession(user.UserID, clientIP, c.Request.UserAgent(), auth.RefreshTokenExpiration+time.Hour)
+	session1, err := h.sessionMgr.CreateUserSession(user.UserID, clientIP, c.Request.UserAgent(), auth.SessionExpiration)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create session"})
 		return
 	}
 
-	tokenPair, err := h.jwtService.GenerateTokenPair(user.UserID, session1.ID)
+	accessToken, err := h.jwtService.GenerateAccessToken(user.UserID, session1.ID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
 		return
@@ -157,8 +157,7 @@ func (h *AuthHandler) WeixinCallback(c *gin.Context) {
 	// Return user and session information, or redirect to frontend application
 	if redirectURL := c.Query("redirect"); redirectURL != "" {
 		// Redirect to frontend with token parameter
-		redirectWithToken := redirectURL + "?token=" + tokenPair.AccessToken
-		c.SetCookie("refreshToken", tokenPair.RefreshToken, int(auth.RefreshTokenExpiration.Seconds()), "/", "", true, true)
+		redirectWithToken := redirectURL + "?token=" + accessToken
 		c.Redirect(http.StatusTemporaryRedirect, redirectWithToken)
 		return
 	}
@@ -172,10 +171,9 @@ func (h *AuthHandler) WeixinCallback(c *gin.Context) {
 		user.Avatar = url
 	}
 	// Directly return JSON response
-	c.SetCookie("refreshToken", tokenPair.RefreshToken, int(auth.RefreshTokenExpiration.Seconds()), "/", "", true, true)
 	c.JSON(http.StatusOK, gin.H{
 		"user_id":     user.UserID,
-		"token":       tokenPair.AccessToken,
+		"token":       accessToken,
 		"nickname":    user.Nickname,
 		"avatar":      user.Avatar,
 		"expire_time": auth.TokenExpiration,

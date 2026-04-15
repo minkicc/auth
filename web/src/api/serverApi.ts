@@ -120,15 +120,6 @@ class ServerApi {
         }
     }
 
-    async refreshToken() {
-        const response = await axios.post('/token/refresh', { client_id: this.clientId, redirect_uri: this.redirectUri })
-        const token = response.data.token
-        const expireTime = response.data.expire_time
-        axios.defaults.headers.common['Authorization'] = `Bearer ${token}`
-        localStorage.setItem('token', token)
-        return { token, expireTime }
-    }
-
     // 获取支持的登录方式
     async fetchSupportedProviders(): Promise<{ providers: AuthProvider[] }> {
         const response = await axios.get('/providers')
