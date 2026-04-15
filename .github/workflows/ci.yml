@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  server-test:
+    name: Server Go Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+
+      - name: Run server tests
+        working-directory: server
+        run: go test ./...
+
+  client-test:
+    name: Client Go Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: client/go.mod
+          cache-dependency-path: client/go.sum
+
+      - name: Run client tests
+        working-directory: client
+        run: go test ./...
+
+  admin-web-build:
+    name: Admin Web Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: admin-web/package-lock.json
+
+      - name: Install admin-web dependencies
+        working-directory: admin-web
+        run: npm ci
+
+      - name: Build admin-web
+        working-directory: admin-web
+        run: npm run build
+
+  web-build:
+    name: Web Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: Install web dependencies
+        working-directory: web
+        run: npm install
+
+      - name: Build web
+        working-directory: web
+        run: npm run build

@@ -11,7 +11,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"minki.cc/kcauth/client/auth"
+	"minki.cc/mkauth/client/auth"
 )
 
 func main() {

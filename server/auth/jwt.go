@@ -14,7 +14,7 @@ import (
 	"github.com/go-redis/redis/v8"
 	"github.com/golang-jwt/jwt/v5"
 
-	"minki.cc/kcauth/server/common"
+	"minki.cc/mkauth/server/common"
 )
 
 const (

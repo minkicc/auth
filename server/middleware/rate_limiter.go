@@ -17,7 +17,7 @@ import (
 
 	"github.com/go-redis/redis/v8"
 
-	"minki.cc/kcauth/server/common"
+	"minki.cc/mkauth/server/common"
 )
 
 const (
@@ -47,6 +47,18 @@ func NewRedisStore(addr, password string, db int) (*RedisStore, error) {
 		Client: client,
 		Ctx:    ctx,
 	}, nil
+}
+
+// NewRedisStoreFromClient reuses an existing Redis client.
+func NewRedisStoreFromClient(client *redis.Client) *RedisStore {
+	if client == nil {
+		return nil
+	}
+
+	return &RedisStore{
+		Client: client,
+		Ctx:    context.Background(),
+	}
 }
 
 // IncrRateLimit Increment rate limit counter and return current value
@@ -90,6 +102,9 @@ func (rs *RedisStore) DeleteRateLimit(id string) error {
 
 // Close Close Redis connection
 func (rs *RedisStore) Close() error {
+	if rs == nil || rs.Client == nil {
+		return nil
+	}
 	return rs.Client.Close()
 }
 
@@ -141,6 +156,13 @@ func NewRateLimiter(store *RedisStore, config RateLimiterConfig) *RateLimiter {
 // RateLimitMiddleware Rate limiting middleware
 func (rl *RateLimiter) RateLimitMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if rl == nil || rl.store == nil {
+			c.Next()
+			return
+		}
+
+		cfg := rl.configWithDefaults()
+
 		// Check if rate limiting should be applied
 		if !rl.shouldRateLimit(c) {
 			c.Next()
@@ -155,7 +177,7 @@ func (rl *RateLimiter) RateLimitMiddleware() gin.HandlerFunc {
 		}
 
 		// Check if limit is exceeded
-		limited, count, err := rl.isLimited(identifier)
+		limited, count, err := rl.isLimited(identifier, cfg)
 		if err != nil {
 			// If there's an error, log it but allow the request to proceed
 			c.Next()
@@ -163,9 +185,9 @@ func (rl *RateLimiter) RateLimitMiddleware() gin.HandlerFunc {
 		}
 
 		// Set RateLimit related HTTP headers
-		c.Header("X-RateLimit-Limit", fmt.Sprintf("%d", rl.config.MaxRequests))
-		c.Header("X-RateLimit-Remaining", fmt.Sprintf("%d", rl.config.MaxRequests-count))
-		c.Header("X-RateLimit-Reset", fmt.Sprintf("%d", time.Now().Add(rl.config.Window).Unix()))
+		c.Header("X-RateLimit-Limit", fmt.Sprintf("%d", cfg.MaxRequests))
+		c.Header("X-RateLimit-Remaining", fmt.Sprintf("%d", cfg.MaxRequests-count))
+		c.Header("X-RateLimit-Reset", fmt.Sprintf("%d", time.Now().Add(cfg.Window).Unix()))
 
 		if limited {
 			// Record rate limit event
@@ -174,7 +196,7 @@ func (rl *RateLimiter) RateLimitMiddleware() gin.HandlerFunc {
 			// Return 429 status code
 			c.JSON(http.StatusTooManyRequests, gin.H{
 				"error":       "rate limit exceeded",
-				"retry_after": rl.config.Window.Seconds(),
+				"retry_after": cfg.Window.Seconds(),
 			})
 			c.Abort()
 			return
@@ -182,6 +204,32 @@ func (rl *RateLimiter) RateLimitMiddleware() gin.HandlerFunc {
 
 		c.Next()
 	}
+}
+
+func (rl *RateLimiter) configWithDefaults() RateLimiterConfig {
+	cfg := rl.config
+	defaults := DefaultRateLimiterConfig()
+
+	if cfg.MaxRequests <= 0 {
+		cfg.MaxRequests = defaults.MaxRequests
+	}
+	if cfg.Window <= 0 {
+		cfg.Window = defaults.Window
+	}
+	if cfg.GlobalMaxRequests <= 0 {
+		cfg.GlobalMaxRequests = defaults.GlobalMaxRequests
+	}
+	if cfg.GlobalWindow <= 0 {
+		cfg.GlobalWindow = defaults.GlobalWindow
+	}
+
+	if !cfg.EnableIPRateLimit && !cfg.EnableUserRateLimit && !cfg.EnableGlobalRateLimit {
+		cfg.EnableIPRateLimit = defaults.EnableIPRateLimit
+		cfg.EnableUserRateLimit = defaults.EnableUserRateLimit
+		cfg.EnableGlobalRateLimit = defaults.EnableGlobalRateLimit
+	}
+
+	return cfg
 }
 
 // Check if rate limiting should be applied to the current request
@@ -220,26 +268,26 @@ func (rl *RateLimiter) getClientIdentifier(c *gin.Context) string {
 }
 
 // Check if limit is exceeded
-func (rl *RateLimiter) isLimited(identifier string) (bool, int, error) {
+func (rl *RateLimiter) isLimited(identifier string, cfg RateLimiterConfig) (bool, int, error) {
 	// Increment counter and get current value
-	count, err := rl.store.IncrRateLimit(identifier, rl.config.Window)
+	count, err := rl.store.IncrRateLimit(identifier, cfg.Window)
 	if err != nil {
 		return false, 0, err
 	}
 
 	// Check if limit is exceeded
-	if count > rl.config.MaxRequests {
+	if count > cfg.MaxRequests {
 		return true, count, nil
 	}
 
 	// If global rate limiting is enabled, also check global limit
-	if rl.config.EnableGlobalRateLimit {
-		globalCount, err := rl.store.IncrRateLimit("global", rl.config.GlobalWindow)
+	if cfg.EnableGlobalRateLimit {
+		globalCount, err := rl.store.IncrRateLimit("global", cfg.GlobalWindow)
 		if err != nil {
 			return false, count, err
 		}
 
-		if globalCount > rl.config.GlobalMaxRequests {
+		if globalCount > cfg.GlobalMaxRequests {
 			return true, count, nil
 		}
 	}

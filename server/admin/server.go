@@ -18,8 +18,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
-	"minki.cc/kcauth/server/auth"
-	"minki.cc/kcauth/server/config"
+	"minki.cc/mkauth/server/auth"
+	"minki.cc/mkauth/server/config"
 )
 
 const (

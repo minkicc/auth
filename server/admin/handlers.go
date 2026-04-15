@@ -15,8 +15,8 @@ import (
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
-	"minki.cc/kcauth/server/auth"
-	"minki.cc/kcauth/server/config"
+	"minki.cc/mkauth/server/auth"
+	"minki.cc/mkauth/server/config"
 )
 
 // Login handler
@@ -115,6 +115,8 @@ func (s *AdminServer) handleGetStats(c *gin.Context) {
 		LoginToday     int64 `json:"login_today"`
 		LoginThisWeek  int64 `json:"login_this_week"`
 		LoginThisMonth int64 `json:"login_this_month"`
+		EmailUsers     int64 `json:"email_users"`
+		PhoneUsers     int64 `json:"phone_users"`
 		SocialUsers    int64 `json:"social_users"`
 		LocalUsers     int64 `json:"local_users"`
 	}
@@ -141,9 +143,36 @@ func (s *AdminServer) handleGetStats(c *gin.Context) {
 	s.db.Model(&auth.User{}).Where("last_login >= ?", weekStart).Count(&stats.LoginThisWeek)
 	s.db.Model(&auth.User{}).Where("last_login >= ?", monthStart).Count(&stats.LoginThisMonth)
 
-	// Temporary set some values
-	stats.SocialUsers = 0
-	stats.LocalUsers = stats.TotalUsers
+	if s.db.Migrator().HasTable(&auth.EmailUser{}) {
+		s.db.Model(&auth.EmailUser{}).Count(&stats.EmailUsers)
+	}
+
+	if s.db.Migrator().HasTable(&auth.PhoneUser{}) {
+		s.db.Model(&auth.PhoneUser{}).Count(&stats.PhoneUsers)
+	}
+
+	socialUserIDs := make(map[string]struct{})
+	if s.db.Migrator().HasTable(&auth.GoogleUser{}) {
+		var googleUserIDs []string
+		s.db.Model(&auth.GoogleUser{}).Distinct("user_id").Pluck("user_id", &googleUserIDs)
+		for _, userID := range googleUserIDs {
+			socialUserIDs[userID] = struct{}{}
+		}
+	}
+
+	if s.db.Migrator().HasTable(&auth.WeixinUser{}) {
+		var weixinUserIDs []string
+		s.db.Model(&auth.WeixinUser{}).Distinct("user_id").Pluck("user_id", &weixinUserIDs)
+		for _, userID := range weixinUserIDs {
+			socialUserIDs[userID] = struct{}{}
+		}
+	}
+
+	stats.SocialUsers = int64(len(socialUserIDs))
+	stats.LocalUsers = stats.TotalUsers - stats.SocialUsers
+	if stats.LocalUsers < 0 {
+		stats.LocalUsers = 0
+	}
 
 	c.JSON(http.StatusOK, stats)
 }
@@ -313,9 +342,8 @@ func (s *AdminServer) handleGetUserSessions(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"sessions": sessions,
-		// "jwt_sessions": jwtSessions,
-		// "total":        len(sessions),
+		"sessions":     sessions,
+		"jwt_sessions": []auth.JWTSession{},
 	})
 }
 

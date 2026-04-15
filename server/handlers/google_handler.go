@@ -15,7 +15,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
-	"minki.cc/kcauth/server/auth"
+	"minki.cc/mkauth/server/auth"
 )
 
 // handleGoogleUser Process Google user, find or create user

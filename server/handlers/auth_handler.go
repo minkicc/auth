@@ -10,10 +10,10 @@ import (
 	"os"
 
 	"github.com/gin-gonic/gin"
-	"minki.cc/kcauth/server/auth"
-	"minki.cc/kcauth/server/auth/storage"
-	"minki.cc/kcauth/server/config"
-	"minki.cc/kcauth/server/middleware"
+	"minki.cc/mkauth/server/auth"
+	"minki.cc/mkauth/server/auth/storage"
+	"minki.cc/mkauth/server/config"
+	"minki.cc/mkauth/server/middleware"
 )
 
 // AuthHandler Authentication handler

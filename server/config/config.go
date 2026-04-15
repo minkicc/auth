@@ -10,7 +10,7 @@ import (
 	"os"
 
 	"gopkg.in/yaml.v3"
-	"minki.cc/kcauth/server/auth/storage"
+	"minki.cc/mkauth/server/auth/storage"
 )
 
 // Config Main configuration structure

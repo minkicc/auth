@@ -13,7 +13,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/gin-gonic/gin"
-	"minki.cc/kcauth/server/config"
+	"minki.cc/mkauth/server/config"
 )
 
 // isLoopbackIP 检查IP地址是否为本地回环地址

@@ -1,69 +1,124 @@
-# MKAuth - 统一认证服务
+# MKAuth
 
- Golang 实现的简单账号系统，支持多种登录方式，支持单点登录。提供完整的用户认证和授权解决方案
+MKAuth 是一个可独立部署的统一认证服务，提供账号密码、邮箱、手机号、Google、微信、微信小程序等登录方式，并内置用户中心、管理后台、会话管理和 Go 接入 SDK。
 
-## 🚀 功能特性
+它适合下面几类场景：
+- 你的多个业务系统希望共用一套账号体系
+- 你需要单点登录能力，而不想从零实现用户、令牌、刷新、会话和后台管理
+- 你的业务后端是 Go，希望直接通过 SDK 校验登录态、查询用户信息
 
-### 认证方式
-- **账号密码登录** - 传统用户名/密码认证
-- **邮箱登录** - 邮箱验证码登录
-- **手机号登录** - 短信验证码登录
-- **第三方登录**
-  - Google OAuth2.0
-  - 微信登录
-  - 微信小程序登录
-- **JWT令牌** - 支持访问令牌和刷新令牌
-- **会话管理** - Redis存储的会话系统
+## 功能概览
 
-### 核心功能
-- 📱 短信/邮箱验证码
-- 🖼️ 头像上传和管理
-- 👥 用户管理后台
-- 📊 实时数据统计
-- 🌐 多语言支持
-- 🔒 安全防护（限流、IP白名单等）
-- 📈 监控指标（Prometheus）
+- 多种登录方式：账号、邮箱、手机号、Google、微信、微信小程序
+- JWT 访问令牌 + Refresh Token
+- Redis 会话管理
+- 用户头像上传
+- 管理后台
+- 用户活跃统计
+- Go SDK
+- Docker / Docker Compose 部署
 
-### 技术栈
-- **后端**: Go 1.23+ / Gin / GORM / Redis / MySQL
-- **前端**: Vue 3 / TypeScript / Vite
-- **存储**: MinIO / AWS S3 / 阿里云OSS
-- **部署**: Docker / Docker Compose
+## 仓库结构
 
-## 📦 项目结构
-
-```
+```text
 mkauth/
-├── server/           # 后端服务 (Go)
-├── web/             # 前端用户界面 (Vue)
-├── admin-web/       # 管理后台 (Vue)
-├── client/          # Go客户端库
-├── quickstart/      # 快速启动配置
-└── tools/           # 工具脚本
+├── server/        # Go 后端服务
+├── web/           # 用户登录页
+├── admin-web/     # 管理后台前端
+├── client/        # Go SDK
+├── quickstart/    # Docker Compose 快速启动配置
+└── tools/         # 密码/密钥生成工具
 ```
 
-## 🚀 快速开始
+## 快速开始
+
+### 1. 使用 Docker Compose 启动
 
 ```bash
 cd quickstart
-docker-compose up -d
+docker compose up -d
 ```
 
-## 🧰 开发环境要求
+默认会启动：
+- MKAuth 用户入口: `http://localhost:8080`
+- MKAuth 管理后台: `http://localhost:8081`
+- MySQL: `localhost:3306`
+- Redis: `localhost:6379`
+- MinIO API: `http://localhost:9002`
+- MinIO Console: `http://localhost:9003`
 
-- Go 1.23+
-- `web/` 和 `admin-web/` 需要 Node.js 20.12.2+ 与 npm 10.5.0+
-- 在仓库根目录执行 `nvm use`，即可读取已提交的 `.nvmrc`
+说明：
+- `quickstart/config.yaml` 默认只启用了 `account` 登录。
+- `quickstart/config.yaml` 里默认关闭了管理后台：`auth_admin.enabled: false`。
+- `quickstart/docker-compose.yml` 当前使用预构建镜像 `minkicc/auth:latest`，更适合体验和演示。
 
-3. **访问服务**
-- 用户界面: http://localhost:8080
-- 管理后台: http://localhost:8081
-- MinIO控制台: http://localhost:9001
+### 2. 启用管理后台
 
+先生成管理员密码哈希：
 
-## ⚙️ 配置说明
+```bash
+cd tools
+go run hashpwd.go -password "YourStrongPassword"
+```
 
-### 数据库配置
+把输出的 bcrypt 哈希填入配置：
+
+```yaml
+auth_admin:
+  enabled: true
+  secret_key: "change-this-to-a-random-string"
+  accounts:
+    - username: "admin"
+      password: "$2a$10$..."
+      roles:
+        - "super_admin"
+  allowed_ips:
+    - "127.0.0.1"
+    - "::1"
+```
+
+然后重启服务。
+
+## 本地开发
+
+### 后端
+
+```bash
+cd server
+cp config/config.yaml.example config/config.yaml
+go run . -config ./config/config.yaml -web ../web/dist -admin-web ../admin-web/dist
+```
+
+### 用户端前端
+
+```bash
+cd web
+npm install
+npm run dev
+```
+
+### 管理后台前端
+
+```bash
+cd admin-web
+npm ci
+npm run dev
+```
+
+仓库根目录已提交 `.nvmrc`，建议先执行：
+
+```bash
+nvm use
+```
+
+## 核心配置
+
+完整配置示例见 [server/config/config.yaml.example](server/config/config.yaml.example)。
+
+最常用的配置块如下。
+
+### 数据库与 Redis
+
 ```yaml
 db:
   user: "root"
@@ -72,148 +127,270 @@ db:
   port: 3306
   database: "mkauth"
   charset: "utf8mb4"
-```
 
-### Redis配置
-```yaml
 redis:
   addr: "localhost:6379"
   password: ""
   db: 0
 ```
 
-### 存储配置
-支持多种存储提供商：
-- **MinIO** (本地对象存储)
-- **AWS S3** (亚马逊云存储)
-- **阿里云OSS** (阿里云对象存储)
+### 存储
 
 ```yaml
 storage:
-  provider: "minio"  # minio, s3, oss
+  provider: "minio" # minio / s3 / oss
   endpoint: "localhost:9000"
   region: "zhuhai-1"
   accessKeyID: "your-access-key"
   secretAccessKey: "your-secret-key"
   attatchBucket: "attatch"
+
+storage_public_url:
+  attatch: "http://localhost:9000/attatch"
 ```
 
-### 认证提供商配置
+### 登录方式开关
 
-#### Google OAuth2.0
 ```yaml
 auth:
-  google:
-    client_id: "your-google-client-id"
-    client_secret: "your-google-client-secret"
-    redirect_url: "http://localhost:8080/auth/google/callback"
-    scopes:
-      - "https://www.googleapis.com/auth/userinfo.email"
-      - "https://www.googleapis.com/auth/userinfo.profile"
+  enabled_providers:
+    - "account"
+    - "email"
+    - "phone"
+    - "google"
+    - "weixin"
+    - "weixin_mini"
+  jwt:
+    issuer: "mkauth"
 ```
 
-#### 微信登录
-```yaml
-auth:
-  weixin:
-    app_id: "your-wechat-app-id"
-    app_secret: "your-wechat-app-secret"
-    redirect_url: "http://localhost:8080/wechat/callback"
-    domain_verify_token: "your-domain-verify-token"
-```
+只配置你真正要开放的登录方式即可。
 
-#### 短信服务
-```yaml
-auth:
-  sms:
-    provider: "aliyun"  # aliyun, tencent
-    access_key: "your-access-key"
-    secret_key: "your-secret-key"
-    sign_name: "验证码"
-    template_id: "SMS_123456789"
-    region: "cn-hangzhou"
-```
+### 可信业务后端配置
 
-#### 邮件服务
-```yaml
-auth:
-  smtp:
-    host: "smtp.example.com"
-    port: 587
-    username: "noreply@example.com"
-    password: "your-password"
-    from: "MKAuth <noreply@example.com>"
-```
+如果你的业务后端要用 code 换 token、按用户 ID 查资料、批量拉用户信息，就需要配置 `auth_trusted_clients`：
 
-### 管理后台配置
-- password由tools目录工具生成
-```yaml
-auth_admin:
-  enabled: true
-  secret_key: "change-this-to-a-secure-random-string"
-  accounts:
-    - username: "admin"
-      password: "$2a$10$hashed-password"
-      roles:
-        - "super_admin"
-  allowed_ips:
-    - "127.0.0.1"
-    - "::1"
-  require_tls: false
-  session_ttl: 30
-  login_timeout: 60
-```
-
-### 可信client
-- 可信client一般是后端部署的自己的业务端
-- 可信client支持批量获取用户信息等
-- client_secret由tools目录工具生成
 ```yaml
 auth_trusted_clients:
-  - client_id: "kcserver"
-    client_secret: "YOUR_TRUSTED_CLIENT_SECRET"
+  - client_id: "myapp"
+    client_secret: "$2a$10$..."
     allowed_ips:
       - "*"
     scopes:
-      - "read:users" 
+      - "read:users"
 ```
 
-## 🔧 客户端集成
+`client_secret` 建议也使用 bcrypt 后的值保存。
 
-### Go 客户端
+## 推荐接入方式
+
+MKAuth 目前最适合两种接入方式。
+
+### 方式一：直接使用内置登录页
+
+适合你已经有业务系统，希望把登录完全交给 MKAuth。
+
+#### 流程
+
+1. 业务系统把用户跳转到 MKAuth 登录页：
+
+```text
+GET /login?client_id=myapp&redirect_uri=https://your-app.example.com/auth/callback
+```
+
+2. 用户在 MKAuth 完成登录。
+3. MKAuth 会把用户带回你的 `redirect_uri`，并附带一个一次性 `code`。
+4. 你的业务后端使用受信任客户端身份调用 `/api/login/verify`，把 `code` 换成访问令牌。
+5. 后续业务请求携带 `Authorization: Bearer <token>` 即可。
+
+#### 业务后端回调示例
 
 ```go
-import "minki.cc/mkauth/client/auth"
+package main
 
-// 创建JWT客户端
-jwtClient := auth.NewAuthClient("http://auth-service:8080", "", "")
+import (
+    "net/http"
 
-// 在Gin中使用
-r := gin.Default()
+    "github.com/gin-gonic/gin"
+    mkauth "minki.cc/mkauth/client/auth"
+)
+
+func main() {
+    authClient := mkauth.NewAuthClient(
+        "http://localhost:8080",
+        "myapp",
+        "your-client-secret",
+    )
+
+    r := gin.Default()
+
+    r.GET("/auth/callback", func(c *gin.Context) {
+        code := c.Query("code")
+        if code == "" {
+            c.JSON(http.StatusBadRequest, gin.H{"error": "missing code"})
+            return
+        }
+
+        loginResp, err := authClient.LoginVerify(code, c)
+        if err != nil {
+            c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+            return
+        }
+
+        c.JSON(http.StatusOK, gin.H{
+            "user_id": loginResp.UserID,
+            "token":   loginResp.Token,
+        })
+    })
+
+    r.Run(":8082")
+}
+```
+
+这个模式下，登录页、注册页、第三方登录按钮都由 MKAuth 自己维护，你的业务系统只处理跳转和回调。
+
+### 方式二：你的前端直接调用 MKAuth API
+
+适合你已经有自己的登录页，只想复用认证接口。
+
+常用接口：
+- `GET /api/providers`：查询当前启用的登录方式
+- `POST /api/account/register`
+- `POST /api/account/login`
+- `POST /api/email/login`
+- `POST /api/phone/login`
+- `POST /api/token/refresh`
+- `POST /api/logout`
+- `GET /api/user`
+
+账号登录示例：
+
+```bash
+curl -X POST http://localhost:8080/api/account/login \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"demo","password":"demo123"}'
+```
+
+返回示例：
+
+```json
+{
+  "user_id": "demo",
+  "token": "access-token",
+  "nickname": "demo",
+  "avatar": "",
+  "expire_time": 7200000000000
+}
+```
+
+前端拿到 `token` 后，在后续请求中带上：
+
+```text
+Authorization: Bearer <access-token>
+```
+
+刷新令牌通过 `refreshToken` Cookie 维护，刷新接口为：
+
+```text
+POST /api/token/refresh
+```
+
+## Go SDK 使用方式
+
+### 安装
+
+```bash
+go get minki.cc/mkauth/client
+```
+
+### 1. 为业务接口加登录保护
+
+```go
+client := auth.NewAuthClient("http://localhost:8080", "", "")
+
 protected := r.Group("/api")
-protected.Use(jwtClient.AuthRequired())
+protected.Use(client.AuthRequired())
 {
     protected.GET("/profile", func(c *gin.Context) {
-        // 处理受保护的资源
+        userID := c.GetString("user_id")
+        c.JSON(200, gin.H{"user_id": userID})
     })
 }
 ```
 
-## 🔒 安全特性
+### 2. 查询当前登录用户
 
-- **JWT令牌** - 安全的无状态认证
-- **令牌刷新** - 自动刷新过期令牌
-- **限流保护** - 防止暴力破解
-- **IP白名单** - 管理后台访问控制
-- **CORS配置** - 跨域请求控制
-- **HTTPS支持** - 生产环境加密传输
+```go
+user, err := client.GetUserInfo(accessToken)
+```
 
-## 🌍 国际化
+### 3. 查询指定用户或批量用户
 
-支持多语言界面：
-- 中文 (zh-CN)
-- 英文 (en-US)
+这两个接口需要 `auth_trusted_clients` 配置和对应 scope：
 
-## 📄 许可证
+```go
+client := auth.NewAuthClient("http://localhost:8080", "myapp", "your-client-secret")
 
-本项目采用 MIT 许可证 - 查看 [LICENSE](LICENSE.txt) 文件了解详情。
+user, err := client.GetUserInfoById(accessToken, "user-001")
+users, err, statusCode := client.GetUsersInfo(accessToken, []string{"user-001", "user-002"})
+```
+
+### 4. 刷新令牌
+
+```go
+newToken, statusCode, err := client.RefreshToken(refreshToken, c)
+```
+
+### 5. 本地自签名 HTTPS 调试
+
+```go
+client.UseInsecureTLS()
+```
+
+只建议在本地或测试环境使用，不要在生产启用。
+
+## 常用接口速查
+
+### 认证接口
+
+- `GET /api/providers`
+- `POST /api/account/register`
+- `POST /api/account/login`
+- `POST /api/email/login`
+- `POST /api/phone/login`
+- `POST /api/token/refresh`
+- `POST /api/token/validate`
+- `POST /api/logout`
+
+### 用户接口
+
+- `GET /api/user`
+- `GET /api/user/:id`
+- `POST /api/users`
+- `PUT /api/user`
+- `POST /api/avatar/upload`
+- `DELETE /api/avatar`
+- `GET /api/sessions`
+
+### 运维接口
+
+- `GET /health`
+- `GET /metrics`
+
+## 接入建议
+
+- 生产环境一定要使用 HTTPS。
+- 管理后台建议配置 `allowed_ips`。
+- 业务后端不要直接信任前端传来的 `user_id`，应始终以令牌校验结果为准。
+- 只开放真正要用的 `enabled_providers`，减少无效暴露面。
+- `storage_public_url.attatch` 需要能被前端访问，否则头像 URL 无法正确展示。
+
+## 相关文档
+
+- 根目录接入说明：[README.md](README.md)
+- Go SDK 说明：[client/README.md](client/README.md)
+- 快速启动说明：[quickstart/README.md](quickstart/README.md)
+
+## 许可证
+
+本项目基于 MIT License 发布，详见 [LICENSE.txt](LICENSE.txt)。

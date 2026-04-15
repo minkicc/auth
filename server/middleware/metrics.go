@@ -7,6 +7,7 @@ package middleware
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus"
@@ -60,21 +61,21 @@ var (
 // MetricsMiddleware Monitoring middleware
 func MetricsMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		timer := prometheus.NewTimer(apiDuration.WithLabelValues(
-			c.FullPath(),
-			c.Request.Method,
-			"200",
-		))
-		defer timer.ObserveDuration()
+		start := time.Now()
 
 		c.Next()
 
 		status := c.Writer.Status()
+		endpoint := c.FullPath()
+		if endpoint == "" {
+			endpoint = c.Request.URL.Path
+		}
+
 		apiDuration.WithLabelValues(
-			c.FullPath(),
+			endpoint,
 			c.Request.Method,
 			fmt.Sprintf("%d", status),
-		).Observe(timer.ObserveDuration().Seconds())
+		).Observe(time.Since(start).Seconds())
 	}
 }
 

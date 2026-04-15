@@ -12,7 +12,7 @@ import (
 	"math/big"
 	"time"
 
-	"minki.cc/kcauth/server/common"
+	"minki.cc/mkauth/server/common"
 
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"

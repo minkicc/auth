@@ -1,69 +1,118 @@
-# MKAuth - Unified Authentication Service
+# MKAuth
 
-A simple account system implemented in Golang, supporting multiple login methods and single sign-on. Provides a complete user authentication and authorization solution.
+MKAuth is a deployable authentication service that provides account/password, email, phone, Google, WeChat, and WeChat Mini Program login, together with JWT, session management, an admin console, and a Go SDK.
 
-## 🚀 Features
+It is a good fit when:
+- multiple applications need to share one user system
+- you want SSO-style login without building user, token, refresh, and session management from scratch
+- your backend is written in Go and you want SDK-based token validation and user lookup
 
-### Authentication Methods
-- **Account Password Login** - Traditional username/password authentication
-- **Email Login** - Email verification code login
-- **Phone Number Login** - SMS verification code login
-- **Third-party Login**
-  - Google OAuth2.0
-  - WeChat Login
-  - WeChat Mini Program Login
-- **JWT Tokens** - Support for access tokens and refresh tokens
-- **Session Management** - Redis-based session system
+## Features
 
-### Core Features
-- 📱 SMS/Email verification codes
-- 🖼️ Avatar upload and management
-- 👥 User management backend
-- 📊 Real-time data statistics
-- 🌐 Multi-language support
-- 🔒 Security protection (rate limiting, IP whitelist, etc.)
-- 📈 Monitoring metrics (Prometheus)
+- Multiple login providers
+- JWT access token + refresh token
+- Redis-backed session management
+- Avatar upload
+- Admin console
+- User activity statistics
+- Go SDK
+- Docker / Docker Compose deployment
 
-### Technology Stack
-- **Backend**: Go 1.23+ / Gin / GORM / Redis / MySQL
-- **Frontend**: Vue 3 / TypeScript / Vite
-- **Storage**: MinIO / AWS S3 / Alibaba Cloud OSS
-- **Deployment**: Docker / Docker Compose
+## Repository Layout
 
-## 📦 Project Structure
-
-```
+```text
 mkauth/
-├── server/           # Backend service (Go)
-├── web/             # Frontend user interface (Vue)
-├── admin-web/       # Admin backend (Vue)
-├── client/          # Go client library
-├── quickstart/      # Quick start configuration
-└── tools/           # Utility scripts
+├── server/        # Go backend service
+├── web/           # End-user login UI
+├── admin-web/     # Admin console frontend
+├── client/        # Go SDK
+├── quickstart/    # Docker Compose starter files
+└── tools/         # Utility scripts
 ```
 
-## 🚀 Quick Start
+## Quick Start
+
+### 1. Start with Docker Compose
 
 ```bash
 cd quickstart
-docker-compose up -d
+docker compose up -d
 ```
 
-## 🧰 Development Prerequisites
+Default endpoints:
+- User entry: `http://localhost:8080`
+- Admin console: `http://localhost:8081`
+- MySQL: `localhost:3306`
+- Redis: `localhost:6379`
+- MinIO API: `http://localhost:9002`
+- MinIO Console: `http://localhost:9003`
 
-- Go 1.23+
-- Node.js 20.12.2+ and npm 10.5.0+ for `web/` and `admin-web/`
-- Run `nvm use` at the repository root to pick up the checked-in `.nvmrc`
+Notes:
+- `quickstart/config.yaml` enables `account` login only by default.
+- `auth_admin.enabled` is `false` in the quickstart config.
+- `quickstart/docker-compose.yml` currently uses the prebuilt image `minkicc/auth:latest`, which is convenient for evaluation and demos.
 
-3. **Access Services**
-- User Interface: http://localhost:8080
-- Admin Backend: http://localhost:8081
-- MinIO Console: http://localhost:9001
+### 2. Enable the admin console
 
+Generate a bcrypt hash for the admin password:
 
-## ⚙️ Configuration
+```bash
+cd tools
+go run hashpwd.go -password "YourStrongPassword"
+```
 
-### Database Configuration
+Put the generated hash into your config:
+
+```yaml
+auth_admin:
+  enabled: true
+  secret_key: "change-this-to-a-random-string"
+  accounts:
+    - username: "admin"
+      password: "$2a$10$..."
+      roles:
+        - "super_admin"
+  allowed_ips:
+    - "127.0.0.1"
+    - "::1"
+```
+
+Then restart the service.
+
+## Local Development
+
+### Backend
+
+```bash
+cd server
+cp config/config.yaml.example config/config.yaml
+go run . -config ./config/config.yaml -web ../web/dist -admin-web ../admin-web/dist
+```
+
+### User web app
+
+```bash
+cd web
+npm install
+npm run dev
+```
+
+### Admin web app
+
+```bash
+cd admin-web
+npm ci
+npm run dev
+```
+
+The repository includes `.nvmrc`, so running `nvm use` at the root is recommended.
+
+## Core Configuration
+
+See [server/config/config.yaml.example](server/config/config.yaml.example) for the full example.
+
+### Database and Redis
+
 ```yaml
 db:
   user: "root"
@@ -72,148 +121,266 @@ db:
   port: 3306
   database: "mkauth"
   charset: "utf8mb4"
-```
 
-### Redis Configuration
-```yaml
 redis:
   addr: "localhost:6379"
   password: ""
   db: 0
 ```
 
-### Storage Configuration
-Supports multiple storage providers:
-- **MinIO** (Local object storage)
-- **AWS S3** (Amazon cloud storage)
-- **Alibaba Cloud OSS** (Alibaba cloud object storage)
+### Storage
 
 ```yaml
 storage:
-  provider: "minio"  # minio, s3, oss
+  provider: "minio" # minio / s3 / oss
   endpoint: "localhost:9000"
   region: "zhuhai-1"
   accessKeyID: "your-access-key"
   secretAccessKey: "your-secret-key"
   attatchBucket: "attatch"
+
+storage_public_url:
+  attatch: "http://localhost:9000/attatch"
 ```
 
-### Authentication Provider Configuration
+### Enabled login providers
 
-#### Google OAuth2.0
 ```yaml
 auth:
-  google:
-    client_id: "your-google-client-id"
-    client_secret: "your-google-client-secret"
-    redirect_url: "http://localhost:8080/auth/google/callback"
-    scopes:
-      - "https://www.googleapis.com/auth/userinfo.email"
-      - "https://www.googleapis.com/auth/userinfo.profile"
+  enabled_providers:
+    - "account"
+    - "email"
+    - "phone"
+    - "google"
+    - "weixin"
+    - "weixin_mini"
+  jwt:
+    issuer: "mkauth"
 ```
 
-#### WeChat Login
-```yaml
-auth:
-  weixin:
-    app_id: "your-wechat-app-id"
-    app_secret: "your-wechat-app-secret"
-    redirect_url: "http://localhost:8080/wechat/callback"
-    domain_verify_token: "your-domain-verify-token"
-```
+Only enable the providers you really plan to expose.
 
-#### SMS Service
-```yaml
-auth:
-  sms:
-    provider: "aliyun"  # aliyun, tencent
-    access_key: "your-access-key"
-    secret_key: "your-secret-key"
-    sign_name: "Verification Code"
-    template_id: "SMS_123456789"
-    region: "cn-hangzhou"
-```
+### Trusted backend client
 
-#### Email Service
-```yaml
-auth:
-  smtp:
-    host: "smtp.example.com"
-    port: 587
-    username: "noreply@example.com"
-    password: "your-password"
-    from: "MKAuth <noreply@example.com>"
-```
+If your backend will exchange login codes for tokens or fetch users by ID, configure `auth_trusted_clients`:
 
-### Admin Backend Configuration
-- Password is generated by tools in the tools directory
-```yaml
-auth_admin:
-  enabled: true
-  secret_key: "change-this-to-a-secure-random-string"
-  accounts:
-    - username: "admin"
-      password: "$2a$10$hashed-password"
-      roles:
-        - "super_admin"
-  allowed_ips:
-    - "127.0.0.1"
-    - "::1"
-  require_tls: false
-  session_ttl: 30
-  login_timeout: 60
-```
-
-### Trusted Clients
-- Trusted clients are typically your own business backends deployed
-- Trusted clients support batch user information retrieval, etc.
-- client_secret is generated by tools in the tools directory
 ```yaml
 auth_trusted_clients:
-  - client_id: "kcserver"
-    client_secret: "YOUR_TRUSTED_CLIENT_SECRET"
+  - client_id: "myapp"
+    client_secret: "$2a$10$..."
     allowed_ips:
       - "*"
     scopes:
-      - "read:users" 
+      - "read:users"
 ```
 
-## 🔧 Client Integration
+`client_secret` should also be stored as a bcrypt hash.
 
-### Go Client
+## Recommended Integration Patterns
+
+### Pattern 1: use the built-in login page
+
+This is the easiest way if you already have an application and want MKAuth to own the login UI.
+
+#### Flow
+
+1. Redirect the user to the MKAuth login page:
+
+```text
+GET /login?client_id=myapp&redirect_uri=https://your-app.example.com/auth/callback
+```
+
+2. The user completes login in MKAuth.
+3. MKAuth redirects the browser back to your `redirect_uri` with a one-time `code`.
+4. Your backend exchanges the `code` for an access token through `/api/login/verify`.
+5. Your app uses `Authorization: Bearer <token>` on subsequent calls.
+
+#### Backend callback example
 
 ```go
-import "minki.cc/mkauth/client/auth"
+package main
 
-// Create JWT client
-jwtClient := auth.NewAuthClient("http://auth-service:8080", "", "")
+import (
+    "net/http"
 
-// Use in Gin
-r := gin.Default()
+    "github.com/gin-gonic/gin"
+    mkauth "minki.cc/mkauth/client/auth"
+)
+
+func main() {
+    authClient := mkauth.NewAuthClient(
+        "http://localhost:8080",
+        "myapp",
+        "your-client-secret",
+    )
+
+    r := gin.Default()
+
+    r.GET("/auth/callback", func(c *gin.Context) {
+        code := c.Query("code")
+        if code == "" {
+            c.JSON(http.StatusBadRequest, gin.H{"error": "missing code"})
+            return
+        }
+
+        loginResp, err := authClient.LoginVerify(code, c)
+        if err != nil {
+            c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+            return
+        }
+
+        c.JSON(http.StatusOK, gin.H{
+            "user_id": loginResp.UserID,
+            "token":   loginResp.Token,
+        })
+    })
+
+    r.Run(":8082")
+}
+```
+
+### Pattern 2: call MKAuth APIs from your own frontend
+
+This is useful when you already have your own login UI and only want the authentication backend.
+
+Common endpoints:
+- `GET /api/providers`
+- `POST /api/account/register`
+- `POST /api/account/login`
+- `POST /api/email/login`
+- `POST /api/phone/login`
+- `POST /api/token/refresh`
+- `POST /api/logout`
+- `GET /api/user`
+
+Example account login request:
+
+```bash
+curl -X POST http://localhost:8080/api/account/login \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"demo","password":"demo123"}'
+```
+
+Example response:
+
+```json
+{
+  "user_id": "demo",
+  "token": "access-token",
+  "nickname": "demo",
+  "avatar": "",
+  "expire_time": 7200000000000
+}
+```
+
+After login, attach the returned token like this:
+
+```text
+Authorization: Bearer <access-token>
+```
+
+Refresh token state is maintained by the `refreshToken` cookie via:
+
+```text
+POST /api/token/refresh
+```
+
+## Go SDK
+
+### Install
+
+```bash
+go get minki.cc/mkauth/client
+```
+
+### Protect business APIs
+
+```go
+client := auth.NewAuthClient("http://localhost:8080", "", "")
+
 protected := r.Group("/api")
-protected.Use(jwtClient.AuthRequired())
+protected.Use(client.AuthRequired())
 {
     protected.GET("/profile", func(c *gin.Context) {
-        // Handle protected resources
+        userID := c.GetString("user_id")
+        c.JSON(200, gin.H{"user_id": userID})
     })
 }
 ```
 
-## 🔒 Security Features
+### Fetch current user
 
-- **JWT Tokens** - Secure stateless authentication
-- **Token Refresh** - Automatic refresh of expired tokens
-- **Rate Limiting** - Protection against brute force attacks
-- **IP Whitelist** - Admin backend access control
-- **CORS Configuration** - Cross-origin request control
-- **HTTPS Support** - Encrypted transmission in production
+```go
+user, err := client.GetUserInfo(accessToken)
+```
 
-## 🌍 Internationalization
+### Fetch one user or many users
 
-Supports multi-language interfaces:
-- Chinese (zh-CN)
-- English (en-US)
+These calls require a configured trusted client and matching scopes:
 
-## 📄 License
+```go
+client := auth.NewAuthClient("http://localhost:8080", "myapp", "your-client-secret")
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE.txt) file for details.
+user, err := client.GetUserInfoById(accessToken, "user-001")
+users, err, statusCode := client.GetUsersInfo(accessToken, []string{"user-001", "user-002"})
+```
+
+### Refresh token
+
+```go
+newToken, statusCode, err := client.RefreshToken(refreshToken, c)
+```
+
+### Local self-signed TLS debugging
+
+```go
+client.UseInsecureTLS()
+```
+
+Only use this in local or test environments.
+
+## Useful Endpoints
+
+### Auth endpoints
+
+- `GET /api/providers`
+- `POST /api/account/register`
+- `POST /api/account/login`
+- `POST /api/email/login`
+- `POST /api/phone/login`
+- `POST /api/token/refresh`
+- `POST /api/token/validate`
+- `POST /api/logout`
+
+### User endpoints
+
+- `GET /api/user`
+- `GET /api/user/:id`
+- `POST /api/users`
+- `PUT /api/user`
+- `POST /api/avatar/upload`
+- `DELETE /api/avatar`
+- `GET /api/sessions`
+
+### Ops endpoints
+
+- `GET /health`
+- `GET /metrics`
+
+## Integration Notes
+
+- Always use HTTPS in production.
+- Restrict the admin console with `allowed_ips`.
+- Never trust a frontend-provided `user_id`; always derive identity from token validation.
+- Only expose the providers you truly need.
+- `storage_public_url.attatch` must be reachable by your frontend, otherwise avatar URLs will not render correctly.
+
+## Additional Docs
+
+- Chinese guide: [README-zh.md](README-zh.md)
+- Go SDK guide: [client/README.md](client/README.md)
+- Quickstart guide: [quickstart/README.md](quickstart/README.md)
+
+## License
+
+Released under the MIT License. See [LICENSE.txt](LICENSE.txt).

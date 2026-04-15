@@ -14,9 +14,9 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"minki.cc/kcauth/server/auth"
-	"minki.cc/kcauth/server/common"
-	"minki.cc/kcauth/server/config"
+	"minki.cc/mkauth/server/auth"
+	"minki.cc/mkauth/server/common"
+	"minki.cc/mkauth/server/config"
 )
 
 // User registration type constants

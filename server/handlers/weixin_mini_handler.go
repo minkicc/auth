@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"minki.cc/kcauth/server/auth"
+	"minki.cc/mkauth/server/auth"
 )
 
 // WeixinMiniLogin 处理微信小程序登录

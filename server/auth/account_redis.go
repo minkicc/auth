@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/go-redis/redis/v8"
-	"minki.cc/kcauth/server/common"
+	"minki.cc/mkauth/server/common"
 )
 
 const (
