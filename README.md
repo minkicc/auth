@@ -2,7 +2,7 @@
 
 MKAuth is a deployable authentication service that provides account/password, email, phone, Google, WeChat, and WeChat Mini Program login, together with JWT, session management, an admin console, and a Go SDK.
 
-The `codex/oidc-break` branch moves the primary integration path to standard OIDC. New integrations should prefer `Authorization Code + PKCE` plus discovery via `/.well-known/openid-configuration`; the older `/api/login/redirect` and `/api/login/verify` flow is still present in the codebase but is no longer the recommended protocol on this branch.
+The `codex/oidc-break` branch moves the primary integration path to standard OIDC. New integrations should prefer `Authorization Code + PKCE` plus discovery via `/.well-known/openid-configuration`; the older `/api/login/redirect` and `/api/login/verify` flow has been removed from this branch.
 
 It is a good fit when:
 - multiple applications need to share one user system
@@ -194,9 +194,9 @@ When enabled, MKAuth exposes these standard endpoints:
 - `/oauth2/userinfo`
 - `/oauth2/jwks`
 
-### Trusted backend client (legacy flow)
+### Trusted backend client
 
-Only keep `auth_trusted_clients` if you still use the older custom `/api/login/verify` flow:
+On this branch, `auth_trusted_clients` is only used for legacy management-style `/api` calls such as fetching users by ID or batch-reading users. It is no longer part of the login callback flow:
 
 ```yaml
 auth_trusted_clients:
@@ -212,7 +212,7 @@ auth_trusted_clients:
 
 ## Recommended Integration Patterns
 
-On this branch, MKAuth is OIDC-first. The legacy flow remains as a migration path, but new integrations should use OIDC.
+On this branch, MKAuth is OIDC-first.
 
 ### Pattern 1: OIDC Authorization Code + PKCE
 
@@ -243,67 +243,6 @@ curl -X POST http://localhost:8080/oauth2/token \
   --data-urlencode 'code=YOUR_CODE' \
   --data-urlencode 'redirect_uri=https://app.example.com/callback' \
   --data-urlencode 'code_verifier=dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk'
-```
-
-### Pattern 2: use the built-in login page (legacy flow)
-
-This is the easiest way if you already have an application and want MKAuth to own the login UI.
-
-#### Flow
-
-1. Redirect the user to the MKAuth login page:
-
-```text
-GET /login?client_id=myapp&redirect_uri=https://your-app.example.com/auth/callback
-```
-
-2. The user completes login in MKAuth.
-3. MKAuth redirects the browser back to your `redirect_uri` with a one-time `code`.
-4. Your backend exchanges the `code` for an access token through `/api/login/verify`.
-5. Your app uses `Authorization: Bearer <token>` on subsequent calls.
-
-#### Backend callback example
-
-```go
-package main
-
-import (
-    "net/http"
-
-    "github.com/gin-gonic/gin"
-    mkauth "minki.cc/mkauth/client/auth"
-)
-
-func main() {
-    authClient := mkauth.NewAuthClient(
-        "http://localhost:8080",
-        "myapp",
-        "your-client-secret",
-    )
-
-    r := gin.Default()
-
-    r.GET("/auth/callback", func(c *gin.Context) {
-        code := c.Query("code")
-        if code == "" {
-            c.JSON(http.StatusBadRequest, gin.H{"error": "missing code"})
-            return
-        }
-
-        loginResp, err := authClient.LoginVerify(code, c)
-        if err != nil {
-            c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
-            return
-        }
-
-        c.JSON(http.StatusOK, gin.H{
-            "user_id": loginResp.UserID,
-            "token":   loginResp.Token,
-        })
-    })
-
-    r.Run(":8082")
-}
 ```
 
 ### Pattern 2: call MKAuth APIs from your own frontend
@@ -353,6 +292,8 @@ POST /api/token/refresh
 ```
 
 ## Go SDK
+
+The Go SDK under `client/auth` still mainly targets the older `/api` JWT endpoints. It can remain useful for management-style APIs or local transition work, but it is not the recommended OIDC integration path on this branch.
 
 ### Install
 

@@ -1,11 +1,12 @@
 # MKAuth Go SDK
 
+`codex/oidc-break` 分支已经切到 OIDC-first，这个 SDK 主要兼容旧的 `/api` JWT 接口，适合作为过渡或管理型接口调用工具，不再是推荐的登录接入方式。
+
 `client/` 提供了一个面向 Go 服务的 SDK，用来完成以下事情：
 - 校验业务请求里的 MKAuth JWT
 - 获取当前登录用户信息
 - 按用户 ID 获取用户信息
 - 批量拉取用户资料
-- 用登录回调 `code` 换取访问令牌
 - 刷新访问令牌
 
 ## 安装
@@ -34,7 +35,7 @@ client := auth.NewAuthClient(
 - 第一个参数是 MKAuth 服务地址。
 - SDK 会自动把地址规范到 `/api`。
 - 如果只是做 JWT 校验，中间两个参数可以留空。
-- 如果要做 `LoginVerify`、`GetUserInfoById`、`GetUsersInfo`，需要配置 `client_id` 和 `client_secret`。
+- 如果要做 `GetUserInfoById`、`GetUsersInfo`，需要配置 `client_id` 和 `client_secret`。
 
 ## 1. 给业务接口加登录保护
 
@@ -120,32 +121,7 @@ for _, user := range users {
 - MKAuth 已配置 `auth_trusted_clients`
 - 对应客户端拥有 `read:users` scope
 
-## 5. 处理登录回调 code
-
-如果你的业务系统使用 MKAuth 内置登录页，那么回调 URL 会拿到一个 `code`。你可以用 SDK 直接换 token：
-
-```go
-r.GET("/auth/callback", func(c *gin.Context) {
-    code := c.Query("code")
-    loginResp, err := client.LoginVerify(code, c)
-    if err != nil {
-        c.JSON(401, gin.H{"error": err.Error()})
-        return
-    }
-
-    c.JSON(200, gin.H{
-        "user_id": loginResp.UserID,
-        "token":   loginResp.Token,
-    })
-})
-```
-
-`LoginVerify()` 会自动：
-- 调用 `/api/login/verify`
-- 解析返回的 `token`
-- 把新的 `refreshToken` Cookie 写回 Gin Response
-
-## 6. 刷新访问令牌
+## 5. 刷新访问令牌
 
 ```go
 newToken, statusCode, err := client.RefreshToken(refreshToken, c)
@@ -159,7 +135,7 @@ fmt.Println("new access token:", newToken)
 
 `RefreshToken()` 会把 MKAuth 返回的新 `refreshToken` Cookie 回写给当前响应。
 
-## 7. 更新昵称或头像
+## 6. 更新昵称或头像
 
 ```go
 err := client.UpdateUserInfo(accessToken, &auth.UserInfo{
@@ -194,9 +170,10 @@ client.UseInsecureTLS()
 
 - `Authorization` 请求头必须是 `Bearer <token>` 格式。
 - 如果只做 JWT 校验，不需要配置 `client_id` 和 `client_secret`。
-- 如果要调用 `LoginVerify`、`GetUserInfoById`、`GetUsersInfo`，必须配置可信客户端。
+- 如果要调用 `GetUserInfoById`、`GetUsersInfo`，必须配置可信客户端。
 - `client_secret` 应与服务端 `auth_trusted_clients` 配置保持一致。
 - 生产环境建议始终使用 HTTPS。
+- 这条分支的 OIDC 登录请直接使用标准 OIDC 客户端库，不再走 `LoginVerify()` 这种自定义 code 交换方式。
 
 ## 相关文档
 

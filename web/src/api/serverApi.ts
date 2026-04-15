@@ -52,19 +52,6 @@ class ServerApi {
     clientId: string = ''
     redirectUri: string = ''
 
-    private isOIDCAuthorizeRedirect(): boolean {
-        if (!this.redirectUri) {
-            return false
-        }
-
-        try {
-            const url = new URL(this.redirectUri, window.location.origin)
-            return url.pathname === '/oauth2/authorize' || url.pathname.endsWith('/oauth2/authorize')
-        } catch {
-            return false
-        }
-    }
-
     private normalizeAuthResponse(response: AuthResponse | NestedAuthResponse): AuthResponse {
         if ('user' in response && response.user) {
             return {
@@ -182,17 +169,7 @@ class ServerApi {
             return
         }
 
-        if (this.isOIDCAuthorizeRedirect()) {
-            window.location.href = this.redirectUri
-            return
-        }
-
-        const response = await axios.get('/login/redirect', { params: { client_id: this.clientId, redirect_uri: this.redirectUri } })
-        const url = response.data.url as string
-        if (url) {
-            window.location.href = url
-        }
-        // return response.data
+        window.location.href = this.redirectUri
     }
 
     // 手机相关

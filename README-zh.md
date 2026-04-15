@@ -2,7 +2,7 @@
 
 MKAuth 是一个可独立部署的统一认证服务，提供账号密码、邮箱、手机号、Google、微信、微信小程序等登录方式，并内置用户中心、管理后台、会话管理和 Go 接入 SDK。
 
-`codex/oidc-break` 分支开始把接入主路径切到标准 OIDC。新接入方优先使用 `Authorization Code + PKCE`，通过 `/.well-known/openid-configuration` 做发现；旧的 `/api/login/redirect` 和 `/api/login/verify` 仍在仓库里，但在这条分支上已经不再是推荐协议。
+`codex/oidc-break` 分支已经把接入主路径切到标准 OIDC。新接入方优先使用 `Authorization Code + PKCE`，通过 `/.well-known/openid-configuration` 做发现；旧的 `/api/login/redirect` 和 `/api/login/verify` 已经从这条分支移除。
 
 它适合下面几类场景：
 - 你的多个业务系统希望共用一套账号体系
@@ -200,9 +200,9 @@ oidc:
 - `/oauth2/userinfo`
 - `/oauth2/jwks`
 
-### 可信业务后端配置（旧协议）
+### 可信业务后端配置
 
-只有在你仍然使用旧的自定义 `/api/login/verify` 协议时，才需要配置 `auth_trusted_clients`：
+`auth_trusted_clients` 在这条分支里只用于旧的管理型 `/api` 接口，例如按用户 ID 查询资料或批量查询用户，不再参与登录回调换 token：
 
 ```yaml
 auth_trusted_clients:
@@ -218,7 +218,7 @@ auth_trusted_clients:
 
 ## 推荐接入方式
 
-MKAuth 在这条分支上优先推荐标准 OIDC 接入，旧协议作为过渡方案保留。
+MKAuth 在这条分支上优先推荐标准 OIDC 接入。
 
 ### 方式一：OIDC Authorization Code + PKCE
 
@@ -250,69 +250,6 @@ curl -X POST http://localhost:8080/oauth2/token \
   --data-urlencode 'redirect_uri=https://app.example.com/callback' \
   --data-urlencode 'code_verifier=dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk'
 ```
-
-### 方式二：直接使用内置登录页（旧协议）
-
-适合你已经有业务系统，希望把登录完全交给 MKAuth。
-
-#### 流程
-
-1. 业务系统把用户跳转到 MKAuth 登录页：
-
-```text
-GET /login?client_id=myapp&redirect_uri=https://your-app.example.com/auth/callback
-```
-
-2. 用户在 MKAuth 完成登录。
-3. MKAuth 会把用户带回你的 `redirect_uri`，并附带一个一次性 `code`。
-4. 你的业务后端使用受信任客户端身份调用 `/api/login/verify`，把 `code` 换成访问令牌。
-5. 后续业务请求携带 `Authorization: Bearer <token>` 即可。
-
-#### 业务后端回调示例
-
-```go
-package main
-
-import (
-    "net/http"
-
-    "github.com/gin-gonic/gin"
-    mkauth "minki.cc/mkauth/client/auth"
-)
-
-func main() {
-    authClient := mkauth.NewAuthClient(
-        "http://localhost:8080",
-        "myapp",
-        "your-client-secret",
-    )
-
-    r := gin.Default()
-
-    r.GET("/auth/callback", func(c *gin.Context) {
-        code := c.Query("code")
-        if code == "" {
-            c.JSON(http.StatusBadRequest, gin.H{"error": "missing code"})
-            return
-        }
-
-        loginResp, err := authClient.LoginVerify(code, c)
-        if err != nil {
-            c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
-            return
-        }
-
-        c.JSON(http.StatusOK, gin.H{
-            "user_id": loginResp.UserID,
-            "token":   loginResp.Token,
-        })
-    })
-
-    r.Run(":8082")
-}
-```
-
-这个模式下，登录页、注册页、第三方登录按钮都由 MKAuth 自己维护，你的业务系统只处理跳转和回调。
 
 ### 方式二：你的前端直接调用 MKAuth API
 
@@ -361,6 +298,8 @@ POST /api/token/refresh
 ```
 
 ## Go SDK 使用方式
+
+`client/auth` 目录下的 Go SDK 仍然主要面向旧的 `/api` JWT 接口。它可以继续用于一些管理型 API 或本地过渡，但不是这条分支推荐的 OIDC 接入方式。
 
 ### 安装
 
