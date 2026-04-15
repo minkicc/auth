@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   mysql:
     image: mysql:8.0
@@ -62,14 +60,26 @@ services:
       - "9003:9001"
 
   mkauth-server:
-    image: minkicc/auth:latest
+    build:
+      context: ..
+      dockerfile: Dockerfile
     container_name: mkauth-server
     restart: always
     volumes:
       - ./config.yaml:/app/config/config.yaml
+      - ./oidc-private-key.pem:/app/config/oidc-private-key.pem:ro
     ports:
       - "8080:80"
       - "8081:81"
+
+  oidc-demo:
+    image: nginx:alpine
+    container_name: mkauth-oidc-demo
+    restart: always
+    volumes:
+      - ./oidc-demo:/usr/share/nginx/html:ro
+    ports:
+      - "3000:80"
 
 volumes:
   mysql_data:

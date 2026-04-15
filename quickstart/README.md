@@ -1,6 +1,6 @@
 # MKAuth Quickstart
 
-`quickstart/` 提供了一套可直接体验的 Docker Compose 配置，用来快速启动 MKAuth 所需的基础依赖和服务。
+`quickstart/` 提供了一套可直接体验的 Docker Compose 配置，用来快速启动 MKAuth 所需的基础依赖、当前仓库代码，以及一个最小可运行的 OIDC PKCE demo。
 
 ## 会启动什么
 
@@ -8,26 +8,44 @@
 - Redis 7
 - MinIO
 - MKAuth 服务
+- OIDC demo SPA
 
 ## 使用方法
 
 ```bash
 cd quickstart
-docker compose up -d
+docker compose up -d --build
 ```
 
 启动后默认访问地址：
-- 用户入口: `http://localhost:8080`
-- 管理后台: `http://localhost:8081`
-- MinIO API: `http://localhost:9002`
-- MinIO Console: `http://localhost:9003`
+- OIDC demo: `http://127.0.0.1:3000`
+- 用户入口: `http://127.0.0.1:8080`
+- 管理后台: `http://127.0.0.1:8081`
+- MinIO API: `http://127.0.0.1:9002`
+- MinIO Console: `http://127.0.0.1:9003`
 
 ## 默认行为
 
 `quickstart/config.yaml` 默认配置为：
 - 仅启用 `account` 登录
+- 默认启用 OIDC，并内置一个公共客户端 `demo-spa`
 - 管理后台关闭
 - 存储后端使用 MinIO
+- OIDC demo 的回调地址已经预先配置为 `http://127.0.0.1:3000/`
+- `quickstart/oidc-private-key.pem` 只是为了本地演示方便而提交的开发私钥，生产环境请务必替换
+
+## 先体验一遍 OIDC 登录
+
+1. 打开 `http://127.0.0.1:3000`
+2. 点击页面上的 `Discover configuration`
+3. 点击 `Start login`
+4. 第一次可以先在 MKAuth 登录页注册一个账号
+5. 登录成功后，demo 会自动完成：
+   - PKCE 授权跳转
+   - code 换 token
+   - 调用 `/oauth2/userinfo`
+   - 展示 `access_token`、`id_token` 和用户信息
+6. 点击 `Logout` 会调用 `/oauth2/logout` 清理 MKAuth 浏览器会话，并跳回 demo 页面
 
 ## 如果要启用管理后台
 
@@ -76,4 +94,4 @@ auth:
 
 ## 说明
 
-当前 `quickstart/docker-compose.yml` 使用的是预构建镜像 `minkicc/auth:latest`，适合快速体验。若你正在开发本仓库源码，建议在根目录阅读 [README-zh.md](../README-zh.md) 中的“本地开发”章节。
+当前 `quickstart/docker-compose.yml` 会直接构建你本地 checkout 的代码，因此它更适合这条分支的验证和演示。首次 `--build` 会稍慢一些，但可以确保 OIDC demo 与当前代码一致。

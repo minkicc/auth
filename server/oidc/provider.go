@@ -124,6 +124,7 @@ func (p *Provider) RegisterRoutes(r *gin.Engine) {
 	r.GET("/oauth2/jwks", p.jwks)
 	r.GET("/oauth2/authorize", p.authorize)
 	r.POST("/oauth2/token", p.token)
+	r.GET("/oauth2/logout", p.logout)
 	r.GET("/oauth2/userinfo", p.userInfo)
 	r.POST("/oauth2/userinfo", p.userInfo)
 }
@@ -134,6 +135,7 @@ func (p *Provider) discovery(c *gin.Context) {
 		"issuer":                                issuer,
 		"authorization_endpoint":                issuer + "/oauth2/authorize",
 		"token_endpoint":                        issuer + "/oauth2/token",
+		"end_session_endpoint":                  issuer + "/oauth2/logout",
 		"userinfo_endpoint":                     issuer + "/oauth2/userinfo",
 		"jwks_uri":                              issuer + "/oauth2/jwks",
 		"response_types_supported":              []string{"code"},
@@ -323,6 +325,33 @@ func (p *Provider) userInfo(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, resp)
+}
+
+func (p *Provider) logout(c *gin.Context) {
+	postLogoutRedirectURI := strings.TrimSpace(c.Query("post_logout_redirect_uri"))
+	clientID := strings.TrimSpace(c.Query("client_id"))
+	if !p.validPostLogoutRedirect(clientID, postLogoutRedirectURI) {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":             "invalid_request",
+			"error_description": "invalid post_logout_redirect_uri",
+		})
+		return
+	}
+
+	if browserSessionID, err := c.Cookie(auth.OIDCSessionCookieName); err == nil && browserSessionID != "" {
+		if data, session, resolveErr := auth.ResolveBrowserSession(p.redis, p.sessionMgr, browserSessionID); resolveErr == nil && session != nil {
+			_ = p.sessionMgr.DeleteSession(data.UserID, data.SessionID)
+		}
+		_ = auth.DeleteBrowserSession(p.redis, browserSessionID)
+	}
+	c.SetCookie(auth.OIDCSessionCookieName, "", -1, "/", "", true, true)
+
+	if postLogoutRedirectURI != "" {
+		c.Redirect(http.StatusFound, postLogoutRedirectURI)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"logged_out": true})
 }
 
 func (p *Provider) signAccessToken(c *gin.Context, user *auth.User, client config.OIDCClientConfig, scope string) (string, time.Duration, error) {
@@ -527,6 +556,20 @@ func (p *Provider) findClient(clientID string) (config.OIDCClientConfig, bool) {
 		}
 	}
 	return config.OIDCClientConfig{}, false
+}
+
+func (p *Provider) validPostLogoutRedirect(clientID string, redirectURI string) bool {
+	if redirectURI == "" {
+		return true
+	}
+	if clientID == "" {
+		return false
+	}
+	client, ok := p.findClient(clientID)
+	if !ok {
+		return false
+	}
+	return containsString(client.RedirectURIs, redirectURI)
 }
 
 func (p *Provider) allowedScopes(client config.OIDCClientConfig) []string {

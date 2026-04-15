@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"golang.org/x/crypto/bcrypt"
+	"minki.cc/mkauth/server/config"
 )
 
 func TestVerifyPKCE(t *testing.T) {
@@ -34,5 +35,33 @@ func TestMatchSecret(t *testing.T) {
 	}
 	if matchSecret(string(hashedSecret), "wrong") {
 		t.Fatalf("expected bcrypt secret mismatch")
+	}
+}
+
+func TestValidPostLogoutRedirect(t *testing.T) {
+	provider := &Provider{
+		cfg: config.OIDCConfig{
+			Clients: []config.OIDCClientConfig{
+				{
+					ClientID: "demo-spa",
+					RedirectURIs: []string{
+						"http://127.0.0.1:3000/",
+					},
+				},
+			},
+		},
+	}
+
+	if !provider.validPostLogoutRedirect("demo-spa", "") {
+		t.Fatalf("empty redirect should be allowed")
+	}
+	if !provider.validPostLogoutRedirect("demo-spa", "http://127.0.0.1:3000/") {
+		t.Fatalf("registered redirect should be allowed")
+	}
+	if provider.validPostLogoutRedirect("", "http://127.0.0.1:3000/") {
+		t.Fatalf("client_id should be required when redirect is present")
+	}
+	if provider.validPostLogoutRedirect("demo-spa", "http://127.0.0.1:4000/") {
+		t.Fatalf("unregistered redirect should be rejected")
 	}
 }

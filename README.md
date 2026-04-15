@@ -6,13 +6,13 @@ The `codex/oidc-break` branch moves the primary integration path to standard OID
 
 It is a good fit when:
 - multiple applications need to share one user system
-- you want SSO-style login without building user, token, refresh, and session management from scratch
+- you want SSO-style login without building OIDC, token, and session management from scratch
 - your backend is written in Go and you want SDK-based token validation and user lookup
 
 ## Features
 
 - Multiple login providers
-- JWT access token + refresh token
+- OIDC provider + JWT access and ID tokens
 - Redis-backed session management
 - Avatar upload
 - Admin console
@@ -38,21 +38,23 @@ mkauth/
 
 ```bash
 cd quickstart
-docker compose up -d
+docker compose up -d --build
 ```
 
 Default endpoints:
-- User entry: `http://localhost:8080`
-- Admin console: `http://localhost:8081`
-- MySQL: `localhost:3306`
-- Redis: `localhost:6379`
-- MinIO API: `http://localhost:9002`
-- MinIO Console: `http://localhost:9003`
+- OIDC demo SPA: `http://127.0.0.1:3000`
+- User entry: `http://127.0.0.1:8080`
+- Admin console: `http://127.0.0.1:8081`
+- MySQL: `127.0.0.1:3306`
+- Redis: `127.0.0.1:6379`
+- MinIO API: `http://127.0.0.1:9002`
+- MinIO Console: `http://127.0.0.1:9003`
 
 Notes:
 - `quickstart/config.yaml` enables `account` login only by default.
+- `quickstart/config.yaml` also enables OIDC and preconfigures a public client named `demo-spa` for the bundled PKCE demo.
 - `auth_admin.enabled` is `false` in the quickstart config.
-- `quickstart/docker-compose.yml` currently uses the prebuilt image `minkicc/auth:latest`, which is convenient for evaluation and demos.
+- `quickstart/docker-compose.yml` builds the current checkout so the quickstart always matches this branch.
 
 ### 2. Enable the admin console
 
@@ -191,6 +193,7 @@ When enabled, MKAuth exposes these standard endpoints:
 - `/.well-known/openid-configuration`
 - `/oauth2/authorize`
 - `/oauth2/token`
+- `/oauth2/logout`
 - `/oauth2/userinfo`
 - `/oauth2/jwks`
 
