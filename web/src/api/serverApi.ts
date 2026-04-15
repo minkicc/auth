@@ -52,6 +52,19 @@ class ServerApi {
     clientId: string = ''
     redirectUri: string = ''
 
+    private isOIDCAuthorizeRedirect(): boolean {
+        if (!this.redirectUri) {
+            return false
+        }
+
+        try {
+            const url = new URL(this.redirectUri, window.location.origin)
+            return url.pathname === '/oauth2/authorize' || url.pathname.endsWith('/oauth2/authorize')
+        } catch {
+            return false
+        }
+    }
+
     private normalizeAuthResponse(response: AuthResponse | NestedAuthResponse): AuthResponse {
         if ('user' in response && response.user) {
             return {
@@ -166,6 +179,11 @@ class ServerApi {
     // 当前已经登陆，直接回调
     async handleLoginRedirect(): Promise<void> {
         if (!this.redirectUri) {
+            return
+        }
+
+        if (this.isOIDCAuthorizeRedirect()) {
+            window.location.href = this.redirectUri
             return
         }
 
