@@ -52,6 +52,27 @@ class ServerApi {
     clientId: string = ''
     redirectUri: string = ''
 
+    clearStoredAuth() {
+        localStorage.removeItem('token')
+        localStorage.removeItem('avatar')
+        localStorage.removeItem('nickname')
+        localStorage.removeItem('userId')
+        delete axios.defaults.headers.common['Authorization']
+    }
+
+    isOIDCFlow(): boolean {
+        if (!this.redirectUri) {
+            return false
+        }
+
+        try {
+            const url = new URL(this.redirectUri, window.location.origin)
+            return url.pathname === '/oauth2/authorize' || url.pathname.endsWith('/oauth2/authorize')
+        } catch {
+            return false
+        }
+    }
+
     private normalizeAuthResponse(response: AuthResponse | NestedAuthResponse): AuthResponse {
         if ('user' in response && response.user) {
             return {
@@ -72,15 +93,19 @@ class ServerApi {
 
     updateUserInfo(response: AuthResponse | NestedAuthResponse) {
         const { user_id, token, nickname, avatar } = this.normalizeAuthResponse(response)
-    
-        // 保存信息到本地存储
-        localStorage.setItem('token', token)
-        localStorage.setItem('avatar', avatar)
-        localStorage.setItem('nickname', nickname)
-        localStorage.setItem('userId', user_id)
-    
-        // 设置 axios 默认 headers
-        axios.defaults.headers.common['Authorization'] = `Bearer ${token}`
+
+        if (this.isOIDCFlow()) {
+            this.clearStoredAuth()
+        } else {
+            // 保存信息到本地存储
+            localStorage.setItem('token', token)
+            localStorage.setItem('avatar', avatar)
+            localStorage.setItem('nickname', nickname)
+            localStorage.setItem('userId', user_id)
+
+            // 设置 axios 默认 headers
+            axios.defaults.headers.common['Authorization'] = `Bearer ${token}`
+        }
 
         this.handleLoginRedirect() // 重定向到应用
     }
@@ -130,12 +155,14 @@ class ServerApi {
         return response.data
     }
 
+    async fetchBrowserSession() {
+        const response = await axios.get('/browser-session')
+        return response.data
+    }
+
     // 登出
     async logout() {
-        localStorage.removeItem('token')
-        localStorage.removeItem('avatar')
-        localStorage.removeItem('nickname')
-        localStorage.removeItem('userId')
+        this.clearStoredAuth()
         return axios.post('/logout')
     }
 

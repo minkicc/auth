@@ -9,14 +9,15 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"minki.cc/mkauth/client/auth"
 )
 
 func main() {
-	// 创建JWT客户端
-	jwtClient := auth.NewAuthClient("http://auth-service:8080", "", "")
+	// 创建客户端，用来调用 MKAuth 管理型 /api 接口
+	client := auth.NewAuthClient("http://auth-service:8080", "", "")
 
 	// 创建Gin引擎
 	r := gin.Default()
@@ -24,40 +25,27 @@ func main() {
 	// 公开路由
 	r.GET("/", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
-			"message": "欢迎访问API",
+			"message": "MKAuth OIDC-first branch example",
 		})
 	})
 
-	// 需要认证的路由
-	protected := r.Group("/api")
-	protected.Use(jwtClient.AuthRequired())
-	{
-		protected.GET("/profile", func(c *gin.Context) {
-			c.JSON(http.StatusOK, gin.H{
-				"message": "这是受保护的资源",
-			})
-		})
-	}
+	// 在 OIDC-first 分支，资源服务应自行做 OIDC/JWKS 校验。
+	// 这里演示的是如何拿 access token 查询 MKAuth 当前用户接口。
+	r.GET("/me", func(c *gin.Context) {
+		authHeader := c.GetHeader("Authorization")
+		if !strings.HasPrefix(authHeader, "Bearer ") {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "missing bearer token"})
+			return
+		}
 
-	// 可选认证的路由
-	optional := r.Group("/public")
-	optional.Use(jwtClient.OptionalAuth())
-	{
-		optional.GET("/data", func(c *gin.Context) {
-			authenticated, exists := c.Get("authenticated")
-			if exists && authenticated.(bool) {
-				c.JSON(http.StatusOK, gin.H{
-					"message": "您已认证，这是完整数据",
-					"data":    []string{"item1", "item2", "item3", "item4", "item5"},
-				})
-			} else {
-				c.JSON(http.StatusOK, gin.H{
-					"message": "您未认证，这是有限数据",
-					"data":    []string{"item1", "item2"},
-				})
-			}
-		})
-	}
+		user, err := client.GetUserInfo(strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer ")))
+		if err != nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+			return
+		}
+
+		c.JSON(http.StatusOK, user)
+	})
 
 	// 启动服务器
 	addr := ":8081"

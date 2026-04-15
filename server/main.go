@@ -193,8 +193,7 @@ func main() {
 	if err := initAuthHandler(cfg, accountAuth, &authHandler); err != nil {
 		log.Fatalf("Failed to initialize authentication handler: %v", err)
 	}
-	legacyJWT := auth.NewJWTService(globalRedisStore, auth.JWTConfig{Issuer: cfg.Auth.JWT.Issuer})
-	oidcProvider, err := oidc.NewProvider(cfg.OIDC, globalDB, globalRedisStore, accountAuth, legacyJWT)
+	oidcProvider, err := oidc.NewProvider(cfg.OIDC, globalDB, globalRedisStore, accountAuth)
 	if err != nil {
 		log.Fatalf("Failed to initialize OIDC provider: %v", err)
 	}

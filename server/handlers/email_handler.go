@@ -57,6 +57,10 @@ func (h *AuthHandler) EmailLogin(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
 		return
 	}
+	if err := h.setBrowserSession(c, session); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to establish browser session"})
+		return
+	}
 
 	// avata转换为url
 	if user.Avatar != "" {
@@ -132,6 +136,10 @@ func (h *AuthHandler) EmailVerify(c *gin.Context) {
 	tokenPair, err := h.jwtService.GenerateTokenPair(user.UserID, session.ID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
+		return
+	}
+	if err := h.setBrowserSession(c, session); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to establish browser session"})
 		return
 	}
 	// avata转换为url

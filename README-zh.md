@@ -233,6 +233,10 @@ MKAuth 在这条分支上优先推荐标准 OIDC 接入。
 5. 客户端或后端调用 `/oauth2/token` 换取 `access_token` 和 `id_token`
 6. 通过 `/oauth2/jwks` 校验 `id_token`，或者调用 `/oauth2/userinfo`
 
+补充说明：
+- MKAuth 登录页现在通过独立的 `oidc_session` 浏览器会话维持登录状态
+- `/oauth2/authorize` 不再依赖旧的 `refreshToken` cookie 来识别当前用户
+
 #### 授权地址示例
 
 ```text

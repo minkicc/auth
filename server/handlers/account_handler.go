@@ -85,6 +85,10 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
 		return
 	}
+	if err := h.setBrowserSession(c, session); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to establish browser session"})
+		return
+	}
 
 	// // avata转换为url
 	// if user.Avatar != "" {
@@ -151,6 +155,10 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	if err := h.setBrowserSession(c, session); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to establish browser session"})
+		return
+	}
 
 	// avata转换为url
 	if user.Avatar != "" {
@@ -198,6 +206,7 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 
 	// Clear client cookie
 	c.SetCookie("refreshToken", "", -1, "/", "", true, true)
+	h.clearBrowserSession(c)
 
 	// Delete session
 	if err := h.sessionMgr.DeleteSession(userID.(string), sessionID.(string)); err != nil {

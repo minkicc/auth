@@ -227,6 +227,10 @@ This is the recommended path for web apps, SPAs, mobile apps, and multi-language
 5. Exchange that code at `/oauth2/token` for `access_token` and `id_token`
 6. Validate the `id_token` with `/oauth2/jwks`, or call `/oauth2/userinfo`
 
+Additional notes:
+- the MKAuth login UI now maintains its own `oidc_session` browser session
+- `/oauth2/authorize` no longer depends on the older `refreshToken` cookie to identify the signed-in user
+
 #### Authorization example
 
 ```text

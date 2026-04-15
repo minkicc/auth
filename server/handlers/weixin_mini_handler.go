@@ -49,6 +49,10 @@ func (h *AuthHandler) WeixinMiniLogin(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
 		return
 	}
+	if err := h.setBrowserSession(c, session); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to establish browser session"})
+		return
+	}
 
 	// 转换头像 URL
 	if user.Avatar != "" {

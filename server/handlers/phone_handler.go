@@ -80,6 +80,10 @@ func (h *AuthHandler) PhoneCodeLogin(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
 		return
 	}
+	if err := h.setBrowserSession(c, session); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to establish browser session"})
+		return
+	}
 
 	c.SetCookie("refreshToken", token.RefreshToken, int(auth.RefreshTokenExpiration.Seconds()), "/", "", true, true)
 	// Login successful, return user information and token
@@ -282,6 +286,10 @@ func (h *AuthHandler) VerifyPhoneAndRegister(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
 		return
 	}
+	if err := h.setBrowserSession(c, session); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to establish browser session"})
+		return
+	}
 	// avata转换为url
 	if user.Avatar != "" {
 		url, err := h.avatarService.GetAvatarURL(user.Avatar)
@@ -337,6 +345,10 @@ func (h *AuthHandler) PhoneLogin(c *gin.Context) {
 	token, err := h.jwtService.GenerateTokenPair(user.UserID, session.ID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
+		return
+	}
+	if err := h.setBrowserSession(c, session); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to establish browser session"})
 		return
 	}
 	// avata转换为url
