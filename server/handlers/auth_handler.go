@@ -82,7 +82,6 @@ func (h *AuthHandler) RegisterRoutes(authGroup *gin.RouterGroup, cfg *config.Con
 	}
 	authGroup.POST("/logout", h.AuthRequired(), h.Logout)
 	authGroup.POST("/token/refresh", h.RefreshToken)
-	authGroup.POST("/token/validate", h.ValidateToken)
 
 	trustedClient := middleware.TrustedClient(cfg)
 

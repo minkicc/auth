@@ -456,33 +456,6 @@ func (h *AuthHandler) UpdateUserInfo(c *gin.Context) {
 	}
 }
 
-// ValidateToken Validate JWT token
-func (h *AuthHandler) ValidateToken(c *gin.Context) {
-	authHeader := c.GetHeader("Authorization")
-	if authHeader == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Token not provided"})
-		return
-	}
-
-	var err error
-	if authHeader != "" && len(authHeader) > 7 && authHeader[:7] == "Bearer " {
-		token := authHeader[7:]
-		var claims *auth.CustomClaims
-		// Validate JWT
-		claims, err = h.jwtService.ValidateJWT(token)
-		if err == nil && claims != nil {
-			c.JSON(http.StatusOK, gin.H{"user_id": claims.UserID})
-			return
-		}
-	}
-
-	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
-	} else {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token format"})
-	}
-}
-
 // AuthRequired Verify if user is logged in
 func (h *AuthHandler) AuthRequired() gin.HandlerFunc {
 	return func(c *gin.Context) {

@@ -2,6 +2,7 @@ package auth
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 )
 
@@ -70,5 +71,17 @@ func TestUseInsecureTLS(t *testing.T) {
 	}
 	if transport.TLSClientConfig == nil || !transport.TLSClientConfig.InsecureSkipVerify {
 		t.Fatal("expected insecure TLS to be enabled")
+	}
+}
+
+func TestValidateTokenReturnsOIDCMigrationError(t *testing.T) {
+	client := NewAuthClient("http://auth-service:8080", "", "")
+
+	_, err := client.ValidateToken("some-token")
+	if err == nil {
+		t.Fatal("expected ValidateToken to return an error on oidc-break branch")
+	}
+	if !strings.Contains(err.Error(), "OIDC") {
+		t.Fatalf("expected migration guidance in error, got %q", err.Error())
 	}
 }
