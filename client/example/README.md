@@ -50,3 +50,8 @@ http://127.0.0.1:8082
 - quickstart 已预置了 `demo-backend` 这个 confidential client。
 - 这个示例里的 session 是内存实现，只适合开发和演示。
 - 生产环境建议把 session 放到 Redis 等共享存储，并启用 HTTPS。
+
+## 相关示例
+
+- [resource-server/main.go](./resource-server/main.go)：演示资源服务如何通过 discovery + JWKS 校验 MKAuth access token
+- [resource-server/README.md](./resource-server/README.md)：资源服务示例的运行方法

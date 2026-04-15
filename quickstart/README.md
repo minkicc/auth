@@ -72,6 +72,27 @@ MKAUTH_CLIENT_SECRET=demo-backend-secret
 MKAUTH_REDIRECT_URL=http://127.0.0.1:8082/auth/callback
 ```
 
+## 运行 Go 资源服务校验示例
+
+如果你还想演示“业务 API 如何校验 access token”，可以再起一个资源服务示例：
+
+```bash
+cd client
+go run ./example/resource-server
+```
+
+然后调用：
+
+```bash
+curl -H 'Authorization: Bearer <access-token>' http://127.0.0.1:8083/protected
+```
+
+默认它会校验：
+- 签名
+- issuer
+- audience=`demo-backend`
+- token_type=`access_token`
+
 ## 如果要启用管理后台
 
 1. 先生成管理员密码哈希：

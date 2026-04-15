@@ -321,6 +321,10 @@ go get minki.cc/mkauth/client
 - 使用标准 OIDC / OAuth2 JWT 库加载 `jwks_uri`
 - 基于 `issuer`、`audience` 和签名校验 access token
 
+可直接参考：
+- [client/example/resource-server/main.go](client/example/resource-server/main.go)
+- [client/example/resource-server/README.md](client/example/resource-server/README.md)
+
 ### 2. 查询当前登录用户
 
 ```go

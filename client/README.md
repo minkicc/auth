@@ -12,6 +12,8 @@
 
 - [example/main.go](./example/main.go)：Go 后端回调 / BFF 风格示例
 - [example/README.md](./example/README.md)：运行方法
+- [example/resource-server/main.go](./example/resource-server/main.go)：Go 资源服务 access token 校验示例
+- [example/resource-server/README.md](./example/resource-server/README.md)：资源服务示例运行方法
 
 ## 安装
 
@@ -49,6 +51,10 @@ client := auth.NewAuthClient(
 - 读取 `/.well-known/openid-configuration`
 - 使用标准 OIDC / OAuth2 JWT 库加载 `jwks_uri`
 - 基于 `issuer`、`audience` 和签名校验 access token
+
+可直接参考：
+- [example/resource-server/main.go](./example/resource-server/main.go)
+- [example/resource-server/README.md](./example/resource-server/README.md)
 
 也就是说，这个 SDK 现在更适合调用 MKAuth 的管理型 `/api` 接口，而不是承担 OIDC 资源服务器鉴权职责。
 
