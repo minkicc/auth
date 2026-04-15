@@ -7,7 +7,7 @@ Auth 是一个可独立部署的统一认证服务，提供账号密码、邮箱
 它适合下面几类场景：
 - 你的多个业务系统希望共用一套账号体系
 - 你需要单点登录能力，而不想从零实现 OIDC、令牌、会话和后台管理
-- 你的业务后端是 Go，希望直接通过 SDK 校验登录态、查询用户信息
+- 你的业务后端是 Go，希望拿到 Go 接入示例，并通过管理型接口查询用户信息
 
 ## 功能概览
 
@@ -53,6 +53,7 @@ docker compose up -d --build
 说明：
 - `quickstart/config.yaml` 默认只启用了 `account` 登录。
 - `quickstart/config.yaml` 也默认启用了 OIDC，并预置了给 demo 使用的公共客户端 `demo-spa`。
+- `quickstart/config.yaml` 还预置了一个 confidential client `demo-backend`，可直接配合 [client/example](client/example/README.md) 里的 Go 后端回调示例使用。
 - `quickstart/config.yaml` 里默认关闭了管理后台：`auth_admin.enabled: false`。
 - `quickstart/docker-compose.yml` 会直接构建当前仓库代码，因此 quickstart 与这条分支保持一致。
 
@@ -325,6 +326,12 @@ go get example.com/auth/client
 ```go
 user, err := client.GetUserInfo(accessToken)
 ```
+
+这个调用走的是 Auth 管理型 `/api/user` 接口。
+
+它更适合你仍然直接调用旧 `/api` 登录接口的场景。
+
+如果你的应用已经按标准 OIDC 登录，用户资料读取应优先使用 `/oauth2/userinfo`；Go 后端回调接法可以直接参考 [client/example](client/example/README.md)。
 
 ### 3. 查询指定用户或批量用户
 
