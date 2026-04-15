@@ -34,9 +34,23 @@ document.documentElement.setAttribute('lang', preferredLanguage)
 
 // 初始化认证状态
 const initAuth = async () => {
+  const urlParams = new URLSearchParams(window.location.search)
+  const clientId = urlParams.get('client_id') || ''
+  const redirectUri = urlParams.get('redirect_uri') || urlParams.get('redirect_url') || undefined
+  serverApi.updateAuthData(clientId, redirectUri)
 
-  // 如果有token，尝试获取当前用户信息
-  if (token) {
+  if (serverApi.isOIDCFlow()) {
+    serverApi.clearStoredAuth()
+    try {
+      const session = await serverApi.fetchBrowserSession()
+      if (session?.authenticated) {
+        await serverApi.handleLoginRedirect()
+      }
+    } catch (error) {
+      console.error('获取浏览器会话失败:', error)
+    }
+  } else if (token) {
+    // 如果有token，尝试获取当前用户信息
     let user = null
     try {
       user = await serverApi.fetchCurrentUser()

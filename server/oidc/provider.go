@@ -40,7 +40,7 @@ type Provider struct {
 	db          *gorm.DB
 	redis       *auth.RedisStore
 	accountAuth *auth.AccountAuth
-	legacyJWT   *auth.JWTService
+	sessionMgr  *auth.SessionManager
 	signer      *tokenSigner
 }
 
@@ -78,7 +78,7 @@ type idTokenClaims struct {
 	jwt.RegisteredClaims
 }
 
-func NewProvider(cfg config.OIDCConfig, db *gorm.DB, redis *auth.RedisStore, accountAuth *auth.AccountAuth, legacyJWT *auth.JWTService) (*Provider, error) {
+func NewProvider(cfg config.OIDCConfig, db *gorm.DB, redis *auth.RedisStore, accountAuth *auth.AccountAuth) (*Provider, error) {
 	if !cfg.Enabled {
 		return nil, nil
 	}
@@ -87,9 +87,6 @@ func NewProvider(cfg config.OIDCConfig, db *gorm.DB, redis *auth.RedisStore, acc
 	}
 	if accountAuth == nil {
 		return nil, fmt.Errorf("oidc requires account auth")
-	}
-	if legacyJWT == nil {
-		return nil, fmt.Errorf("oidc requires legacy jwt service for browser session detection")
 	}
 	if len(cfg.Clients) == 0 {
 		return nil, fmt.Errorf("oidc is enabled but no clients are configured")
@@ -117,7 +114,7 @@ func NewProvider(cfg config.OIDCConfig, db *gorm.DB, redis *auth.RedisStore, acc
 		db:          db,
 		redis:       redis,
 		accountAuth: accountAuth,
-		legacyJWT:   legacyJWT,
+		sessionMgr:  auth.NewSessionManager(auth.NewSessionRedisStore(redis.GetClient())),
 		signer:      signer,
 	}, nil
 }
@@ -393,18 +390,21 @@ func (p *Provider) parseAccessToken(token string) (*accessTokenClaims, error) {
 }
 
 func (p *Provider) currentUser(c *gin.Context) (*auth.User, error) {
-	refreshToken, err := c.Cookie("refreshToken")
-	if err != nil || refreshToken == "" {
+	browserSessionID, err := c.Cookie(auth.OIDCSessionCookieName)
+	if err != nil || browserSessionID == "" {
 		return nil, errors.New("not authenticated")
 	}
-	claims, err := p.legacyJWT.ValidateJWT(refreshToken)
-	if err != nil {
-		return nil, err
+	_, session, err := auth.ResolveBrowserSession(p.redis, p.sessionMgr, browserSessionID)
+	if err != nil || session == nil {
+		c.SetCookie(auth.OIDCSessionCookieName, "", -1, "/", "", true, true)
+		return nil, errors.New("invalid browser session")
 	}
-	if claims.TokenType != auth.RefreshTokenType {
-		return nil, errors.New("invalid refresh token")
+	maxAge := int(time.Until(session.ExpiresAt).Seconds())
+	if maxAge < 1 {
+		maxAge = 1
 	}
-	return p.accountAuth.GetUserByID(claims.UserID)
+	c.SetCookie(auth.OIDCSessionCookieName, browserSessionID, maxAge, "/", "", true, true)
+	return p.accountAuth.GetUserByID(session.UserID)
 }
 
 func (p *Provider) validAuthorizeRequest(c *gin.Context) (config.OIDCClientConfig, string, bool) {

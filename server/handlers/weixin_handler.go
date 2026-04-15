@@ -149,6 +149,10 @@ func (h *AuthHandler) WeixinCallback(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
 		return
 	}
+	if err := h.setBrowserSession(c, session1); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to establish browser session"})
+		return
+	}
 
 	// Return user and session information, or redirect to frontend application
 	if redirectURL := c.Query("redirect"); redirectURL != "" {
