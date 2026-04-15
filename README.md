@@ -315,6 +315,10 @@ Recommended approach:
 - load `jwks_uri` with a standard OIDC / OAuth2 JWT library
 - validate access tokens against `issuer`, `audience`, and signature
 
+Concrete example:
+- [client/example/resource-server/main.go](client/example/resource-server/main.go)
+- [client/example/resource-server/README.md](client/example/resource-server/README.md)
+
 ### Fetch current user
 
 ```go
