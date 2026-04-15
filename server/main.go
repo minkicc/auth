@@ -24,6 +24,7 @@ import (
 	"github.com/gin-contrib/static"
 	"github.com/gin-gonic/contrib/gzip"
 	"github.com/gin-gonic/gin"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 
@@ -141,6 +142,7 @@ func main() {
 
 	// Create Gin engine
 	r := gin.New()
+	r.Use(gin.Recovery())
 
 	// Add CORS middleware
 	corsConfig := cors.DefaultConfig()
@@ -162,6 +164,7 @@ func main() {
 			"time":   time.Now().Format(time.RFC3339),
 		})
 	})
+	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
 
 	// Initialize session middleware
 	// store, err := redis.NewStore(10, "tcp", cfg.Redis.GetRedisAddr(), cfg.Redis.Password, []byte("secret"))
@@ -176,7 +179,10 @@ func main() {
 	r.Use(middleware.MetricsMiddleware())
 
 	// Add rate limiting middleware
-	rateLimiter := middleware.RateLimiter{}
+	rateLimiter := middleware.NewRateLimiter(
+		middleware.NewRedisStoreFromClient(globalRedisStore.GetClient()),
+		middleware.DefaultRateLimiterConfig(),
+	)
 	r.Use(rateLimiter.RateLimitMiddleware())
 
 	r.Use(middleware.AccessLogMiddleware())

@@ -115,20 +115,20 @@
             </template>
             <div class="stat-content">
               <div class="stat-item">
-                <div class="stat-value info">{{ stats.verified_users }}</div>
-                <div class="stat-label">{{ $t('dashboard.verified_users') }}</div>
+                <div class="stat-value primary">{{ stats.local_users }}</div>
+                <div class="stat-label">{{ $t('dashboard.local_users') }}</div>
               </div>
               <div class="stat-item">
-                <div class="stat-value warning">{{ stats.unverified_users }}</div>
-                <div class="stat-label">{{ $t('dashboard.unverified_users') }}</div>
-              </div>
-              <div class="stat-item">
-                <div class="stat-value success">{{ stats.two_factor_enabled }}</div>
-                <div class="stat-label">{{ $t('dashboard.two_factor_enabled') }}</div>
-              </div>
-              <div class="stat-item">
-                <div class="stat-value primary">{{ stats.social_users }}</div>
+                <div class="stat-value info">{{ stats.social_users }}</div>
                 <div class="stat-label">{{ $t('dashboard.social_users') }}</div>
+              </div>
+              <div class="stat-item">
+                <div class="stat-value success">{{ stats.email_users }}</div>
+                <div class="stat-label">{{ $t('dashboard.email_users') }}</div>
+              </div>
+              <div class="stat-item">
+                <div class="stat-value warning">{{ stats.phone_users }}</div>
+                <div class="stat-label">{{ $t('dashboard.phone_users') }}</div>
               </div>
             </div>
           </el-card>
@@ -161,9 +161,8 @@ const stats = reactive<StatsData>({
   login_today: 0,
   login_this_week: 0,
   login_this_month: 0,
-  verified_users: 0,
-  unverified_users: 0,
-  two_factor_enabled: 0,
+  email_users: 0,
+  phone_users: 0,
   social_users: 0,
   local_users: 0
 })

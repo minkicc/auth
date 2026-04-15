@@ -75,9 +75,8 @@ export interface StatsData {
   login_today: number
   login_this_week: number
   login_this_month: number
-  verified_users: number
-  unverified_users: number
-  two_factor_enabled: number
+  email_users: number
+  phone_users: number
   social_users: number
   local_users: number
 }
@@ -122,7 +121,7 @@ export interface ActivityData {
 
 export interface SessionData {
   id: string
-  user_id: number
+  user_id: string
   ip: string
   user_agent: string
   expires_at: string

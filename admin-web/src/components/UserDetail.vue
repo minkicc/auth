@@ -11,22 +11,8 @@
         <el-descriptions :title="$t('userDetail.user_info')" :column="2" border>
           <el-descriptions-item :label="$t('userDetail.user_id')">{{ getUserId(user) }}</el-descriptions-item>
           <el-descriptions-item :label="$t('userDetail.username')">{{ getUserName(user) }}</el-descriptions-item>
-          <!-- <el-descriptions-item :label="$t('userDetail.email')">{{ user.email || $t('userDetail.none') }}</el-descriptions-item> -->
-          <!-- <el-descriptions-item :label="$t('userDetail.status')">
+          <el-descriptions-item :label="$t('userDetail.status')">
             <el-tag :type="getStatusType(getStatus(user))">{{ getStatusText(getStatus(user)) }}</el-tag>
-          </el-descriptions-item> -->
-          <!-- <el-descriptions-item :label="$t('userDetail.provider')">
-            <el-tag type="info">{{ getProviderText(getProvider(user)) }}</el-tag>
-          </el-descriptions-item> -->
-          <!-- <el-descriptions-item :label="$t('userDetail.verification_status')">
-            <el-tag :type="isVerified(user) ? 'success' : 'danger'">
-              {{ isVerified(user) ? $t('userDetail.verified') : $t('userDetail.not_verified') }}
-            </el-tag>
-          </el-descriptions-item> -->
-          <el-descriptions-item :label="$t('userDetail.two_factor_auth')">
-            <el-tag :type="user.two_factor_enabled ? 'success' : 'info'">
-              {{ user.two_factor_enabled ? $t('userDetail.enabled') : $t('userDetail.disabled') }}
-            </el-tag>
           </el-descriptions-item>
           <el-descriptions-item :label="$t('userDetail.registration_time')">
             {{ formatDateTime(getCreatedAt(user)) }}
@@ -358,9 +344,9 @@ const getUserName = (user: User): string => {
 }
 
 // 辅助函数：获取状态
-// const getStatus = (user: User): string => {
-//   return user.status || 'inactive'
-// }
+const getStatus = (user: User): string => {
+  return user.status || 'inactive'
+}
 
 // 辅助函数：获取提供商
 // const getProvider = (user: User): string => {
@@ -396,26 +382,26 @@ const formatDateTime = (dateStr: string | null) => {
 }
 
 // 获取状态类型
-// const getStatusType = (status: string) => {
-//   const map: Record<string, string> = {
-//     active: 'success',
-//     inactive: 'info',
-//     locked: 'warning',
-//     banned: 'danger'
-//   }
-//   return map[status] || 'info'
-// }
+const getStatusType = (status: string) => {
+  const map: Record<string, string> = {
+    active: 'success',
+    inactive: 'info',
+    locked: 'warning',
+    banned: 'danger'
+  }
+  return map[status] || 'info'
+}
 
-// // 获取状态文本
-// const getStatusText = (status: string) => {
-//   const map: Record<string, string> = {
-//     active: t('userDetail.status_active'),
-//     inactive: t('userDetail.status_inactive'),
-//     locked: t('userDetail.status_locked'),
-//     banned: t('userDetail.status_banned')
-//   }
-//   return map[status] || status
-// }
+// 获取状态文本
+const getStatusText = (status: string) => {
+  const map: Record<string, string> = {
+    active: t('userDetail.status_active'),
+    inactive: t('userDetail.status_inactive'),
+    locked: t('userDetail.status_locked'),
+    banned: t('userDetail.status_banned')
+  }
+  return map[status] || status
+}
 
 // // 获取提供商文本
 // const getProviderText = (provider: string) => {
