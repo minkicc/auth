@@ -324,6 +324,7 @@ go get minki.cc/mkauth/client
 可直接参考：
 - [client/example/resource-server/main.go](client/example/resource-server/main.go)
 - [client/example/resource-server/README.md](client/example/resource-server/README.md)
+- [client/oidcresource/README.md](client/oidcresource/README.md)
 
 ### 2. 查询当前登录用户
 

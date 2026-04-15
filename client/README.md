@@ -14,6 +14,7 @@
 - [example/README.md](./example/README.md)：运行方法
 - [example/resource-server/main.go](./example/resource-server/main.go)：Go 资源服务 access token 校验示例
 - [example/resource-server/README.md](./example/resource-server/README.md)：资源服务示例运行方法
+- [oidcresource/README.md](./oidcresource/README.md)：可复用的 discovery + JWKS + Gin middleware 辅助包
 
 ## 安装
 
@@ -55,6 +56,12 @@ client := auth.NewAuthClient(
 可直接参考：
 - [example/resource-server/main.go](./example/resource-server/main.go)
 - [example/resource-server/README.md](./example/resource-server/README.md)
+
+如果你不想从示例里手抄校验逻辑，也可以直接使用：
+
+```go
+import "minki.cc/mkauth/client/oidcresource"
+```
 
 也就是说，这个 SDK 现在更适合调用 MKAuth 的管理型 `/api` 接口，而不是承担 OIDC 资源服务器鉴权职责。
 

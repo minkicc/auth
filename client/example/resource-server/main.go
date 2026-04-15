@@ -7,16 +7,14 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"strings"
 
-	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/gin-gonic/gin"
-	"github.com/golang-jwt/jwt/v5"
+	"minki.cc/mkauth/client/oidcresource"
 )
 
 const (
@@ -32,25 +30,9 @@ type appConfig struct {
 	ListenAddr       string
 }
 
-type discoveryDocument struct {
-	Issuer                string `json:"issuer"`
-	AuthorizationEndpoint string `json:"authorization_endpoint"`
-	TokenEndpoint         string `json:"token_endpoint"`
-	UserInfoEndpoint      string `json:"userinfo_endpoint"`
-	JWKSURI               string `json:"jwks_uri"`
-}
-
-type accessTokenClaims struct {
-	Scope     string `json:"scope"`
-	ClientID  string `json:"client_id"`
-	TokenType string `json:"token_type"`
-	jwt.RegisteredClaims
-}
-
 type resourceServer struct {
 	cfg       appConfig
-	discovery discoveryDocument
-	verifier  *oidc.IDTokenVerifier
+	validator *oidcresource.Validator
 }
 
 func main() {
@@ -73,22 +55,18 @@ func main() {
 }
 
 func newResourceServer(ctx context.Context, cfg appConfig) (*resourceServer, error) {
-	discovery, err := fetchDiscovery(ctx, cfg.Issuer)
-	if err != nil {
-		return nil, err
-	}
-
-	provider, err := oidc.NewProvider(ctx, cfg.Issuer)
+	validator, err := oidcresource.New(ctx, oidcresource.Config{
+		Issuer:         cfg.Issuer,
+		Audience:       cfg.ExpectedAudience,
+		RequiredScopes: splitOptionalScope(cfg.RequiredScope),
+	})
 	if err != nil {
 		return nil, err
 	}
 
 	return &resourceServer{
 		cfg:       cfg,
-		discovery: discovery,
-		verifier: provider.Verifier(&oidc.Config{
-			ClientID: cfg.ExpectedAudience,
-		}),
+		validator: validator,
 	}, nil
 }
 
@@ -109,7 +87,7 @@ func (s *resourceServer) index(c *gin.Context) {
 			"required_scope":    s.cfg.RequiredScope,
 			"listen_addr":       s.cfg.ListenAddr,
 		},
-		"discovery": s.discovery,
+		"discovery": s.validator.Discovery(),
 		"routes": gin.H{
 			"public":    baseURL + "/public",
 			"protected": baseURL + "/protected",
@@ -132,8 +110,7 @@ func (s *resourceServer) public(c *gin.Context) {
 }
 
 func (s *resourceServer) protected(c *gin.Context) {
-	claimsValue, _ := c.Get("access_token_claims")
-	claims, _ := claimsValue.(*accessTokenClaims)
+	claims, _ := oidcresource.ClaimsFromContext(c)
 
 	c.JSON(http.StatusOK, gin.H{
 		"message": "access token accepted",
@@ -151,68 +128,7 @@ func (s *resourceServer) protected(c *gin.Context) {
 }
 
 func (s *resourceServer) authRequired() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		raw := bearerToken(c.GetHeader("Authorization"))
-		if raw == "" {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "missing bearer token"})
-			c.Abort()
-			return
-		}
-
-		token, err := s.verifier.Verify(c.Request.Context(), raw)
-		if err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid access token", "details": err.Error()})
-			c.Abort()
-			return
-		}
-
-		var claims accessTokenClaims
-		if err := token.Claims(&claims); err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "failed to decode token claims", "details": err.Error()})
-			c.Abort()
-			return
-		}
-
-		if claims.TokenType != "access_token" {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "token_type must be access_token"})
-			c.Abort()
-			return
-		}
-		if s.cfg.RequiredScope != "" && !hasScope(claims.Scope, s.cfg.RequiredScope) {
-			c.JSON(http.StatusForbidden, gin.H{
-				"error":          "missing required scope",
-				"required_scope": s.cfg.RequiredScope,
-				"token_scope":    strings.Fields(claims.Scope),
-			})
-			c.Abort()
-			return
-		}
-
-		c.Set("access_token_claims", &claims)
-		c.Next()
-	}
-}
-
-func fetchDiscovery(ctx context.Context, issuer string) (discoveryDocument, error) {
-	discoveryURL := strings.TrimRight(issuer, "/") + "/.well-known/openid-configuration"
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, discoveryURL, nil)
-	if err != nil {
-		return discoveryDocument{}, err
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return discoveryDocument{}, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return discoveryDocument{}, fmt.Errorf("discovery failed: %s", resp.Status)
-	}
-
-	var document discoveryDocument
-	if err := json.NewDecoder(resp.Body).Decode(&document); err != nil {
-		return discoveryDocument{}, err
-	}
-	return document, nil
+	return s.validator.Middleware()
 }
 
 func loadConfig() appConfig {
@@ -232,22 +148,6 @@ func envOrDefault(key, fallback string) string {
 	return value
 }
 
-func hasScope(scopeString string, target string) bool {
-	for _, scope := range strings.Fields(scopeString) {
-		if scope == target {
-			return true
-		}
-	}
-	return false
-}
-
-func bearerToken(header string) string {
-	if !strings.HasPrefix(header, "Bearer ") {
-		return ""
-	}
-	return strings.TrimSpace(strings.TrimPrefix(header, "Bearer "))
-}
-
 func displayBaseURL(listenAddr string) string {
 	if strings.HasPrefix(listenAddr, ":") {
 		return "http://127.0.0.1" + listenAddr
@@ -256,4 +156,12 @@ func displayBaseURL(listenAddr string) string {
 		return listenAddr
 	}
 	return "http://" + listenAddr
+}
+
+func splitOptionalScope(scope string) []string {
+	scope = strings.TrimSpace(scope)
+	if scope == "" {
+		return nil
+	}
+	return []string{scope}
 }
