@@ -318,6 +318,7 @@ Recommended approach:
 Concrete example:
 - [client/example/resource-server/main.go](client/example/resource-server/main.go)
 - [client/example/resource-server/README.md](client/example/resource-server/README.md)
+- [client/oidcresource/README.md](client/oidcresource/README.md)
 
 ### Fetch current user
 

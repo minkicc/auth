@@ -10,6 +10,10 @@
 - 额外检查 `token_type=access_token`
 - 可选检查某个必需 scope
 
+示例内部使用的是仓库里新增的可复用 helper 包：
+
+- [../../oidcresource/README.md](../../oidcresource/README.md)
+
 ## 默认配置
 
 ```text
