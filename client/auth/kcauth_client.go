@@ -24,6 +24,8 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
+var errOIDCValidationRequired = errors.New("legacy /api/token/validate validation was removed on the OIDC-first branch; validate tokens with OIDC discovery and JWKS instead")
+
 // KCAuthClient JWT客户端
 type KCAuthClient struct {
 	APIAddr      string           // 认证服务URL
@@ -136,41 +138,10 @@ func getJWTClaims(accessToken string) (*CustomClaims, error) {
 	return nil, errors.New("invalid token claims")
 }
 
-// remoteValidateToken 验证令牌
+// remoteValidateToken 旧 JWT 远程验证接口在 OIDC-first 分支已移除
 func (c *KCAuthClient) remoteValidateToken(accessToken string) (bool, error) {
-	// 创建请求
-	req, err := http.NewRequest("POST", c.APIAddr+"/token/validate", nil)
-	if err != nil {
-		log.Println("创建请求失败", err)
-		return false, err
-	}
-	req.Header.Set("Authorization", "Bearer "+accessToken)
-
-	// 发送请求
-	resp, err := c.HTTPClient.Do(req)
-	if err != nil {
-		return false, err
-	}
-	defer resp.Body.Close()
-
-	// 检查响应状态
-	if resp.StatusCode == http.StatusOK {
-		return true, nil
-	}
-
-	// 令牌无效
-	if resp.StatusCode == http.StatusUnauthorized {
-		return false, nil
-	}
-
-	// 其他错误
-	var errResp struct {
-		Error string `json:"error"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&errResp); err != nil {
-		return false, fmt.Errorf("验证令牌失败: %d", resp.StatusCode)
-	}
-	return false, errors.New(errResp.Error)
+	_ = accessToken
+	return false, errOIDCValidationRequired
 }
 
 // AuthRequired 验证JWT令牌的中间件
@@ -196,7 +167,7 @@ func (c *KCAuthClient) AuthRequired() gin.HandlerFunc {
 
 		claims, err := c.ValidateToken(tokenString)
 		if err != nil {
-			ctx.JSON(http.StatusUnauthorized, gin.H{"error": "无效的令牌"})
+			ctx.JSON(http.StatusNotImplemented, gin.H{"error": err.Error()})
 			ctx.Abort()
 			return
 		}
@@ -209,24 +180,8 @@ func (c *KCAuthClient) AuthRequired() gin.HandlerFunc {
 
 // 验证令牌
 func (c *KCAuthClient) ValidateToken(tokenString string) (*CustomClaims, error) {
-
-	claims, err := c.getTokenCached(tokenString)
-	if err == nil {
-		return claims, nil
-	}
-	valid, err := c.remoteValidateToken(tokenString)
-	if err != nil {
-		return nil, err
-	}
-	if !valid {
-		return nil, errors.New("invalid token")
-	}
-	claims, err = getJWTClaims(tokenString)
-	if err != nil {
-		return nil, err
-	}
-	c.cacheToken(tokenString)
-	return claims, nil
+	_ = tokenString
+	return nil, errOIDCValidationRequired
 }
 
 // OptionalAuth 可选的JWT验证中间件
@@ -248,7 +203,8 @@ func (c *KCAuthClient) OptionalAuth() gin.HandlerFunc {
 
 		claims, err := c.ValidateToken(tokenString)
 		if err != nil {
-			ctx.Next()
+			ctx.JSON(http.StatusNotImplemented, gin.H{"error": err.Error()})
+			ctx.Abort()
 			return
 		}
 		ctx.Set("user_id", claims.UserID)

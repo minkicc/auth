@@ -303,18 +303,12 @@ go get minki.cc/mkauth/client
 
 ### Protect business APIs
 
-```go
-client := auth.NewAuthClient("http://localhost:8080", "", "")
+On this branch, `client.AuthRequired()` is no longer the recommended way to protect business resource APIs.
 
-protected := r.Group("/api")
-protected.Use(client.AuthRequired())
-{
-    protected.GET("/profile", func(c *gin.Context) {
-        userID := c.GetString("user_id")
-        c.JSON(200, gin.H{"user_id": userID})
-    })
-}
-```
+Recommended approach:
+- read `/.well-known/openid-configuration`
+- load `jwks_uri` with a standard OIDC / OAuth2 JWT library
+- validate access tokens against `issuer`, `audience`, and signature
 
 ### Fetch current user
 
@@ -357,7 +351,6 @@ Only use this in local or test environments.
 - `POST /api/email/login`
 - `POST /api/phone/login`
 - `POST /api/token/refresh`
-- `POST /api/token/validate`
 - `POST /api/logout`
 
 ### User endpoints

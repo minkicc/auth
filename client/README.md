@@ -39,45 +39,14 @@ client := auth.NewAuthClient(
 
 ## 1. 给业务接口加登录保护
 
-```go
-package main
+这条分支不再推荐使用 `client.AuthRequired()` 或 `client.OptionalAuth()` 做资源服务鉴权，因为服务端的旧 `/api/token/validate` 已经移除。
 
-import (
-    "net/http"
+推荐做法：
+- 读取 `/.well-known/openid-configuration`
+- 使用标准 OIDC / OAuth2 JWT 库加载 `jwks_uri`
+- 基于 `issuer`、`audience` 和签名校验 access token
 
-    "github.com/gin-gonic/gin"
-    mkauth "minki.cc/mkauth/client/auth"
-)
-
-func main() {
-    client := mkauth.NewAuthClient("http://localhost:8080", "", "")
-
-    r := gin.Default()
-
-    protected := r.Group("/api")
-    protected.Use(client.AuthRequired())
-    {
-        protected.GET("/profile", func(c *gin.Context) {
-            userID := c.GetString("user_id")
-            c.JSON(http.StatusOK, gin.H{"user_id": userID})
-        })
-    }
-
-    r.Run(":8082")
-}
-```
-
-`AuthRequired()` 会：
-- 从 `Authorization: Bearer <token>` 中提取令牌
-- 远程调用 MKAuth 验证令牌有效性
-- 把 `user_id` 写入 Gin Context
-
-如果你希望接口支持“登录用户看完整数据、匿名用户看简化数据”，可以用：
-
-```go
-public := r.Group("/public")
-public.Use(client.OptionalAuth())
-```
+也就是说，这个 SDK 现在更适合调用 MKAuth 的管理型 `/api` 接口，而不是承担 OIDC 资源服务器鉴权职责。
 
 ## 2. 获取当前登录用户信息
 
@@ -169,11 +138,11 @@ client.UseInsecureTLS()
 ## 常见注意事项
 
 - `Authorization` 请求头必须是 `Bearer <token>` 格式。
-- 如果只做 JWT 校验，不需要配置 `client_id` 和 `client_secret`。
 - 如果要调用 `GetUserInfoById`、`GetUsersInfo`，必须配置可信客户端。
 - `client_secret` 应与服务端 `auth_trusted_clients` 配置保持一致。
 - 生产环境建议始终使用 HTTPS。
 - 这条分支的 OIDC 登录请直接使用标准 OIDC 客户端库，不再走 `LoginVerify()` 这种自定义 code 交换方式。
+- `AuthRequired()`、`OptionalAuth()`、`ValidateToken()` 在这条分支会直接返回迁移提示，请改用 OIDC discovery + JWKS。
 
 ## 相关文档
 

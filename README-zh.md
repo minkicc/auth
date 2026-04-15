@@ -309,18 +309,12 @@ go get minki.cc/mkauth/client
 
 ### 1. 为业务接口加登录保护
 
-```go
-client := auth.NewAuthClient("http://localhost:8080", "", "")
+这条分支不再推荐使用 `client.AuthRequired()` 做业务资源接口保护。
 
-protected := r.Group("/api")
-protected.Use(client.AuthRequired())
-{
-    protected.GET("/profile", func(c *gin.Context) {
-        userID := c.GetString("user_id")
-        c.JSON(200, gin.H{"user_id": userID})
-    })
-}
-```
+推荐做法：
+- 读取 `/.well-known/openid-configuration`
+- 使用标准 OIDC / OAuth2 JWT 库加载 `jwks_uri`
+- 基于 `issuer`、`audience` 和签名校验 access token
 
 ### 2. 查询当前登录用户
 
@@ -363,7 +357,6 @@ client.UseInsecureTLS()
 - `POST /api/email/login`
 - `POST /api/phone/login`
 - `POST /api/token/refresh`
-- `POST /api/token/validate`
 - `POST /api/logout`
 
 ### 用户接口
