@@ -7,7 +7,7 @@ The `codex/oidc-break` branch moves the primary integration path to standard OID
 It is a good fit when:
 - multiple applications need to share one user system
 - you want SSO-style login without building OIDC, token, and session management from scratch
-- your backend is written in Go and you want SDK-based token validation and user lookup
+- your backend is written in Go and you want Go-based integration examples plus management-style user lookup APIs
 
 ## Features
 
@@ -53,6 +53,7 @@ Default endpoints:
 Notes:
 - `quickstart/config.yaml` enables `account` login only by default.
 - `quickstart/config.yaml` also enables OIDC and preconfigures a public client named `demo-spa` for the bundled PKCE demo.
+- `quickstart/config.yaml` also preconfigures a confidential client named `demo-backend` for the Go backend callback example under [client/example](client/example/README.md).
 - `auth_admin.enabled` is `false` in the quickstart config.
 - `quickstart/docker-compose.yml` builds the current checkout so the quickstart always matches this branch.
 
@@ -319,6 +320,12 @@ Recommended approach:
 ```go
 user, err := client.GetUserInfo(accessToken)
 ```
+
+This call targets MKAuth's management-style `/api/user` endpoint.
+
+Use it when you are still calling the older `/api` login endpoints directly.
+
+If your app signs users in through standard OIDC, prefer `/oauth2/userinfo` for profile reads and see the Go backend callback example under [client/example](client/example/README.md).
 
 ### Fetch one user or many users
 

@@ -8,6 +8,11 @@
 - 批量拉取用户资料
 - 调用资料类管理接口（昵称、头像等）
 
+另外，仓库还提供了一个不依赖旧 `/api/login/*` 流程的标准 OIDC 示例：
+
+- [example/main.go](./example/main.go)：Go 后端回调 / BFF 风格示例
+- [example/README.md](./example/README.md)：运行方法
+
 ## 安装
 
 ```bash
@@ -33,7 +38,7 @@ client := auth.NewAuthClient(
 说明：
 - 第一个参数是 MKAuth 服务地址。
 - SDK 会自动把地址规范到 `/api`。
-- 如果只是做 JWT 校验，中间两个参数可以留空。
+- 如果只是调用无需可信客户端的 `/api` 接口，中间两个参数可以留空。
 - 如果要做 `GetUserInfoById`、`GetUsersInfo`，需要配置 `client_id` 和 `client_secret`。
 
 ## 1. 给业务接口加登录保护
@@ -61,6 +66,11 @@ fmt.Println(user.UserID, user.Nickname, user.Avatar)
 这个接口适合：
 - 业务系统自己的“当前用户信息”接口
 - 登录完成后的资料同步
+
+注意：
+- 这里的 `GetUserInfo()` 调用的是 MKAuth 的管理型 `/api/user`
+- 它更适合直接使用 `/api/account/login` 这类接口拿到的旧 `/api` token 场景
+- 如果你走的是标准 OIDC 登录，用户资料读取应优先使用 `/oauth2/userinfo`
 
 ## 3. 按用户 ID 查询用户
 
@@ -94,6 +104,8 @@ for _, user := range users {
 这条分支没有 `client.RefreshToken()`，也没有 `/api/token/refresh`。
 
 如果你的业务需要无感续期，请直接接标准 OIDC Authorization Code + PKCE，通过 `/oauth2/authorize` 与 `/oauth2/token` 获取新令牌。
+
+如果你的业务是“浏览器 + Go 后端”，更推荐直接参考 [example/main.go](./example/main.go) 的 BFF 风格接法，让 code exchange 留在后端。
 
 ## 6. 更新昵称或头像
 
@@ -134,6 +146,7 @@ client.UseInsecureTLS()
 - 生产环境建议始终使用 HTTPS。
 - 这条分支的 OIDC 登录请直接使用标准 OIDC 客户端库，不再走 `LoginVerify()` 这种自定义 code 交换方式。
 - `AuthRequired()`、`OptionalAuth()`、`ValidateToken()` 在这条分支会直接返回迁移提示，请改用 OIDC discovery + JWKS。
+- 如果你要做 Web 登录接入，优先参考 [example/main.go](./example/main.go) 里的后端回调示例，而不是把 SDK 当成 OIDC 登录库使用。
 
 ## 相关文档
 

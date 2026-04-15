@@ -29,6 +29,7 @@ docker compose up -d --build
 `quickstart/config.yaml` 默认配置为：
 - 仅启用 `account` 登录
 - 默认启用 OIDC，并内置一个公共客户端 `demo-spa`
+- 还内置了一个 confidential client `demo-backend`，供 Go 后端回调示例使用
 - 管理后台关闭
 - 存储后端使用 MinIO
 - OIDC demo 的回调地址已经预先配置为 `http://127.0.0.1:3000/`
@@ -46,6 +47,30 @@ docker compose up -d --build
    - 调用 `/oauth2/userinfo`
    - 展示 `access_token`、`id_token` 和用户信息
 6. 点击 `Logout` 会调用 `/oauth2/logout` 清理 MKAuth 浏览器会话，并跳回 demo 页面
+
+## 运行 Go 后端回调示例
+
+仓库还带了一个 Go 版 BFF / backend callback 示例，默认配置已经和 quickstart 对齐：
+
+```bash
+cd client
+go run ./example
+```
+
+启动后访问：
+
+```text
+http://127.0.0.1:8082
+```
+
+这个示例默认使用：
+
+```text
+MKAUTH_ISSUER=http://127.0.0.1:8080
+MKAUTH_CLIENT_ID=demo-backend
+MKAUTH_CLIENT_SECRET=demo-backend-secret
+MKAUTH_REDIRECT_URL=http://127.0.0.1:8082/auth/callback
+```
 
 ## 如果要启用管理后台
 
