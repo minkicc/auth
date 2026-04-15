@@ -265,7 +265,6 @@ curl -X POST http://localhost:8080/oauth2/token \
 - `POST /api/account/login`
 - `POST /api/email/login`
 - `POST /api/phone/login`
-- `POST /api/token/refresh`
 - `POST /api/logout`
 - `GET /api/user`
 
@@ -295,11 +294,9 @@ curl -X POST http://localhost:8080/api/account/login \
 Authorization: Bearer <access-token>
 ```
 
-刷新令牌通过 `refreshToken` Cookie 维护，刷新接口为：
+这些 `/api` 登录接口现在只返回短时效的 access token，这条分支不再提供 `POST /api/token/refresh`。
 
-```text
-POST /api/token/refresh
-```
+如果你需要浏览器里的无感续期，更推荐直接接标准 OIDC Authorization Code + PKCE，让 MKAuth 复用自己的 `oidc_session` 浏览器会话。
 
 ## Go SDK 使用方式
 
@@ -337,11 +334,11 @@ user, err := client.GetUserInfoById(accessToken, "user-001")
 users, err, statusCode := client.GetUsersInfo(accessToken, []string{"user-001", "user-002"})
 ```
 
-### 4. 刷新令牌
+### 4. 令牌续期
 
-```go
-newToken, statusCode, err := client.RefreshToken(refreshToken, c)
-```
+这条分支没有 `client.RefreshToken()`，也没有 `POST /api/token/refresh`。
+
+需要续期时，请重新走一次标准 OIDC 授权码流程，通过 `/oauth2/authorize` 和 `/oauth2/token` 获取新的令牌。
 
 ### 5. 本地自签名 HTTPS 调试
 
@@ -360,7 +357,6 @@ client.UseInsecureTLS()
 - `POST /api/account/login`
 - `POST /api/email/login`
 - `POST /api/phone/login`
-- `POST /api/token/refresh`
 - `POST /api/logout`
 
 ### 用户接口

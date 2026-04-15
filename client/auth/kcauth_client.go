@@ -471,78 +471,9 @@ func (c *KCAuthClient) DeleteAvatar(accessToken string) error {
 	return nil
 }
 
-// RefreshToken 刷新访问令牌
-func (c *KCAuthClient) RefreshToken(refreshToken string, gin *gin.Context) (string, int, error) {
-	// 创建请求
-	req, err := http.NewRequest("POST", c.APIAddr+"/token/refresh", nil)
-	if err != nil {
-		log.Println("创建请求失败", err)
-		return "", 0, fmt.Errorf("创建请求失败: %v", err)
-	}
-	// 设置请求头
-	// req.Header.Set("Authorization", "Bearer "+accessToken)
-
-	// 设置Cookie
-	cookie := &http.Cookie{
-		Name:     "refreshToken",
-		Value:    refreshToken,
-		HttpOnly: true,
-		Secure:   true,
-		SameSite: http.SameSiteStrictMode,
-	}
-	req.AddCookie(cookie)
-
-	// 发送请求
-	resp, err := c.HTTPClient.Do(req)
-	if err != nil {
-		return "", 0, fmt.Errorf("发送请求失败: %v", err)
-	}
-	defer resp.Body.Close()
-
-	// 检查响应状态
-	if resp.StatusCode != http.StatusOK {
-		var errResp struct {
-			Error string `json:"error"`
-		}
-		if err := json.NewDecoder(resp.Body).Decode(&errResp); err != nil {
-			return "", resp.StatusCode, fmt.Errorf("刷新令牌失败: %d", resp.StatusCode)
-		}
-		log.Println("刷新令牌失败", errResp.Error, refreshToken)
-		return "", resp.StatusCode, errors.New(errResp.Error)
-	}
-
-	// 解析响应
-	var result struct {
-		AccessToken string `json:"token"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", resp.StatusCode, fmt.Errorf("解析响应失败: %v", err)
-	}
-
-	// 将resp里的refreshToken转存到gin
-	for _, cookie := range resp.Cookies() {
-		if cookie.Name == "refreshToken" {
-			gin.SetCookie("refreshToken", cookie.Value, cookie.MaxAge, cookie.Path, cookie.Domain, cookie.Secure, cookie.HttpOnly)
-			break
-		}
-	}
-
-	// 清除旧令牌的缓存
-	// c.cacheMutex.Lock()
-	// delete(c.tokenCache, accessToken)
-	// c.cacheMutex.Unlock()
-
-	// 缓存新token
-	// c.refreshCacheToken(accessToken, result.AccessToken)
-	c.cacheToken(result.AccessToken)
-
-	return result.AccessToken, resp.StatusCode, nil
-}
-
 // LoginVerify 旧登录 code 交换接口，OIDC-first 分支已移除服务端对应端点
-func (c *KCAuthClient) LoginVerify(code string, gin *gin.Context) (*LoginVerifyResponse, error) {
+func (c *KCAuthClient) LoginVerify(code string) (*LoginVerifyResponse, error) {
 	_ = code
-	_ = gin
 	return nil, errors.New("LoginVerify is not available on the OIDC-first branch; use the standard OIDC authorization code flow against /oauth2/token")
 }
 
@@ -634,7 +565,7 @@ func (c *KCAuthClient) Logout(accessToken string) error {
 }
 
 // WeixinMiniLogin 微信小程序登录
-func (c *KCAuthClient) WeixinMiniLogin(code string, gin *gin.Context) (*LoginVerifyResponse, error) {
+func (c *KCAuthClient) WeixinMiniLogin(code string) (*LoginVerifyResponse, error) {
 	// 创建请求URL
 	url := fmt.Sprintf("%s/weixin/miniprogram?code=%s", c.APIAddr, code)
 
@@ -671,14 +602,6 @@ func (c *KCAuthClient) WeixinMiniLogin(code string, gin *gin.Context) (*LoginVer
 	var response LoginVerifyResponse
 	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
 		return nil, fmt.Errorf("解析响应失败: %v", err)
-	}
-
-	// 将resp里的refreshToken转存到gin
-	for _, cookie := range resp.Cookies() {
-		if cookie.Name == "refreshToken" {
-			gin.SetCookie("refreshToken", cookie.Value, cookie.MaxAge, cookie.Path, cookie.Domain, cookie.Secure, cookie.HttpOnly)
-			break
-		}
 	}
 
 	// 缓存token

@@ -259,7 +259,6 @@ Common endpoints:
 - `POST /api/account/login`
 - `POST /api/email/login`
 - `POST /api/phone/login`
-- `POST /api/token/refresh`
 - `POST /api/logout`
 - `GET /api/user`
 
@@ -289,11 +288,9 @@ After login, attach the returned token like this:
 Authorization: Bearer <access-token>
 ```
 
-Refresh token state is maintained by the `refreshToken` cookie via:
+These `/api` login endpoints now return a short-lived access token only. This branch does not expose `POST /api/token/refresh`.
 
-```text
-POST /api/token/refresh
-```
+If you need seamless token renewal in a browser app, prefer the standard OIDC authorization code flow with PKCE so MKAuth can reuse its `oidc_session` browser session.
 
 ## Go SDK
 
@@ -331,11 +328,11 @@ user, err := client.GetUserInfoById(accessToken, "user-001")
 users, err, statusCode := client.GetUsersInfo(accessToken, []string{"user-001", "user-002"})
 ```
 
-### Refresh token
+### Token renewal
 
-```go
-newToken, statusCode, err := client.RefreshToken(refreshToken, c)
-```
+`client.RefreshToken()` and `POST /api/token/refresh` are not available on this branch.
+
+Renew tokens by running a fresh OIDC authorization code flow against `/oauth2/authorize` and `/oauth2/token`.
 
 ### Local self-signed TLS debugging
 
@@ -354,7 +351,6 @@ Only use this in local or test environments.
 - `POST /api/account/login`
 - `POST /api/email/login`
 - `POST /api/phone/login`
-- `POST /api/token/refresh`
 - `POST /api/logout`
 
 ### User endpoints

@@ -7,7 +7,6 @@ package handlers
 
 import (
 	"net/http"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"minki.cc/mkauth/server/auth"
@@ -37,14 +36,14 @@ func (h *AuthHandler) WeixinMiniLogin(c *gin.Context) {
 
 	// 创建会话
 	clientIP := c.ClientIP()
-	session, err := h.sessionMgr.CreateUserSession(user.UserID, clientIP, c.Request.UserAgent(), auth.RefreshTokenExpiration+time.Hour)
+	session, err := h.sessionMgr.CreateUserSession(user.UserID, clientIP, c.Request.UserAgent(), auth.SessionExpiration)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create session"})
 		return
 	}
 
-	// 生成 token 对
-	tokenPair, err := h.jwtService.GenerateTokenPair(user.UserID, session.ID)
+	// 生成 access token
+	accessToken, err := h.jwtService.GenerateAccessToken(user.UserID, session.ID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
 		return
@@ -64,13 +63,10 @@ func (h *AuthHandler) WeixinMiniLogin(c *gin.Context) {
 		user.Avatar = url
 	}
 
-	// 设置 cookie
-	c.SetCookie("refreshToken", tokenPair.RefreshToken, int(auth.RefreshTokenExpiration.Seconds()), "/", "", true, true)
-
 	// 返回用户信息和 token
 	c.JSON(http.StatusOK, gin.H{
 		"user_id":     user.UserID,
-		"token":       tokenPair.AccessToken,
+		"token":       accessToken,
 		"nickname":    user.Nickname,
 		"avatar":      user.Avatar,
 		"expire_time": auth.TokenExpiration,

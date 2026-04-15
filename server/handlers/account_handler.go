@@ -6,10 +6,8 @@
 package handlers
 
 import (
-	"log"
 	"net/http"
 	"strconv"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"minki.cc/mkauth/server/auth"
@@ -74,13 +72,13 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	// token, err := h.jwtService.GenerateJWT(user.UserID, "", "")
 
 	// Or create session
-	session, err := h.sessionMgr.CreateUserSession(user.UserID, clientIP, c.Request.UserAgent(), auth.RefreshTokenExpiration+time.Hour)
+	session, err := h.sessionMgr.CreateUserSession(user.UserID, clientIP, c.Request.UserAgent(), auth.SessionExpiration)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create session"})
 		return
 	}
 
-	tokenPair, err := h.jwtService.GenerateTokenPair(user.UserID, session.ID)
+	accessToken, err := h.jwtService.GenerateAccessToken(user.UserID, session.ID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
 		return
@@ -100,10 +98,9 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	// 	user.Avatar = url
 	// }
 
-	c.SetCookie("refreshToken", tokenPair.RefreshToken, int(auth.RefreshTokenExpiration.Seconds()), "/", "", true, true)
 	c.JSON(http.StatusOK, gin.H{
 		"user_id":     user.UserID,
-		"token":       tokenPair.AccessToken,
+		"token":       accessToken,
 		"nickname":    user.Nickname,
 		"avatar":      user.Avatar,
 		"expire_time": auth.TokenExpiration,
@@ -144,13 +141,13 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	// token, err := h.jwtService.GenerateJWT(user.UserID, "", "")
 
 	// Or create session
-	session, err := h.sessionMgr.CreateUserSession(user.UserID, clientIP, c.Request.UserAgent(), auth.RefreshTokenExpiration+time.Hour)
+	session, err := h.sessionMgr.CreateUserSession(user.UserID, clientIP, c.Request.UserAgent(), auth.SessionExpiration)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	tokenPair, err := h.jwtService.GenerateTokenPair(user.UserID, session.ID)
+	accessToken, err := h.jwtService.GenerateAccessToken(user.UserID, session.ID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -170,10 +167,9 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		user.Avatar = url
 	}
 
-	c.SetCookie("refreshToken", tokenPair.RefreshToken, int(auth.RefreshTokenExpiration.Seconds()), "/", "", true, true)
 	c.JSON(http.StatusOK, gin.H{
 		"user_id":     user.UserID,
-		"token":       tokenPair.AccessToken,
+		"token":       accessToken,
 		"nickname":    user.Nickname,
 		"avatar":      user.Avatar,
 		"expire_time": auth.TokenExpiration,
@@ -197,15 +193,14 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 		return
 	}
 
-	// Revoke refresh token
+	// Revoke access token
 	if err := h.jwtService.RevokeJWTByID(userID.(string), sessionID.(string)); err != nil {
-		h.logger.Printf("Failed to revoke refresh token: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to revoke refresh token"})
+		h.logger.Printf("Failed to revoke access token: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to revoke access token"})
 		return
 	}
 
-	// Clear client cookie
-	c.SetCookie("refreshToken", "", -1, "/", "", true, true)
+	// Clear browser session cookie
 	h.clearBrowserSession(c)
 
 	// Delete session
@@ -226,7 +221,7 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 // 	}
 
 // 	// Refresh session, extend validity to 7 days
-// 	if err := h.sessionMgr.RefreshSession(sessionID, auth.RefreshTokenExpiration); err != nil {
+// 	if err := h.sessionMgr.RefreshSession(sessionID, auth.SessionExpiration); err != nil {
 // 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Failed to refresh session"})
 // 		return
 // 	}
@@ -513,69 +508,4 @@ func (h *AuthHandler) AuthRequired() gin.HandlerFunc {
 		// c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication failed, please log in"})
 		// c.Abort()
 	}
-}
-
-// RefreshToken JWT refresh token
-func (h *AuthHandler) RefreshToken(c *gin.Context) {
-	// Get refreshtoken from Cookie
-	refreshToken, err := c.Cookie("refreshToken")
-	if err != nil || refreshToken == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Refresh token not provided"})
-		return
-	}
-
-	// var req struct {
-	// 	Token string `json:"token" binding:"required"`
-	// }
-
-	// if err := c.ShouldBindJSON(&req); err != nil {
-	// 	c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request parameters"})
-	// 	return
-	// }
-
-	claims, err := h.jwtService.ValidateJWT(refreshToken)
-	if err != nil {
-		log.Println("Invalid refresh token:", err.Error())
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid refresh token"})
-		return
-	}
-	if claims.TokenType != auth.RefreshTokenType {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token type"})
-		return
-	}
-
-	// 判断refreshToken的超时时间，如果还比较长，仅更新accessToken
-	if time.Until(claims.ExpiresAt.Time) > time.Duration(auth.RefreshTokenExpiration.Hours()/2) {
-		// Refresh session
-		token, err := h.jwtService.GenerateAccessToken(claims.UserID, claims.SessionID)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
-			return
-		}
-		c.JSON(http.StatusOK, gin.H{
-			"token":       token,
-			"expire_time": auth.TokenExpiration,
-		})
-		return
-	}
-
-	if err := h.sessionMgr.RefreshSession(claims.UserID, claims.SessionID, auth.RefreshTokenExpiration+time.Hour); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to refresh session"})
-		return
-	}
-	// Refresh JWT token
-	tokenPair, err := h.jwtService.RefreshJWT(refreshToken)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	// Automatically update refreshToken
-	c.SetCookie("refreshToken", tokenPair.RefreshToken, int(auth.RefreshTokenExpiration.Seconds()), "/", "", true, true)
-	c.JSON(http.StatusOK, gin.H{
-		// "user_id":     user.UserID,
-		"token": tokenPair.AccessToken,
-		// "profile":     user.Profile,
-		"expire_time": auth.TokenExpiration,
-	})
 }

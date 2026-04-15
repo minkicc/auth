@@ -3,11 +3,10 @@
 `codex/oidc-break` 分支已经切到 OIDC-first，这个 SDK 主要兼容旧的 `/api` JWT 接口，适合作为过渡或管理型接口调用工具，不再是推荐的登录接入方式。
 
 `client/` 提供了一个面向 Go 服务的 SDK，用来完成以下事情：
-- 校验业务请求里的 MKAuth JWT
 - 获取当前登录用户信息
 - 按用户 ID 获取用户信息
 - 批量拉取用户资料
-- 刷新访问令牌
+- 调用资料类管理接口（昵称、头像等）
 
 ## 安装
 
@@ -90,19 +89,11 @@ for _, user := range users {
 - MKAuth 已配置 `auth_trusted_clients`
 - 对应客户端拥有 `read:users` scope
 
-## 5. 刷新访问令牌
+## 5. 令牌续期
 
-```go
-newToken, statusCode, err := client.RefreshToken(refreshToken, c)
-if err != nil {
-    fmt.Println(statusCode, err)
-    return
-}
+这条分支没有 `client.RefreshToken()`，也没有 `/api/token/refresh`。
 
-fmt.Println("new access token:", newToken)
-```
-
-`RefreshToken()` 会把 MKAuth 返回的新 `refreshToken` Cookie 回写给当前响应。
+如果你的业务需要无感续期，请直接接标准 OIDC Authorization Code + PKCE，通过 `/oauth2/authorize` 与 `/oauth2/token` 获取新令牌。
 
 ## 6. 更新昵称或头像
 
