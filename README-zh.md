@@ -6,13 +6,13 @@ Auth 是一个可独立部署的统一认证服务，提供账号密码、邮箱
 
 它适合下面几类场景：
 - 你的多个业务系统希望共用一套账号体系
-- 你需要单点登录能力，而不想从零实现用户、令牌、刷新、会话和后台管理
+- 你需要单点登录能力，而不想从零实现 OIDC、令牌、会话和后台管理
 - 你的业务后端是 Go，希望直接通过 SDK 校验登录态、查询用户信息
 
 ## 功能概览
 
 - 多种登录方式：账号、邮箱、手机号、Google、微信、微信小程序
-- JWT 访问令牌 + Refresh Token
+- OIDC Provider + JWT Access / ID Token
 - Redis 会话管理
 - 用户头像上传
 - 管理后台
@@ -38,21 +38,23 @@ auth/
 
 ```bash
 cd quickstart
-docker compose up -d
+docker compose up -d --build
 ```
 
 默认会启动：
-- Auth 用户入口: `http://localhost:8080`
-- Auth 管理后台: `http://localhost:8081`
-- MySQL: `localhost:3306`
-- Redis: `localhost:6379`
-- MinIO API: `http://localhost:9002`
-- MinIO Console: `http://localhost:9003`
+- OIDC demo SPA: `http://127.0.0.1:3000`
+- Auth 用户入口: `http://127.0.0.1:8080`
+- Auth 管理后台: `http://127.0.0.1:8081`
+- MySQL: `127.0.0.1:3306`
+- Redis: `127.0.0.1:6379`
+- MinIO API: `http://127.0.0.1:9002`
+- MinIO Console: `http://127.0.0.1:9003`
 
 说明：
 - `quickstart/config.yaml` 默认只启用了 `account` 登录。
+- `quickstart/config.yaml` 也默认启用了 OIDC，并预置了给 demo 使用的公共客户端 `demo-spa`。
 - `quickstart/config.yaml` 里默认关闭了管理后台：`auth_admin.enabled: false`。
-- `quickstart/docker-compose.yml` 当前使用预构建镜像 `example/auth:latest`，更适合体验和演示。
+- `quickstart/docker-compose.yml` 会直接构建当前仓库代码，因此 quickstart 与这条分支保持一致。
 
 ### 2. 启用管理后台
 
@@ -197,6 +199,7 @@ oidc:
 - `/.well-known/openid-configuration`
 - `/oauth2/authorize`
 - `/oauth2/token`
+- `/oauth2/logout`
 - `/oauth2/userinfo`
 - `/oauth2/jwks`
 
