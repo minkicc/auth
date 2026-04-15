@@ -34,6 +34,7 @@ import (
 	"minki.cc/mkauth/server/config"
 	"minki.cc/mkauth/server/handlers"
 	"minki.cc/mkauth/server/middleware"
+	"minki.cc/mkauth/server/oidc"
 )
 
 // Global variables - reduce multiple passing of DB
@@ -192,8 +193,16 @@ func main() {
 	if err := initAuthHandler(cfg, accountAuth, &authHandler); err != nil {
 		log.Fatalf("Failed to initialize authentication handler: %v", err)
 	}
+	legacyJWT := auth.NewJWTService(globalRedisStore, auth.JWTConfig{Issuer: cfg.Auth.JWT.Issuer})
+	oidcProvider, err := oidc.NewProvider(cfg.OIDC, globalDB, globalRedisStore, accountAuth, legacyJWT)
+	if err != nil {
+		log.Fatalf("Failed to initialize OIDC provider: %v", err)
+	}
 	// Register routes
 	authHandler.RegisterRoutes(r.Group(API_ROUTER_PATH), cfg)
+	if oidcProvider != nil {
+		oidcProvider.RegisterRoutes(r)
+	}
 
 	mainServer := &http.Server{
 		Addr:    fmt.Sprintf(":%d", *port),

@@ -11,6 +11,36 @@ redis:
   password: "YOUR_REDIS_PASSWORD"
   db: 0
 
+oidc:
+  enabled: true
+  issuer: "https://auth.example.com"
+  key_id: "mkauth-oidc-v1"
+  private_key_file: ""
+  private_key_pem: ""
+  code_ttl_seconds: 300
+  access_token_ttl_seconds: 900
+  id_token_ttl_seconds: 900
+  clients:
+    - client_id: "demo-spa"
+      public: true
+      require_pkce: true
+      redirect_uris:
+        - "http://127.0.0.1:3000/callback"
+      scopes:
+        - "openid"
+        - "profile"
+        - "email"
+    - client_id: "demo-backend"
+      client_secret: "CHANGE_ME"
+      public: false
+      require_pkce: true
+      redirect_uris:
+        - "http://127.0.0.1:8080/auth/callback"
+      scopes:
+        - "openid"
+        - "profile"
+        - "email"
+
 storage:
   provider: "minio"
   endpoint: "YOUR_MINIO_ENDPOINT"

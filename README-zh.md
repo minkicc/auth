@@ -2,6 +2,8 @@
 
 MKAuth 是一个可独立部署的统一认证服务，提供账号密码、邮箱、手机号、Google、微信、微信小程序等登录方式，并内置用户中心、管理后台、会话管理和 Go 接入 SDK。
 
+`codex/oidc-break` 分支开始把接入主路径切到标准 OIDC。新接入方优先使用 `Authorization Code + PKCE`，通过 `/.well-known/openid-configuration` 做发现；旧的 `/api/login/redirect` 和 `/api/login/verify` 仍在仓库里，但在这条分支上已经不再是推荐协议。
+
 它适合下面几类场景：
 - 你的多个业务系统希望共用一套账号体系
 - 你需要单点登录能力，而不想从零实现用户、令牌、刷新、会话和后台管理
@@ -166,9 +168,41 @@ auth:
 
 只配置你真正要开放的登录方式即可。
 
-### 可信业务后端配置
+### OIDC 客户端配置
 
-如果你的业务后端要用 code 换 token、按用户 ID 查资料、批量拉用户信息，就需要配置 `auth_trusted_clients`：
+如果你准备按标准 OIDC 接入，请配置 `oidc.clients`：
+
+```yaml
+oidc:
+  enabled: true
+  issuer: "https://auth.example.com"
+  key_id: "mkauth-oidc-v1"
+  private_key_file: "/path/to/oidc-private-key.pem"
+  code_ttl_seconds: 300
+  access_token_ttl_seconds: 900
+  id_token_ttl_seconds: 900
+  clients:
+    - client_id: "demo-spa"
+      public: true
+      require_pkce: true
+      redirect_uris:
+        - "https://app.example.com/callback"
+      scopes:
+        - "openid"
+        - "profile"
+        - "email"
+```
+
+服务启动后会暴露这些标准端点：
+- `/.well-known/openid-configuration`
+- `/oauth2/authorize`
+- `/oauth2/token`
+- `/oauth2/userinfo`
+- `/oauth2/jwks`
+
+### 可信业务后端配置（旧协议）
+
+只有在你仍然使用旧的自定义 `/api/login/verify` 协议时，才需要配置 `auth_trusted_clients`：
 
 ```yaml
 auth_trusted_clients:
@@ -184,9 +218,40 @@ auth_trusted_clients:
 
 ## 推荐接入方式
 
-MKAuth 目前最适合两种接入方式。
+MKAuth 在这条分支上优先推荐标准 OIDC 接入，旧协议作为过渡方案保留。
 
-### 方式一：直接使用内置登录页
+### 方式一：OIDC Authorization Code + PKCE
+
+这是现在最推荐的接入方式，适合 Web、SPA、移动端和多语言后端。
+
+#### 流程
+
+1. 客户端读取 `/.well-known/openid-configuration`
+2. 浏览器跳转到 `/oauth2/authorize`
+3. 用户在 MKAuth 完成登录
+4. MKAuth 回调你的 `redirect_uri`，附带 OIDC `code`
+5. 客户端或后端调用 `/oauth2/token` 换取 `access_token` 和 `id_token`
+6. 通过 `/oauth2/jwks` 校验 `id_token`，或者调用 `/oauth2/userinfo`
+
+#### 授权地址示例
+
+```text
+GET /oauth2/authorize?client_id=demo-spa&redirect_uri=https%3A%2F%2Fapp.example.com%2Fcallback&response_type=code&scope=openid%20profile%20email&code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM&code_challenge_method=S256&state=abc123&nonce=n-0S6_WzA2Mj
+```
+
+#### 换 token 示例
+
+```bash
+curl -X POST http://localhost:8080/oauth2/token \
+  -H 'Content-Type: application/x-www-form-urlencoded' \
+  --data-urlencode 'grant_type=authorization_code' \
+  --data-urlencode 'client_id=demo-spa' \
+  --data-urlencode 'code=YOUR_CODE' \
+  --data-urlencode 'redirect_uri=https://app.example.com/callback' \
+  --data-urlencode 'code_verifier=dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk'
+```
+
+### 方式二：直接使用内置登录页（旧协议）
 
 适合你已经有业务系统，希望把登录完全交给 MKAuth。
 

@@ -2,6 +2,8 @@
 
 MKAuth is a deployable authentication service that provides account/password, email, phone, Google, WeChat, and WeChat Mini Program login, together with JWT, session management, an admin console, and a Go SDK.
 
+The `codex/oidc-break` branch moves the primary integration path to standard OIDC. New integrations should prefer `Authorization Code + PKCE` plus discovery via `/.well-known/openid-configuration`; the older `/api/login/redirect` and `/api/login/verify` flow is still present in the codebase but is no longer the recommended protocol on this branch.
+
 It is a good fit when:
 - multiple applications need to share one user system
 - you want SSO-style login without building user, token, refresh, and session management from scratch
@@ -160,9 +162,41 @@ auth:
 
 Only enable the providers you really plan to expose.
 
-### Trusted backend client
+### OIDC client configuration
 
-If your backend will exchange login codes for tokens or fetch users by ID, configure `auth_trusted_clients`:
+If you want to integrate through standard OIDC, configure `oidc.clients`:
+
+```yaml
+oidc:
+  enabled: true
+  issuer: "https://auth.example.com"
+  key_id: "mkauth-oidc-v1"
+  private_key_file: "/path/to/oidc-private-key.pem"
+  code_ttl_seconds: 300
+  access_token_ttl_seconds: 900
+  id_token_ttl_seconds: 900
+  clients:
+    - client_id: "demo-spa"
+      public: true
+      require_pkce: true
+      redirect_uris:
+        - "https://app.example.com/callback"
+      scopes:
+        - "openid"
+        - "profile"
+        - "email"
+```
+
+When enabled, MKAuth exposes these standard endpoints:
+- `/.well-known/openid-configuration`
+- `/oauth2/authorize`
+- `/oauth2/token`
+- `/oauth2/userinfo`
+- `/oauth2/jwks`
+
+### Trusted backend client (legacy flow)
+
+Only keep `auth_trusted_clients` if you still use the older custom `/api/login/verify` flow:
 
 ```yaml
 auth_trusted_clients:
@@ -178,7 +212,40 @@ auth_trusted_clients:
 
 ## Recommended Integration Patterns
 
-### Pattern 1: use the built-in login page
+On this branch, MKAuth is OIDC-first. The legacy flow remains as a migration path, but new integrations should use OIDC.
+
+### Pattern 1: OIDC Authorization Code + PKCE
+
+This is the recommended path for web apps, SPAs, mobile apps, and multi-language backends.
+
+#### Flow
+
+1. Read `/.well-known/openid-configuration`
+2. Redirect the browser to `/oauth2/authorize`
+3. The user signs in through MKAuth
+4. MKAuth redirects back to your `redirect_uri` with an OIDC `code`
+5. Exchange that code at `/oauth2/token` for `access_token` and `id_token`
+6. Validate the `id_token` with `/oauth2/jwks`, or call `/oauth2/userinfo`
+
+#### Authorization example
+
+```text
+GET /oauth2/authorize?client_id=demo-spa&redirect_uri=https%3A%2F%2Fapp.example.com%2Fcallback&response_type=code&scope=openid%20profile%20email&code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM&code_challenge_method=S256&state=abc123&nonce=n-0S6_WzA2Mj
+```
+
+#### Token exchange example
+
+```bash
+curl -X POST http://localhost:8080/oauth2/token \
+  -H 'Content-Type: application/x-www-form-urlencoded' \
+  --data-urlencode 'grant_type=authorization_code' \
+  --data-urlencode 'client_id=demo-spa' \
+  --data-urlencode 'code=YOUR_CODE' \
+  --data-urlencode 'redirect_uri=https://app.example.com/callback' \
+  --data-urlencode 'code_verifier=dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk'
+```
+
+### Pattern 2: use the built-in login page (legacy flow)
 
 This is the easiest way if you already have an application and want MKAuth to own the login UI.
 
