@@ -41,6 +41,13 @@ cd quickstart
 docker compose up -d --build
 ```
 
+If you want to use a prebuilt image instead of building locally:
+
+```bash
+cd quickstart
+docker compose -f docker-compose.release.yml up -d
+```
+
 Default endpoints:
 - OIDC demo SPA: `http://127.0.0.1:3000`
 - User entry: `http://127.0.0.1:8080`
@@ -56,6 +63,8 @@ Notes:
 - `quickstart/config.yaml` also preconfigures a confidential client named `demo-backend` for the Go backend callback example under [client/example](client/example/README.md).
 - `auth_admin.enabled` is `false` in the quickstart config.
 - `quickstart/docker-compose.yml` builds the current checkout so the quickstart always matches this branch.
+- `quickstart/docker-compose.release.yml` pulls `ghcr.io/minkicc/auth` directly and is the better option for other users consuming published releases.
+- If you want anonymous pulls from GHCR, set the published container package visibility to `public` in GitHub.
 
 ### 2. Enable the admin console
 
@@ -83,6 +92,71 @@ auth_admin:
 ```
 
 Then restart the service.
+
+## CI/CD: Automatic Docker Images
+
+The repository includes a GitHub Actions workflow at `.github/workflows/docker-publish.yml` so GitHub can build and publish Docker images for you.
+
+### What it does
+
+- Pull requests: run a Docker build check only, without pushing an image
+- Push to `main`: build multi-arch images and push to GitHub Container Registry
+- Push a tag like `v1.2.3`: push versioned tags such as `1.2.3`, `1.2`, plus `sha-*`
+- Manual trigger: you can also run the workflow from the GitHub Actions page with `workflow_dispatch`
+
+### Default image registry
+
+By default, the workflow publishes to GitHub Container Registry:
+
+```text
+ghcr.io/<owner>/<repo>
+```
+
+No extra secret is needed for GHCR. The workflow uses GitHub's built-in `GITHUB_TOKEN`.
+
+### Optional Docker Hub publishing
+
+If you also want to publish to Docker Hub, configure these repository settings:
+
+- Actions variable: `DOCKERHUB_NAMESPACE`
+- Actions secret: `DOCKER_HUB_USERNAME`
+- Actions secret: `DOCKER_HUB_TOKEN`
+
+After that, the same workflow will push the image to:
+
+```text
+<DOCKERHUB_NAMESPACE>/<repo>
+```
+
+### Recommended release flow
+
+1. Merge code into `main`
+2. GitHub automatically publishes `ghcr.io/<owner>/<repo>:latest`
+3. Create a git tag such as `v1.2.3`
+4. GitHub automatically publishes stable version tags for deployment
+
+This setup is a good default for other teams because pull requests get build verification first, while `main` and release tags produce ready-to-use Docker images automatically.
+
+### First-time setup checklist
+
+1. Push this branch to GitHub so Actions can run
+2. Confirm the `Docker` workflow succeeds on `main`
+3. Open the generated package in GitHub Packages and set visibility to `public` if you want anonymous pulls
+4. Pull-test the image with `docker pull ghcr.io/<owner>/<repo>:latest`
+
+### Release commands
+
+```bash
+git checkout main
+git pull
+git tag v1.2.3
+git push origin v1.2.3
+```
+
+For users who only want to deploy MKAuth, a prebuilt-image flow is usually better than asking them to run a local Docker build. This repository now supports both patterns:
+
+- Development / branch verification: `quickstart/docker-compose.yml`
+- Release / consumer deployment: `quickstart/docker-compose.release.yml`
 
 ## Local Development
 

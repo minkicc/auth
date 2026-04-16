@@ -1,6 +1,6 @@
 # MKAuth Quickstart
 
-`quickstart/` 提供了一套可直接体验的 Docker Compose 配置，用来快速启动 MKAuth 所需的基础依赖、当前仓库代码，以及一个最小可运行的 OIDC PKCE demo。
+`quickstart/` 提供了两套可直接体验的 Docker Compose 配置，用来快速启动 MKAuth 所需的基础依赖，以及一个最小可运行的 OIDC PKCE demo。
 
 ## 会启动什么
 
@@ -12,10 +12,42 @@
 
 ## 使用方法
 
+### 方式一：本地构建当前仓库代码
+
+适合开发、联调、验证当前 checkout：
+
 ```bash
 cd quickstart
 docker compose up -d --build
 ```
+
+对应文件：`quickstart/docker-compose.yml`
+
+### 方式二：直接拉取 GitHub 自动发布的镜像
+
+适合其他团队或部署环境直接使用预构建版本：
+
+```bash
+cd quickstart
+docker compose -f docker-compose.release.yml up -d
+```
+
+如果你想固定版本，可以显式指定镜像标签：
+
+```bash
+cd quickstart
+MKAUTH_IMAGE=ghcr.io/minkicc/auth:v1.2.3 docker compose -f docker-compose.release.yml up -d
+```
+
+对应文件：`quickstart/docker-compose.release.yml`
+
+如果 GHCR 包还是私有的，先执行：
+
+```bash
+docker login ghcr.io
+```
+
+如果你希望其他用户匿名拉取镜像，还需要把 GitHub 上的 Container package 可见性改成 `public`。
 
 启动后默认访问地址：
 - OIDC demo: `http://127.0.0.1:3000`
@@ -140,4 +172,6 @@ auth:
 
 ## 说明
 
-当前 `quickstart/docker-compose.yml` 会直接构建你本地 checkout 的代码，因此它更适合这条分支的验证和演示。首次 `--build` 会稍慢一些，但可以确保 OIDC demo 与当前代码一致。
+- `quickstart/docker-compose.yml` 会直接构建你本地 checkout 的代码，更适合当前分支的验证和演示。首次 `--build` 会稍慢一些，但可以确保 OIDC demo 与当前代码一致。
+- `quickstart/docker-compose.release.yml` 会直接拉取 `ghcr.io/minkicc/auth` 镜像，更适合发给其他用户或部署环境使用。
+- 两个 compose 文件都会等待 MySQL、Redis、MinIO 健康后再启动 `mkauth-server`，启动顺序更稳。

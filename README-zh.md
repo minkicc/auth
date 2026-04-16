@@ -41,6 +41,13 @@ cd quickstart
 docker compose up -d --build
 ```
 
+如果你不想本地构建，而是直接使用预构建镜像，也可以：
+
+```bash
+cd quickstart
+docker compose -f docker-compose.release.yml up -d
+```
+
 默认会启动：
 - OIDC demo SPA: `http://127.0.0.1:3000`
 - MKAuth 用户入口: `http://127.0.0.1:8080`
@@ -56,6 +63,8 @@ docker compose up -d --build
 - `quickstart/config.yaml` 还预置了一个 confidential client `demo-backend`，可直接配合 [client/example](client/example/README.md) 里的 Go 后端回调示例使用。
 - `quickstart/config.yaml` 里默认关闭了管理后台：`auth_admin.enabled: false`。
 - `quickstart/docker-compose.yml` 会直接构建当前仓库代码，因此 quickstart 与这条分支保持一致。
+- `quickstart/docker-compose.release.yml` 会直接拉取 `ghcr.io/minkicc/auth`，更适合给其他用户或部署环境使用。
+- 如果你希望别人不登录 GHCR 也能直接拉取镜像，需要把 GitHub 上发布出来的 container package 可见性改成 `public`。
 
 ### 2. 启用管理后台
 
@@ -83,6 +92,71 @@ auth_admin:
 ```
 
 然后重启服务。
+
+## CI/CD：GitHub 自动打包 Docker 镜像
+
+仓库已经内置了 `.github/workflows/docker-publish.yml`，可以直接用 GitHub Actions 自动构建并发布 Docker 镜像。
+
+### 它会做什么
+
+- `pull_request`：只做 Docker 构建校验，不推送镜像
+- 推送到 `main`：构建多架构镜像并自动推送到 GitHub Container Registry
+- 推送形如 `v1.2.3` 的 tag：自动生成并推送 `1.2.3`、`1.2`、`sha-*` 等版本标签
+- 手动触发：也可以在 GitHub Actions 页面通过 `workflow_dispatch` 手动执行
+
+### 默认发布到哪里
+
+默认会发布到 GitHub Container Registry：
+
+```text
+ghcr.io/<owner>/<repo>
+```
+
+GHCR 不需要额外配置账号密码，工作流会直接使用 GitHub 自带的 `GITHUB_TOKEN`。
+
+### 如果还要同步推送到 Docker Hub
+
+在仓库设置里补齐下面三项即可：
+
+- Actions variable：`DOCKERHUB_NAMESPACE`
+- Actions secret：`DOCKER_HUB_USERNAME`
+- Actions secret：`DOCKER_HUB_TOKEN`
+
+配置完成后，同一个工作流会额外把镜像推送到：
+
+```text
+<DOCKERHUB_NAMESPACE>/<repo>
+```
+
+### 推荐发布方式
+
+1. 日常代码合入 `main`
+2. GitHub 自动发布 `ghcr.io/<owner>/<repo>:latest`
+3. 需要正式版本时，打一个 `v1.2.3` 这样的 git tag
+4. GitHub 自动生成稳定版本标签，供部署环境引用
+
+这套方式比较适合给其他团队接入使用：PR 先校验 Docker 能不能构建，`main` 和 release tag 再自动产出可部署镜像。
+
+### 首次启用检查清单
+
+1. 先把当前分支 push 到 GitHub，让 Actions 真正跑起来
+2. 确认 `Docker` 工作流在 `main` 上执行成功
+3. 到 GitHub Packages 打开产出的镜像包，如果希望匿名拉取，就把可见性改成 `public`
+4. 用 `docker pull ghcr.io/<owner>/<repo>:latest` 做一次实际拉取验证
+
+### 发布命令示例
+
+```bash
+git checkout main
+git pull
+git tag v1.2.3
+git push origin v1.2.3
+```
+
+对于“别人怎么用”这个问题，通常比起让外部用户本地 `docker build`，更好的方式是直接给他们预构建镜像。当前仓库已经同时支持两种模式：
+
+- 开发验证：`quickstart/docker-compose.yml`
+- 发布使用：`quickstart/docker-compose.release.yml`
 
 ## 本地开发
 
