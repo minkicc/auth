@@ -2,15 +2,17 @@
 
 MKAuth 是一个可独立部署的统一认证服务，提供账号密码、邮箱、手机号、Google、微信、微信小程序等登录方式，并内置用户中心、管理后台、会话管理和 Go 接入 SDK。
 
+`codex/oidc-break` 分支已经把接入主路径切到标准 OIDC。新接入方优先使用 `Authorization Code + PKCE`，通过 `/.well-known/openid-configuration` 做发现；旧的 `/api/login/redirect` 和 `/api/login/verify` 已经从这条分支移除。
+
 它适合下面几类场景：
 - 你的多个业务系统希望共用一套账号体系
-- 你需要单点登录能力，而不想从零实现用户、令牌、刷新、会话和后台管理
-- 你的业务后端是 Go，希望直接通过 SDK 校验登录态、查询用户信息
+- 你需要单点登录能力，而不想从零实现 OIDC、令牌、会话和后台管理
+- 你的业务后端是 Go，希望拿到 Go 接入示例，并通过管理型接口查询用户信息
 
 ## 功能概览
 
 - 多种登录方式：账号、邮箱、手机号、Google、微信、微信小程序
-- JWT 访问令牌 + Refresh Token
+- OIDC Provider + JWT Access / ID Token
 - Redis 会话管理
 - 用户头像上传
 - 管理后台
@@ -36,21 +38,33 @@ mkauth/
 
 ```bash
 cd quickstart
-docker compose up -d
+docker compose up -d --build
+```
+
+如果你不想本地构建，而是直接使用预构建镜像，也可以：
+
+```bash
+cd quickstart
+docker compose -f docker-compose.release.yml up -d
 ```
 
 默认会启动：
-- MKAuth 用户入口: `http://localhost:8080`
-- MKAuth 管理后台: `http://localhost:8081`
-- MySQL: `localhost:3306`
-- Redis: `localhost:6379`
-- MinIO API: `http://localhost:9002`
-- MinIO Console: `http://localhost:9003`
+- OIDC demo SPA: `http://127.0.0.1:3000`
+- MKAuth 用户入口: `http://127.0.0.1:8080`
+- MKAuth 管理后台: `http://127.0.0.1:8081`
+- MySQL: `127.0.0.1:3306`
+- Redis: `127.0.0.1:6379`
+- MinIO API: `http://127.0.0.1:9002`
+- MinIO Console: `http://127.0.0.1:9003`
 
 说明：
 - `quickstart/config.yaml` 默认只启用了 `account` 登录。
+- `quickstart/config.yaml` 也默认启用了 OIDC，并预置了给 demo 使用的公共客户端 `demo-spa`。
+- `quickstart/config.yaml` 还预置了一个 confidential client `demo-backend`，可直接配合 [client/example](client/example/README.md) 里的 Go 后端回调示例使用。
 - `quickstart/config.yaml` 里默认关闭了管理后台：`auth_admin.enabled: false`。
-- `quickstart/docker-compose.yml` 当前使用预构建镜像 `minkicc/auth:latest`，更适合体验和演示。
+- `quickstart/docker-compose.yml` 会直接构建当前仓库代码，因此 quickstart 与这条分支保持一致。
+- `quickstart/docker-compose.release.yml` 会直接拉取 `ghcr.io/minkicc/auth`，更适合给其他用户或部署环境使用。
+- 如果你希望别人不登录 GHCR 也能直接拉取镜像，需要把 GitHub 上发布出来的 container package 可见性改成 `public`。
 
 ### 2. 启用管理后台
 
@@ -78,6 +92,71 @@ auth_admin:
 ```
 
 然后重启服务。
+
+## CI/CD：GitHub 自动打包 Docker 镜像
+
+仓库已经内置了 `.github/workflows/docker-publish.yml`，可以直接用 GitHub Actions 自动构建并发布 Docker 镜像。
+
+### 它会做什么
+
+- `pull_request`：只做 Docker 构建校验，不推送镜像
+- 推送到 `main`：构建多架构镜像并自动推送到 GitHub Container Registry
+- 推送形如 `v1.2.3` 的 tag：自动生成并推送 `1.2.3`、`1.2`、`sha-*` 等版本标签
+- 手动触发：也可以在 GitHub Actions 页面通过 `workflow_dispatch` 手动执行
+
+### 默认发布到哪里
+
+默认会发布到 GitHub Container Registry：
+
+```text
+ghcr.io/<owner>/<repo>
+```
+
+GHCR 不需要额外配置账号密码，工作流会直接使用 GitHub 自带的 `GITHUB_TOKEN`。
+
+### 如果还要同步推送到 Docker Hub
+
+在仓库设置里补齐下面三项即可：
+
+- Actions variable：`DOCKERHUB_NAMESPACE`
+- Actions secret：`DOCKER_HUB_USERNAME`
+- Actions secret：`DOCKER_HUB_TOKEN`
+
+配置完成后，同一个工作流会额外把镜像推送到：
+
+```text
+<DOCKERHUB_NAMESPACE>/<repo>
+```
+
+### 推荐发布方式
+
+1. 日常代码合入 `main`
+2. GitHub 自动发布 `ghcr.io/<owner>/<repo>:latest`
+3. 需要正式版本时，打一个 `v1.2.3` 这样的 git tag
+4. GitHub 自动生成稳定版本标签，供部署环境引用
+
+这套方式比较适合给其他团队接入使用：PR 先校验 Docker 能不能构建，`main` 和 release tag 再自动产出可部署镜像。
+
+### 首次启用检查清单
+
+1. 先把当前分支 push 到 GitHub，让 Actions 真正跑起来
+2. 确认 `Docker` 工作流在 `main` 上执行成功
+3. 到 GitHub Packages 打开产出的镜像包，如果希望匿名拉取，就把可见性改成 `public`
+4. 用 `docker pull ghcr.io/<owner>/<repo>:latest` 做一次实际拉取验证
+
+### 发布命令示例
+
+```bash
+git checkout main
+git pull
+git tag v1.2.3
+git push origin v1.2.3
+```
+
+对于“别人怎么用”这个问题，通常比起让外部用户本地 `docker build`，更好的方式是直接给他们预构建镜像。当前仓库已经同时支持两种模式：
+
+- 开发验证：`quickstart/docker-compose.yml`
+- 发布使用：`quickstart/docker-compose.release.yml`
 
 ## 本地开发
 
@@ -160,15 +239,46 @@ auth:
     - "google"
     - "weixin"
     - "weixin_mini"
-  jwt:
-    issuer: "mkauth"
 ```
 
 只配置你真正要开放的登录方式即可。
 
+### OIDC 客户端配置
+
+如果你准备按标准 OIDC 接入，请配置 `oidc.clients`：
+
+```yaml
+oidc:
+  enabled: true
+  issuer: "https://auth.example.com"
+  key_id: "mkauth-oidc-v1"
+  private_key_file: "/path/to/oidc-private-key.pem"
+  code_ttl_seconds: 300
+  access_token_ttl_seconds: 900
+  id_token_ttl_seconds: 900
+  clients:
+    - client_id: "demo-spa"
+      public: true
+      require_pkce: true
+      redirect_uris:
+        - "https://app.example.com/callback"
+      scopes:
+        - "openid"
+        - "profile"
+        - "email"
+```
+
+服务启动后会暴露这些标准端点：
+- `/.well-known/openid-configuration`
+- `/oauth2/authorize`
+- `/oauth2/token`
+- `/oauth2/logout`
+- `/oauth2/userinfo`
+- `/oauth2/jwks`
+
 ### 可信业务后端配置
 
-如果你的业务后端要用 code 换 token、按用户 ID 查资料、批量拉用户信息，就需要配置 `auth_trusted_clients`：
+`auth_trusted_clients` 在这条分支里只用于旧的管理型 `/api` 接口，例如按用户 ID 查询资料或批量查询用户，不再参与登录回调换 token：
 
 ```yaml
 auth_trusted_clients:
@@ -184,74 +294,48 @@ auth_trusted_clients:
 
 ## 推荐接入方式
 
-MKAuth 目前最适合两种接入方式。
+MKAuth 在这条分支上优先推荐标准 OIDC 接入。
 
-### 方式一：直接使用内置登录页
+### 方式一：OIDC Authorization Code + PKCE
 
-适合你已经有业务系统，希望把登录完全交给 MKAuth。
+这是现在最推荐的接入方式，适合 Web、SPA、移动端和多语言后端。
 
 #### 流程
 
-1. 业务系统把用户跳转到 MKAuth 登录页：
+1. 客户端读取 `/.well-known/openid-configuration`
+2. 浏览器跳转到 `/oauth2/authorize`
+3. 用户在 MKAuth 完成登录
+4. MKAuth 回调你的 `redirect_uri`，附带 OIDC `code`
+5. 客户端或后端调用 `/oauth2/token` 换取 `access_token` 和 `id_token`
+6. 通过 `/oauth2/jwks` 校验 `id_token`，或者调用 `/oauth2/userinfo`
+
+补充说明：
+- MKAuth 登录页现在通过独立的 `oidc_session` 浏览器会话维持登录状态
+- `/oauth2/authorize` 不再依赖旧的 `refreshToken` cookie 来识别当前用户
+
+#### 授权地址示例
 
 ```text
-GET /login?client_id=myapp&redirect_uri=https://your-app.example.com/auth/callback
+GET /oauth2/authorize?client_id=demo-spa&redirect_uri=https%3A%2F%2Fapp.example.com%2Fcallback&response_type=code&scope=openid%20profile%20email&code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM&code_challenge_method=S256&state=abc123&nonce=n-0S6_WzA2Mj
 ```
 
-2. 用户在 MKAuth 完成登录。
-3. MKAuth 会把用户带回你的 `redirect_uri`，并附带一个一次性 `code`。
-4. 你的业务后端使用受信任客户端身份调用 `/api/login/verify`，把 `code` 换成访问令牌。
-5. 后续业务请求携带 `Authorization: Bearer <token>` 即可。
+#### 换 token 示例
 
-#### 业务后端回调示例
-
-```go
-package main
-
-import (
-    "net/http"
-
-    "github.com/gin-gonic/gin"
-    mkauth "minki.cc/mkauth/client/auth"
-)
-
-func main() {
-    authClient := mkauth.NewAuthClient(
-        "http://localhost:8080",
-        "myapp",
-        "your-client-secret",
-    )
-
-    r := gin.Default()
-
-    r.GET("/auth/callback", func(c *gin.Context) {
-        code := c.Query("code")
-        if code == "" {
-            c.JSON(http.StatusBadRequest, gin.H{"error": "missing code"})
-            return
-        }
-
-        loginResp, err := authClient.LoginVerify(code, c)
-        if err != nil {
-            c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
-            return
-        }
-
-        c.JSON(http.StatusOK, gin.H{
-            "user_id": loginResp.UserID,
-            "token":   loginResp.Token,
-        })
-    })
-
-    r.Run(":8082")
-}
+```bash
+curl -X POST http://localhost:8080/oauth2/token \
+  -H 'Content-Type: application/x-www-form-urlencoded' \
+  --data-urlencode 'grant_type=authorization_code' \
+  --data-urlencode 'client_id=demo-spa' \
+  --data-urlencode 'code=YOUR_CODE' \
+  --data-urlencode 'redirect_uri=https://app.example.com/callback' \
+  --data-urlencode 'code_verifier=dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk'
 ```
 
-这个模式下，登录页、注册页、第三方登录按钮都由 MKAuth 自己维护，你的业务系统只处理跳转和回调。
+### 方式二：使用 MKAuth 浏览器会话接口
 
-### 方式二：你的前端直接调用 MKAuth API
+适合登录页本身就由 MKAuth 承载，或者你的前端能在同一个浏览器上下文里直接调用 MKAuth，并复用 `oidc_session` cookie。
 
-适合你已经有自己的登录页，只想复用认证接口。
+如果你的业务应用在另一个域名下，或者你希望拿到标准第三方登录协议，还是更推荐方式一，直接走 OIDC Authorization Code + PKCE。
 
 常用接口：
 - `GET /api/providers`：查询当前启用的登录方式
@@ -259,7 +343,7 @@ func main() {
 - `POST /api/account/login`
 - `POST /api/email/login`
 - `POST /api/phone/login`
-- `POST /api/token/refresh`
+- `GET /api/browser-session`
 - `POST /api/logout`
 - `GET /api/user`
 
@@ -275,27 +359,28 @@ curl -X POST http://localhost:8080/api/account/login \
 
 ```json
 {
+  "authenticated": true,
   "user_id": "demo",
-  "token": "access-token",
   "nickname": "demo",
   "avatar": "",
-  "expire_time": 7200000000000
+  "expires_at": "2026-04-23T10:00:00Z"
 }
 ```
 
-前端拿到 `token` 后，在后续请求中带上：
+这些 `/api` 登录接口现在只负责建立 `oidc_session` 浏览器会话，不再返回旧的 `/api` bearer token，这条分支也不再提供 `POST /api/token/refresh`。
+
+后续请求可以用两种方式鉴权：
 
 ```text
-Authorization: Bearer <access-token>
+1. 同一浏览器里的 `oidc_session` cookie
+2. Authorization: Bearer <oidc-access-token>
 ```
 
-刷新令牌通过 `refreshToken` Cookie 维护，刷新接口为：
-
-```text
-POST /api/token/refresh
-```
+如果你需要浏览器里的无感续期，更推荐直接接标准 OIDC Authorization Code + PKCE，让 MKAuth 复用自己的 `oidc_session` 浏览器会话。
 
 ## Go SDK 使用方式
+
+`client/auth` 目录下的 Go SDK 现在更适合调用 MKAuth 管理型 `/api` 接口，但它不是这条分支推荐的登录接入方式。
 
 ### 安装
 
@@ -305,24 +390,31 @@ go get minki.cc/mkauth/client
 
 ### 1. 为业务接口加登录保护
 
-```go
-client := auth.NewAuthClient("http://localhost:8080", "", "")
+这条分支不再推荐使用 `client.AuthRequired()` 做业务资源接口保护。
 
-protected := r.Group("/api")
-protected.Use(client.AuthRequired())
-{
-    protected.GET("/profile", func(c *gin.Context) {
-        userID := c.GetString("user_id")
-        c.JSON(200, gin.H{"user_id": userID})
-    })
-}
-```
+推荐做法：
+- 读取 `/.well-known/openid-configuration`
+- 使用标准 OIDC / OAuth2 JWT 库加载 `jwks_uri`
+- 基于 `issuer`、`audience` 和签名校验 access token
+
+可直接参考：
+- [client/example/resource-server/main.go](client/example/resource-server/main.go)
+- [client/example/resource-server/README.md](client/example/resource-server/README.md)
+- [client/oidcresource/README.md](client/oidcresource/README.md)
 
 ### 2. 查询当前登录用户
 
 ```go
 user, err := client.GetUserInfo(accessToken)
 ```
+
+这个调用走的是 MKAuth 管理型 `/api/user` 接口。
+
+它适合你明确要直接调用 MKAuth `/api` 接口，并使用下面任意一种鉴权方式：
+- 浏览器里的 `oidc_session` 会话
+- 标准 OIDC `Authorization: Bearer <access_token>`
+
+如果你的应用已经按标准 OIDC 登录，用户资料读取应优先使用 `/oauth2/userinfo`；Go 后端回调接法可以直接参考 [client/example](client/example/README.md)。
 
 ### 3. 查询指定用户或批量用户
 
@@ -335,11 +427,11 @@ user, err := client.GetUserInfoById(accessToken, "user-001")
 users, err, statusCode := client.GetUsersInfo(accessToken, []string{"user-001", "user-002"})
 ```
 
-### 4. 刷新令牌
+### 4. 令牌续期
 
-```go
-newToken, statusCode, err := client.RefreshToken(refreshToken, c)
-```
+这条分支没有 `client.RefreshToken()`，也没有 `POST /api/token/refresh`。
+
+需要续期时，请重新走一次标准 OIDC 授权码流程，通过 `/oauth2/authorize` 和 `/oauth2/token` 获取新的令牌。
 
 ### 5. 本地自签名 HTTPS 调试
 
@@ -358,8 +450,6 @@ client.UseInsecureTLS()
 - `POST /api/account/login`
 - `POST /api/email/login`
 - `POST /api/phone/login`
-- `POST /api/token/refresh`
-- `POST /api/token/validate`
 - `POST /api/logout`
 
 ### 用户接口

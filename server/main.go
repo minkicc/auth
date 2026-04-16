@@ -34,6 +34,7 @@ import (
 	"minki.cc/mkauth/server/config"
 	"minki.cc/mkauth/server/handlers"
 	"minki.cc/mkauth/server/middleware"
+	"minki.cc/mkauth/server/oidc"
 )
 
 // Global variables - reduce multiple passing of DB
@@ -187,13 +188,21 @@ func main() {
 
 	r.Use(middleware.AccessLogMiddleware())
 
+	oidcProvider, err := oidc.NewProvider(cfg.OIDC, globalDB, globalRedisStore, accountAuth)
+	if err != nil {
+		log.Fatalf("Failed to initialize OIDC provider: %v", err)
+	}
+
 	// Initialize authentication handler
 	var authHandler *handlers.AuthHandler
-	if err := initAuthHandler(cfg, accountAuth, &authHandler); err != nil {
+	if err := initAuthHandler(cfg, accountAuth, oidcProvider, &authHandler); err != nil {
 		log.Fatalf("Failed to initialize authentication handler: %v", err)
 	}
 	// Register routes
 	authHandler.RegisterRoutes(r.Group(API_ROUTER_PATH), cfg)
+	if oidcProvider != nil {
+		oidcProvider.RegisterRoutes(r)
+	}
 
 	mainServer := &http.Server{
 		Addr:    fmt.Sprintf(":%d", *port),
@@ -248,7 +257,7 @@ func main() {
 	log.Println("Main server has been shut down")
 }
 
-func initAuthHandler(cfg *config.Config, accountAuth *auth.AccountAuth, handler **handlers.AuthHandler) error {
+func initAuthHandler(cfg *config.Config, accountAuth *auth.AccountAuth, oidcProvider *oidc.Provider, handler **handlers.AuthHandler) error {
 	// Initialize email authentication
 	var emailAuth *auth.EmailAuth
 	if containsProvider(cfg.Auth.EnabledProviders, "email") && cfg.Auth.Smtp.Host != "" {
@@ -365,9 +374,6 @@ func initAuthHandler(cfg *config.Config, accountAuth *auth.AccountAuth, handler 
 		}
 	}
 
-	// Initialize JWT service
-	jwtService := auth.NewJWTService(globalRedisStore, auth.JWTConfig{Issuer: cfg.Auth.JWT.Issuer})
-
 	// Initialize session manager
 	sessionMgr := auth.NewSessionManager(auth.NewSessionRedisStore(globalRedisStore.GetClient()))
 
@@ -380,11 +386,11 @@ func initAuthHandler(cfg *config.Config, accountAuth *auth.AccountAuth, handler 
 		weixinLogin,
 		weixinMiniLogin,
 		phoneAuth,
-		jwtService,
 		sessionMgr,
 		globalRedisStore,
 		storageClient,
 		avatarService,
+		oidcProvider,
 		cfg,
 	)
 

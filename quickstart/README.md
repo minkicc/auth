@@ -1,6 +1,6 @@
 # MKAuth Quickstart
 
-`quickstart/` 提供了一套可直接体验的 Docker Compose 配置，用来快速启动 MKAuth 所需的基础依赖和服务。
+`quickstart/` 提供了两套可直接体验的 Docker Compose 配置，用来快速启动 MKAuth 所需的基础依赖，以及一个最小可运行的 OIDC PKCE demo。
 
 ## 会启动什么
 
@@ -8,26 +8,122 @@
 - Redis 7
 - MinIO
 - MKAuth 服务
+- OIDC demo SPA
 
 ## 使用方法
 
+### 方式一：本地构建当前仓库代码
+
+适合开发、联调、验证当前 checkout：
+
 ```bash
 cd quickstart
-docker compose up -d
+docker compose up -d --build
 ```
 
+对应文件：`quickstart/docker-compose.yml`
+
+### 方式二：直接拉取 GitHub 自动发布的镜像
+
+适合其他团队或部署环境直接使用预构建版本：
+
+```bash
+cd quickstart
+docker compose -f docker-compose.release.yml up -d
+```
+
+如果你想固定版本，可以显式指定镜像标签：
+
+```bash
+cd quickstart
+MKAUTH_IMAGE=ghcr.io/minkicc/auth:v1.2.3 docker compose -f docker-compose.release.yml up -d
+```
+
+对应文件：`quickstart/docker-compose.release.yml`
+
+如果 GHCR 包还是私有的，先执行：
+
+```bash
+docker login ghcr.io
+```
+
+如果你希望其他用户匿名拉取镜像，还需要把 GitHub 上的 Container package 可见性改成 `public`。
+
 启动后默认访问地址：
-- 用户入口: `http://localhost:8080`
-- 管理后台: `http://localhost:8081`
-- MinIO API: `http://localhost:9002`
-- MinIO Console: `http://localhost:9003`
+- OIDC demo: `http://127.0.0.1:3000`
+- 用户入口: `http://127.0.0.1:8080`
+- 管理后台: `http://127.0.0.1:8081`
+- MinIO API: `http://127.0.0.1:9002`
+- MinIO Console: `http://127.0.0.1:9003`
 
 ## 默认行为
 
 `quickstart/config.yaml` 默认配置为：
 - 仅启用 `account` 登录
+- 默认启用 OIDC，并内置一个公共客户端 `demo-spa`
+- 还内置了一个 confidential client `demo-backend`，供 Go 后端回调示例使用
 - 管理后台关闭
 - 存储后端使用 MinIO
+- OIDC demo 的回调地址已经预先配置为 `http://127.0.0.1:3000/`
+- `quickstart/oidc-private-key.pem` 只是为了本地演示方便而提交的开发私钥，生产环境请务必替换
+
+## 先体验一遍 OIDC 登录
+
+1. 打开 `http://127.0.0.1:3000`
+2. 点击页面上的 `Discover configuration`
+3. 点击 `Start login`
+4. 第一次可以先在 MKAuth 登录页注册一个账号
+5. 登录成功后，demo 会自动完成：
+   - PKCE 授权跳转
+   - code 换 token
+   - 调用 `/oauth2/userinfo`
+   - 展示 `access_token`、`id_token` 和用户信息
+6. 点击 `Logout` 会调用 `/oauth2/logout` 清理 MKAuth 浏览器会话，并跳回 demo 页面
+
+## 运行 Go 后端回调示例
+
+仓库还带了一个 Go 版 BFF / backend callback 示例，默认配置已经和 quickstart 对齐：
+
+```bash
+cd client
+go run ./example
+```
+
+启动后访问：
+
+```text
+http://127.0.0.1:8082
+```
+
+这个示例默认使用：
+
+```text
+MKAUTH_ISSUER=http://127.0.0.1:8080
+MKAUTH_CLIENT_ID=demo-backend
+MKAUTH_CLIENT_SECRET=demo-backend-secret
+MKAUTH_REDIRECT_URL=http://127.0.0.1:8082/auth/callback
+```
+
+## 运行 Go 资源服务校验示例
+
+如果你还想演示“业务 API 如何校验 access token”，可以再起一个资源服务示例：
+
+```bash
+cd client
+go run ./example/resource-server
+```
+
+然后调用：
+
+```bash
+curl -H 'Authorization: Bearer <access-token>' http://127.0.0.1:8083/protected
+```
+
+默认它会校验：
+- 签名
+- issuer
+- audience=`demo-backend`
+- token_type=`access_token`
 
 ## 如果要启用管理后台
 
@@ -76,4 +172,6 @@ auth:
 
 ## 说明
 
-当前 `quickstart/docker-compose.yml` 使用的是预构建镜像 `minkicc/auth:latest`，适合快速体验。若你正在开发本仓库源码，建议在根目录阅读 [README-zh.md](../README-zh.md) 中的“本地开发”章节。
+- `quickstart/docker-compose.yml` 会直接构建你本地 checkout 的代码，更适合当前分支的验证和演示。首次 `--build` 会稍慢一些，但可以确保 OIDC demo 与当前代码一致。
+- `quickstart/docker-compose.release.yml` 会直接拉取 `ghcr.io/minkicc/auth` 镜像，更适合发给其他用户或部署环境使用。
+- 两个 compose 文件都会等待 MySQL、Redis、MinIO 健康后再启动 `mkauth-server`，启动顺序更稳。

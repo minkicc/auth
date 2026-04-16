@@ -7,7 +7,6 @@ package handlers
 
 import (
 	"net/http"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"minki.cc/mkauth/server/auth"
@@ -68,30 +67,7 @@ func (h *AuthHandler) PhoneCodeLogin(c *gin.Context) {
 		return
 	}
 
-	// Create session and JWT token
-	session, err := h.sessionMgr.CreateUserSession(user.UserID, c.ClientIP(), c.GetHeader("User-Agent"), auth.TokenExpiration+time.Hour)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create session"})
-		return
-	}
-
-	token, err := h.jwtService.GenerateTokenPair(user.UserID, session.ID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
-		return
-	}
-
-	c.SetCookie("refreshToken", token.RefreshToken, int(auth.RefreshTokenExpiration.Seconds()), "/", "", true, true)
-	// Login successful, return user information and token
-	c.JSON(http.StatusOK, gin.H{
-		"message": "Login successful",
-		"token":   token.AccessToken,
-		"user": gin.H{
-			"user_id":  user.UserID,
-			"nickname": user.Nickname,
-			"avatar":   user.Avatar,
-		},
-	})
+	h.completeBrowserLogin(c, user, "Login successful")
 }
 
 // SendVerificationCode Handle send verification code request
@@ -269,37 +245,7 @@ func (h *AuthHandler) VerifyPhoneAndRegister(c *gin.Context) {
 		return
 	}
 
-	// Create session
-	clientIP := c.ClientIP()
-	session, err := h.sessionMgr.CreateUserSession(user.UserID, clientIP, c.Request.UserAgent(), auth.RefreshTokenExpiration+time.Hour)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create session"})
-		return
-	}
-
-	tokenPair, err := h.jwtService.GenerateTokenPair(user.UserID, session.ID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
-		return
-	}
-	// avata转换为url
-	if user.Avatar != "" {
-		url, err := h.avatarService.GetAvatarURL(user.Avatar)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		user.Avatar = url
-	}
-	c.SetCookie("refreshToken", tokenPair.RefreshToken, int(auth.RefreshTokenExpiration.Seconds()), "/", "", true, true)
-	c.JSON(http.StatusOK, gin.H{
-		"message":     "Phone verification successful, registration complete",
-		"user_id":     user.UserID,
-		"token":       tokenPair.AccessToken,
-		"nickname":    user.Nickname,
-		"avatar":      user.Avatar,
-		"expire_time": auth.TokenExpiration,
-	})
+	h.completeBrowserLogin(c, user, "Phone verification successful, registration complete")
 }
 
 // PhoneLogin Phone number + password login
@@ -327,38 +273,7 @@ func (h *AuthHandler) PhoneLogin(c *gin.Context) {
 		return
 	}
 
-	// Create session and JWT token
-	session, err := h.sessionMgr.CreateUserSession(user.UserID, c.ClientIP(), c.GetHeader("User-Agent"), auth.TokenExpiration+time.Hour)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create session"})
-		return
-	}
-
-	token, err := h.jwtService.GenerateTokenPair(user.UserID, session.ID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
-		return
-	}
-	// avata转换为url
-	if user.Avatar != "" {
-		url, err := h.avatarService.GetAvatarURL(user.Avatar)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		user.Avatar = url
-	}
-	c.SetCookie("refreshToken", token.RefreshToken, int(auth.RefreshTokenExpiration.Seconds()), "/", "", true, true)
-	// Login successful, return user information and token
-	c.JSON(http.StatusOK, gin.H{
-		"message": "Login successful",
-		"token":   token.AccessToken,
-		"user": gin.H{
-			"user_id":  user.UserID,
-			"nickname": user.Nickname,
-			"avatar":   user.Avatar,
-		},
-	})
+	h.completeBrowserLogin(c, user, "Login successful")
 }
 
 // SendLoginSMS Send login verification code

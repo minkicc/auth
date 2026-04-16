@@ -39,8 +39,6 @@ services:
     entrypoint: sh
     command: -c "minio server /data --console-address ':9001' & sleep 5 && /usr/bin/minio-init.sh && tail -f /dev/null"
     container_name: minio
-    # networks:
-    #   kcserver:
     restart: always
     environment:
       TZ: Asia/Shanghai
@@ -56,13 +54,12 @@ services:
       - minio_data:/data
       - ./minio-init.sh:/usr/bin/minio-init.sh
     ports:
-      - "9002:9000" # 测试用
+      - "9002:9000"
       - "9003:9001"
 
   mkauth-server:
-    build:
-      context: ..
-      dockerfile: Dockerfile
+    image: ${MKAUTH_IMAGE:-ghcr.io/minkicc/auth:latest}
+    pull_policy: always
     container_name: mkauth-server
     restart: always
     depends_on:

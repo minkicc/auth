@@ -19,6 +19,7 @@ type Config struct {
 	Auth           AuthConfig       `json:"auth" yaml:"auth"`
 	Database       DatabaseConfig   `json:"db" yaml:"db"`
 	Redis          RedisConfig      `json:"redis" yaml:"redis"`
+	OIDC           OIDCConfig       `json:"oidc" yaml:"oidc"`
 	Admin          AdminConfig      `json:"auth_admin" yaml:"auth_admin"`
 	Storage        storage.Config   `json:"storage" yaml:"storage"`
 	TrustedClients []TrustedClient  `json:"auth_trusted_clients" yaml:"auth_trusted_clients"` // 受信任的第三方客户端配置
@@ -36,26 +37,15 @@ type StorageUrlConfig struct {
 // 	WriteTimeout string `json:"write_timeout" yaml:"write_timeout"` // Using string format like "15s", "5m"
 // }
 
-type JWTConfig struct {
-	Issuer string `json:"issuer" yaml:"issuer"`
-}
-
 // AuthConfig Authentication configuration
 type AuthConfig struct {
 	EnabledProviders []string         `json:"enabled_providers" yaml:"enabled_providers"` // "account", "email", "weixin", "google", "phone"
-	JWT              JWTConfig        `json:"jwt" yaml:"jwt"`
 	Google           GoogleConfig     `json:"google" yaml:"google"`
 	Weixin           WeixinConfig     `json:"weixin" yaml:"weixin"`
 	WeixinMini       WeixinMiniConfig `json:"weixin_mini" yaml:"weixin_mini"`
 	Smtp             SmtpConfig       `json:"smtp" yaml:"smtp"`
 	SMS              SMSConfig        `json:"sms" yaml:"sms"` // New: SMS configuration
 }
-
-// JWTConfig JWT configuration
-// type JWTConfig struct {
-// 	SecretKey string        `json:"secret_key"`
-// 	ExpireIn  time.Duration `json:"expire_in"`
-// }
 
 // GoogleConfig Google OAuth configuration
 type GoogleConfig struct {
@@ -144,6 +134,27 @@ type TrustedClient struct {
 	ClientSecret string   `json:"client_secret" yaml:"client_secret"` // 客户端密钥
 	AllowedIPs   []string `json:"allowed_ips" yaml:"allowed_ips"`     // 允许的IP地址列表
 	Scopes       []string `json:"scopes" yaml:"scopes"`               // 允许的权限范围
+}
+
+type OIDCConfig struct {
+	Enabled               bool               `json:"enabled" yaml:"enabled"`
+	Issuer                string             `json:"issuer" yaml:"issuer"`
+	KeyID                 string             `json:"key_id" yaml:"key_id"`
+	PrivateKeyPEM         string             `json:"private_key_pem" yaml:"private_key_pem"`
+	PrivateKeyFile        string             `json:"private_key_file" yaml:"private_key_file"`
+	CodeTTLSeconds        int                `json:"code_ttl_seconds" yaml:"code_ttl_seconds"`
+	AccessTokenTTLSeconds int                `json:"access_token_ttl_seconds" yaml:"access_token_ttl_seconds"`
+	IDTokenTTLSeconds     int                `json:"id_token_ttl_seconds" yaml:"id_token_ttl_seconds"`
+	Clients               []OIDCClientConfig `json:"clients" yaml:"clients"`
+}
+
+type OIDCClientConfig struct {
+	ClientID     string   `json:"client_id" yaml:"client_id"`
+	ClientSecret string   `json:"client_secret" yaml:"client_secret"`
+	RedirectURIs []string `json:"redirect_uris" yaml:"redirect_uris"`
+	Scopes       []string `json:"scopes" yaml:"scopes"`
+	Public       bool     `json:"public" yaml:"public"`
+	RequirePKCE  bool     `json:"require_pkce" yaml:"require_pkce"`
 }
 
 func (c *TrustedClient) HasScope(_scope string) bool {

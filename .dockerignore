@@ -1,0 +1,13 @@
+.git
+.github
+.idea
+.vscode
+web/node_modules
+admin-web/node_modules
+web/dist
+admin-web/dist
+server/config/config.yaml
+quickstart/mysql_data
+quickstart/redis_data
+quickstart/minio_data
+quickstart/oidc-private-key.pem

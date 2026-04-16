@@ -8,10 +8,8 @@ package handlers
 import (
 	"log"
 	"net/http"
-	"time"
 
 	"github.com/gin-gonic/gin"
-	"minki.cc/mkauth/server/auth"
 )
 
 // EmailLogin Email login
@@ -45,37 +43,7 @@ func (h *AuthHandler) EmailLogin(c *gin.Context) {
 	// Record successful login attempt
 	h.accountAuth.RecordLoginAttempt(req.Email, clientIP, true)
 
-	// Create session
-	session, err := h.sessionMgr.CreateUserSession(user.UserID, clientIP, c.Request.UserAgent(), auth.RefreshTokenExpiration+time.Hour)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create session"})
-		return
-	}
-
-	tokenPair, err := h.jwtService.GenerateTokenPair(user.UserID, session.ID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
-		return
-	}
-
-	// avata转换为url
-	if user.Avatar != "" {
-		url, err := h.avatarService.GetAvatarURL(user.Avatar)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		user.Avatar = url
-	}
-
-	c.SetCookie("refreshToken", tokenPair.RefreshToken, int(auth.RefreshTokenExpiration.Seconds()), "/", "", true, true)
-	c.JSON(http.StatusOK, gin.H{
-		"user_id":     user.UserID,
-		"token":       tokenPair.AccessToken,
-		"nickname":    user.Nickname,
-		"avatar":      user.Avatar,
-		"expire_time": auth.TokenExpiration,
-	})
+	h.completeBrowserLogin(c, user, "")
 }
 
 // EmailRegister Email pre-registration
@@ -121,37 +89,7 @@ func (h *AuthHandler) EmailVerify(c *gin.Context) {
 		return
 	}
 
-	// Create session
-	clientIP := c.ClientIP()
-	session, err := h.sessionMgr.CreateUserSession(user.UserID, clientIP, c.Request.UserAgent(), auth.RefreshTokenExpiration+time.Hour)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create session"})
-		return
-	}
-
-	tokenPair, err := h.jwtService.GenerateTokenPair(user.UserID, session.ID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
-		return
-	}
-	// avata转换为url
-	if user.Avatar != "" {
-		url, err := h.avatarService.GetAvatarURL(user.Avatar)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		user.Avatar = url
-	}
-	c.SetCookie("refreshToken", tokenPair.RefreshToken, int(auth.RefreshTokenExpiration.Seconds()), "/", "", true, true)
-	c.JSON(http.StatusOK, gin.H{
-		"message":     "Email verification successful, registration complete",
-		"user_id":     user.UserID,
-		"token":       tokenPair.AccessToken,
-		"nickname":    user.Nickname,
-		"avatar":      user.Avatar,
-		"expire_time": auth.TokenExpiration,
-	})
+	h.completeBrowserLogin(c, user, "Email verification successful, registration complete")
 }
 
 // ResendEmailVerification Resend email verification

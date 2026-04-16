@@ -38,7 +38,6 @@ type AdminServer struct {
 	logger     *log.Logger
 	redis      *auth.RedisStore
 	sessionMgr *auth.SessionManager
-	jwtService *auth.JWTService
 }
 
 // NewAdminServer Create admin server
@@ -58,7 +57,7 @@ func NewAdminServer(cfg *config.Config, db *gorm.DB, logger *log.Logger, webFile
 	redisStore, err := auth.NewRedisStore(redisAddr, cfg.Redis.Password, cfg.Redis.DB)
 	if err != nil {
 		logger.Printf("Warning: Failed to initialize Redis connection: %v", err)
-		logger.Println("Some features may not work properly, such as JWT session management")
+		logger.Println("Some features may not work properly, such as session management")
 	}
 
 	// Initialize session manager
@@ -76,11 +75,6 @@ func NewAdminServer(cfg *config.Config, db *gorm.DB, logger *log.Logger, webFile
 		}
 	}
 
-	// Initialize JWT service
-	jwtService := auth.NewJWTService(redisStore, auth.JWTConfig{
-		Issuer: cfg.Auth.JWT.Issuer,
-	})
-
 	// Create admin server
 	server := &AdminServer{
 		config:     &cfg.Admin,
@@ -88,7 +82,6 @@ func NewAdminServer(cfg *config.Config, db *gorm.DB, logger *log.Logger, webFile
 		logger:     logger,
 		redis:      redisStore,
 		sessionMgr: sessionManager,
-		jwtService: jwtService,
 	}
 
 	// Set Gin mode

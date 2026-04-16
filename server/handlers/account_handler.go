@@ -6,16 +6,11 @@
 package handlers
 
 import (
-	"fmt"
-	"log"
 	"net/http"
 	"strconv"
-	"strings"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"minki.cc/mkauth/server/auth"
-	"minki.cc/mkauth/server/common"
 	"minki.cc/mkauth/server/config"
 )
 
@@ -56,7 +51,6 @@ func (h *AuthHandler) Register(c *gin.Context) {
 
 	// Directly return login information
 	// Check login attempt limits
-	clientIP := c.ClientIP()
 	// if err := h.accountAuth.CheckLoginAttempts(req.Username, clientIP); err != nil {
 	// 	c.JSON(http.StatusTooManyRequests, gin.H{"error": err.Error()})
 	// 	return
@@ -73,40 +67,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	// Record successful login attempt
 	// h.accountAuth.RecordLoginAttempt(req.Username, clientIP, true)
 
-	// Create JWT token
-	// token, err := h.jwtService.GenerateJWT(user.UserID, "", "")
-
-	// Or create session
-	session, err := h.sessionMgr.CreateUserSession(user.UserID, clientIP, c.Request.UserAgent(), auth.RefreshTokenExpiration+time.Hour)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create session"})
-		return
-	}
-
-	tokenPair, err := h.jwtService.GenerateTokenPair(user.UserID, session.ID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
-		return
-	}
-
-	// // avata转换为url
-	// if user.Avatar != "" {
-	// 	url, err := h.avatarService.GetAvatarURL(user.Avatar)
-	// 	if err != nil {
-	// 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-	// 		return
-	// 	}
-	// 	user.Avatar = url
-	// }
-
-	c.SetCookie("refreshToken", tokenPair.RefreshToken, int(auth.RefreshTokenExpiration.Seconds()), "/", "", true, true)
-	c.JSON(http.StatusOK, gin.H{
-		"user_id":     user.UserID,
-		"token":       tokenPair.AccessToken,
-		"nickname":    user.Nickname,
-		"avatar":      user.Avatar,
-		"expire_time": auth.TokenExpiration,
-	})
+	h.completeBrowserLogin(c, user, "")
 }
 
 // Login Regular login
@@ -139,73 +100,20 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	// Record successful login attempt
 	h.accountAuth.RecordLoginAttempt(req.Username, clientIP, true)
 
-	// Create JWT token
-	// token, err := h.jwtService.GenerateJWT(user.UserID, "", "")
-
-	// Or create session
-	session, err := h.sessionMgr.CreateUserSession(user.UserID, clientIP, c.Request.UserAgent(), auth.RefreshTokenExpiration+time.Hour)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	tokenPair, err := h.jwtService.GenerateTokenPair(user.UserID, session.ID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	// avata转换为url
-	if user.Avatar != "" {
-		url, err := h.avatarService.GetAvatarURL(user.Avatar)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		user.Avatar = url
-	}
-
-	c.SetCookie("refreshToken", tokenPair.RefreshToken, int(auth.RefreshTokenExpiration.Seconds()), "/", "", true, true)
-	c.JSON(http.StatusOK, gin.H{
-		"user_id":     user.UserID,
-		"token":       tokenPair.AccessToken,
-		"nickname":    user.Nickname,
-		"avatar":      user.Avatar,
-		"expire_time": auth.TokenExpiration,
-	})
+	h.completeBrowserLogin(c, user, "")
 }
 
 // Logout Logout handling
 func (h *AuthHandler) Logout(c *gin.Context) {
+	// Clear browser session cookie
+	h.clearBrowserSession(c)
 
-	// Get session ID
-	sessionID, ok := c.Get("session_id")
-	if !ok {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Session ID not found"})
-		return
-	}
-
-	// Get user information from context
-	userID, ok := c.Get("user_id")
-	if !ok {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "User ID not found"})
-		return
-	}
-
-	// Revoke refresh token
-	if err := h.jwtService.RevokeJWTByID(userID.(string), sessionID.(string)); err != nil {
-		h.logger.Printf("Failed to revoke refresh token: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to revoke refresh token"})
-		return
-	}
-
-	// Clear client cookie
-	c.SetCookie("refreshToken", "", -1, "/", "", true, true)
-
-	// Delete session
-	if err := h.sessionMgr.DeleteSession(userID.(string), sessionID.(string)); err != nil {
-		// Even if session deletion fails, continue trying to revoke token
-		h.logger.Printf("Failed to delete session: %v", err)
+	userID, hasUserID := c.Get("user_id")
+	sessionID, hasSessionID := c.Get("session_id")
+	if hasUserID && hasSessionID {
+		if err := h.sessionMgr.DeleteSession(userID.(string), sessionID.(string)); err != nil {
+			h.logger.Printf("Failed to delete session: %v", err)
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Logout successful"})
@@ -220,7 +128,7 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 // 	}
 
 // 	// Refresh session, extend validity to 7 days
-// 	if err := h.sessionMgr.RefreshSession(sessionID, auth.RefreshTokenExpiration); err != nil {
+// 	if err := h.sessionMgr.RefreshSession(sessionID, auth.SessionExpiration); err != nil {
 // 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Failed to refresh session"})
 // 		return
 // 	}
@@ -233,8 +141,8 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 // 	}
 
 // 	c.JSON(http.StatusOK, gin.H{
-// 		"session_id":  session.ID,
-// 		"expire_time": session.ExpiresAt,
+// 		"session_id": session.ID,
+// 		"expires_at": session.ExpiresAt,
 // 	})
 // }
 
@@ -294,14 +202,9 @@ func (h *AuthHandler) GetUserInfo(c *gin.Context) {
 		return
 	}
 
-	// avata转换为url
-	if user.Avatar != "" {
-		url, err := h.avatarService.GetAvatarURL(user.Avatar)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		user.Avatar = url
+	if err := h.populateAvatarURL(user); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
 	}
 
 	c.JSON(http.StatusOK, user)
@@ -335,14 +238,9 @@ func (h *AuthHandler) GetUserInfoById(c *gin.Context) {
 		return
 	}
 
-	// avata转换为url
-	if user.Avatar != "" {
-		url, err := h.avatarService.GetAvatarURL(user.Avatar)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		user.Avatar = url
+	if err := h.populateAvatarURL(user); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
 	}
 
 	c.JSON(http.StatusOK, user)
@@ -381,15 +279,10 @@ func (h *AuthHandler) GetUsersInfo(c *gin.Context) {
 		return
 	}
 
-	// 处理用户头像URL
 	for i := range users {
-		if users[i].Avatar != "" {
-			url, err := h.avatarService.GetAvatarURL(users[i].Avatar)
-			if err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-				return
-			}
-			users[i].Avatar = url
+		if err := h.populateAvatarURL(&users[i]); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
 		}
 	}
 
@@ -459,348 +352,20 @@ func (h *AuthHandler) UpdateUserInfo(c *gin.Context) {
 	}
 }
 
-// ValidateToken Validate JWT token
-func (h *AuthHandler) ValidateToken(c *gin.Context) {
-	authHeader := c.GetHeader("Authorization")
-	if authHeader == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Token not provided"})
-		return
-	}
-
-	var err error
-	if authHeader != "" && len(authHeader) > 7 && authHeader[:7] == "Bearer " {
-		token := authHeader[7:]
-		var claims *auth.CustomClaims
-		// Validate JWT
-		claims, err = h.jwtService.ValidateJWT(token)
-		if err == nil && claims != nil {
-			c.JSON(http.StatusOK, gin.H{"user_id": claims.UserID})
-			return
-		}
-	}
-
-	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
-	} else {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token format"})
-	}
-}
-
 // AuthRequired Verify if user is logged in
 func (h *AuthHandler) AuthRequired() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Get session ID from request header
-		// sessionID := c.GetHeader("Session-ID")
-		// if sessionID != "" {
-		// 	// Validate session
-		// 	session, err := h.sessionMgr.GetSession(sessionID)
-		// 	if err == nil && session != nil {
-		// 		// Session valid, set user ID and continue
-		// 		c.Set("user_id", session.UserID)
-		// 		c.Next()
-		// 		return
-		// 	}
-		// }
-
-		var err error
-		// No valid session, try to validate JWT
-		authHeader := c.GetHeader("Authorization")
-		if authHeader != "" && len(authHeader) > 7 && authHeader[:7] == "Bearer " {
-			token := authHeader[7:]
-			var claims *auth.CustomClaims
-			// Validate JWT
-			claims, err = h.jwtService.ValidateJWT(token)
-			if err == nil && claims != nil {
-				// JWT valid, set user ID
-				// Note: claims.Subject should contain user ID
-				c.Set("user_id", claims.UserID)
-				c.Set("session_id", claims.SessionID)
-				c.Next()
-				return
-			} else {
-				// JWT invalid, deny access
-				c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
-				c.Abort()
-				return
-			}
-		} else {
-			// Not authenticated, deny access
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "no Authorization header"})
-			c.Abort()
+		if h.authenticateBrowserSession(c) {
+			c.Next()
 			return
 		}
 
-		// Not authenticated, deny access
-		// c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication failed, please log in"})
-		// c.Abort()
-	}
-}
-
-// RefreshToken JWT refresh token
-func (h *AuthHandler) RefreshToken(c *gin.Context) {
-	// Get refreshtoken from Cookie
-	refreshToken, err := c.Cookie("refreshToken")
-	if err != nil || refreshToken == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Refresh token not provided"})
-		return
-	}
-
-	// var req struct {
-	// 	Token string `json:"token" binding:"required"`
-	// }
-
-	// if err := c.ShouldBindJSON(&req); err != nil {
-	// 	c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request parameters"})
-	// 	return
-	// }
-
-	claims, err := h.jwtService.ValidateJWT(refreshToken)
-	if err != nil {
-		log.Println("Invalid refresh token:", err.Error())
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid refresh token"})
-		return
-	}
-	if claims.TokenType != auth.RefreshTokenType {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token type"})
-		return
-	}
-
-	// 判断refreshToken的超时时间，如果还比较长，仅更新accessToken
-	if time.Until(claims.ExpiresAt.Time) > time.Duration(auth.RefreshTokenExpiration.Hours()/2) {
-		// Refresh session
-		token, err := h.jwtService.GenerateAccessToken(claims.UserID, claims.SessionID)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
+		if err := h.authenticateOIDCAccessToken(c); err == nil {
+			c.Next()
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{
-			"token":       token,
-			"expire_time": auth.TokenExpiration,
-		})
-		return
+
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+		c.Abort()
 	}
-
-	if err := h.sessionMgr.RefreshSession(claims.UserID, claims.SessionID, auth.RefreshTokenExpiration+time.Hour); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to refresh session"})
-		return
-	}
-	// Refresh JWT token
-	tokenPair, err := h.jwtService.RefreshJWT(refreshToken)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	// Automatically update refreshToken
-	c.SetCookie("refreshToken", tokenPair.RefreshToken, int(auth.RefreshTokenExpiration.Seconds()), "/", "", true, true)
-	c.JSON(http.StatusOK, gin.H{
-		// "user_id":     user.UserID,
-		"token": tokenPair.AccessToken,
-		// "profile":     user.Profile,
-		"expire_time": auth.TokenExpiration,
-	})
-}
-
-// LoginRedirect Login callback
-func (h *AuthHandler) LoginRedirect(c *gin.Context) {
-	// Get client_id and redirect_uri from query parameters
-	clientID := c.Query("client_id")
-	redirectURI := c.Query("redirect_uri")
-
-	if redirectURI == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Missing redirect_uri"})
-		return
-	}
-
-	// 后端回调时再验证
-	// var trustedClient *config.TrustedClient
-	// // Check if client_id is in trusted clients
-	// for _, client := range h.config.TrustedClients {
-	// 	if client.ClientID == clientID {
-	// 		trustedClient = &client
-	// 		break
-	// 	}
-	// }
-	// if trustedClient == nil {
-	// 	c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized client"})
-	// 	return
-	// }
-
-	// Get user ID from context (assuming user is already authenticated)
-	userID, exists := c.Get("user_id")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
-		return
-	}
-
-	userIDStr := ""
-	switch v := userID.(type) {
-	case string:
-		userIDStr = v
-	default:
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid user ID type"})
-		return
-	}
-
-	// Get current session ID from context (reuse existing session)
-	sessionID, exists := c.Get("session_id")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Session not found"})
-		return
-	}
-
-	sessionIDStr := ""
-	switch v := sessionID.(type) {
-	case string:
-		sessionIDStr = v
-	default:
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid session ID type"})
-		return
-	}
-
-	// Verify session is still valid
-	session, err := h.sessionMgr.GetSession(userIDStr, sessionIDStr)
-	if err != nil || session == nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Session expired or invalid"})
-		return
-	}
-
-	// Get current tokens from request (reuse existing tokens)
-	// authHeader := c.GetHeader("Authorization")
-	// if authHeader == "" || len(authHeader) <= 7 || authHeader[:7] != "Bearer " {
-	// 	c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid authorization header"})
-	// 	return
-	// }
-	// accessToken := authHeader[7:]
-
-	// Get refresh token from cookie
-	refreshToken, err := c.Cookie("refreshToken")
-	if err != nil || refreshToken == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Refresh token not found"})
-		return
-	}
-
-	// Generate a random code
-	code, err := auth.GenerateBase62String(32)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate code"})
-		return
-	}
-
-	// Store code in Redis with user information and session data
-	codeKey := fmt.Sprintf("%s%s", common.RedisKeyOauthCode, code)
-	codeData := map[string]interface{}{
-		"user_id":    userIDStr,
-		"client_id":  clientID,
-		"session_id": sessionIDStr,
-		// "access_token":  accessToken,
-		"refresh_token": refreshToken,
-		"created_at":    time.Now(),
-	}
-
-	// Store code with 10 minutes expiration
-	if err := h.redisStore.Set(codeKey, codeData, 10*time.Minute); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to store code"})
-		return
-	}
-
-	// Redirect to redirect_uri with code
-	var redirectURL string
-	if strings.Contains(redirectURI, "?") {
-		redirectURL = fmt.Sprintf("%s&code=%s", redirectURI, code)
-	} else {
-		redirectURL = fmt.Sprintf("%s?code=%s", redirectURI, code)
-	}
-
-	// Return redirect URL instead of redirecting
-	c.JSON(http.StatusOK, gin.H{
-		"url": redirectURL,
-	})
-}
-
-// LoginVerify Login verify
-func (h *AuthHandler) LoginVerify(c *gin.Context) {
-	// Get client_id and code from query parameters
-	clientID := c.Query("client_id")
-	code := c.Query("code")
-
-	if code == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Missing code"})
-		return
-	}
-
-	// Get code data from Redis
-	codeKey := fmt.Sprintf("%s%s", common.RedisKeyOauthCode, code)
-	var codeData map[string]interface{}
-	if err := h.redisStore.Get(codeKey, &codeData); err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired code"})
-		return
-	}
-
-	// Verify client_id matches
-	if codeData["client_id"] != clientID {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Client ID mismatch"})
-		return
-	}
-
-	// Get user information
-	userID := codeData["user_id"].(string)
-	user, err := h.accountAuth.GetUserByID(userID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get user information"})
-		return
-	}
-
-	// Get session and token information from code data (reuse existing session)
-	sessionID := codeData["session_id"].(string)
-	// accessToken := codeData["access_token"].(string)
-	refreshToken := codeData["refresh_token"].(string)
-
-	// Verify session is still valid
-	session, err := h.sessionMgr.GetSession(userID, sessionID)
-	if err != nil || session == nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Session expired or invalid"})
-		return
-	}
-
-	// Check access token expiration and refresh if needed
-	// claims, err := h.jwtService.ValidateJWT(accessToken)
-	// accessTokenValid := err == nil
-
-	// Validate refresh token and get its remaining time
-	refreshClaims, err := h.jwtService.ValidateJWT(refreshToken)
-	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid refresh token"})
-		return
-	}
-
-	refreshTimeRemaining := time.Until(refreshClaims.ExpiresAt.Time)
-
-	newAccessToken, err := h.jwtService.GenerateAccessToken(userID, sessionID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate access token"})
-		return
-	}
-
-	// Delete the used code
-	h.redisStore.Delete(codeKey)
-
-	// Convert avatar to URL if needed
-	if user.Avatar != "" {
-		url, err := h.avatarService.GetAvatarURL(user.Avatar)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		user.Avatar = url
-	}
-
-	c.SetCookie("refreshToken", refreshToken, int(refreshTimeRemaining.Seconds()), "/", "", true, true)
-	c.JSON(http.StatusOK, gin.H{
-		"user_id":     user.UserID,
-		"token":       newAccessToken,
-		"nickname":    user.Nickname,
-		"avatar":      user.Avatar,
-		"expire_time": auth.TokenExpiration,
-	})
 }
