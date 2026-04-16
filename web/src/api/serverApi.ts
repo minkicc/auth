@@ -28,6 +28,51 @@ interface NestedAuthResponse {
 
 export type AuthProvider = 'account' | 'email' | 'google' | 'weixin' | 'phone' | 'weixin_mini'
 
+type ApiErrorPayload = {
+    error?: string | {
+        message?: string
+        details?: string
+    }
+    message?: string
+    details?: string
+}
+
+function formatApiErrorValue(value: unknown): string | undefined {
+    if (typeof value === 'string' && value) {
+        return value
+    }
+
+    if (!value || typeof value !== 'object') {
+        return undefined
+    }
+
+    const payload = value as { message?: unknown; details?: unknown }
+    const message = typeof payload.message === 'string' ? payload.message : ''
+    const details = typeof payload.details === 'string' ? payload.details : ''
+
+    if (message && details && !message.includes(details)) {
+        return `${message}: ${details}`
+    }
+
+    return message || details || undefined
+}
+
+export function getApiErrorMessage(error: unknown, fallback: string): string {
+    if (axios.isAxiosError<ApiErrorPayload>(error)) {
+        const data = error.response?.data
+        const responseMessage = formatApiErrorValue(data?.error) || formatApiErrorValue(data)
+        if (responseMessage) {
+            return responseMessage
+        }
+    }
+
+    if (error instanceof Error && error.message) {
+        return error.message
+    }
+
+    return fallback
+}
+
 
 // 响应拦截器：处理重定向响应
 // axios.interceptors.response.use(

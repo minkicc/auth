@@ -50,7 +50,7 @@
 </template>
 
 <script lang="ts" setup>
-import { serverApi } from '@/api/serverApi';
+import { getApiErrorMessage, serverApi } from '@/api/serverApi';
 import { reactive, ref, defineEmits } from 'vue'
 import { useI18n } from 'vue-i18n'
 
@@ -93,8 +93,8 @@ const validateForm = () => {
   if (!formData.password) {
     formErrors.password = t('validation.required', { field: t('common.password') })
     isValid = false
-  } else if (formData.password.length < 6) {
-    formErrors.password = t('validation.passwordLength', { min: 6 })
+  } else if (formData.password.length < 8) {
+    formErrors.password = t('validation.passwordLength', { min: 8 })
     isValid = false
   }
   
@@ -119,9 +119,9 @@ const handleRegister = async () => {
     // 调用注册函数
     await serverApi.registerAccount(formData.username, formData.password)
 
-  } catch (error: any) {
+  } catch (error: unknown) {
     // 注册失败，通知父组件
-    emit('register-error', error.message || t('errors.registerFailed'))
+    emit('register-error', getApiErrorMessage(error, t('errors.registerFailed')))
   } finally {
     isLoading.value = false
   }
@@ -183,4 +183,4 @@ input.error {
   background: #bfbfbf;
   cursor: not-allowed;
 }
-</style> 
+</style>

@@ -101,15 +101,15 @@ type ErrorResponse struct {
 // GetHTTPStatus Get corresponding HTTP status code
 func (e *AppError) GetHTTPStatus() int {
 	switch e.Code {
-	case ErrCodeInvalidRequest:
+	case ErrCodeInvalidRequest, ErrCodeInvalidInput, ErrCodeWeakPassword, ErrCodeInvalidUsername, ErrCodeInvalidEmail, ErrCodeInvalidPhoneFormat, ErrCodeInvalidCode:
 		return http.StatusBadRequest
-	case ErrCodeUnauthorized, ErrCodeInvalidCredentials, ErrCodeInvalidToken, ErrCodeTokenExpired:
+	case ErrCodeUnauthorized, ErrCodeInvalidCredentials, ErrCodeInvalidToken, ErrCodeTokenExpired, ErrCodeExpiredToken, ErrCodeInvalidPassword, ErrCodeInvalidLogin, ErrCodeInvalidSession:
 		return http.StatusUnauthorized
-	case ErrCodeForbidden:
+	case ErrCodeForbidden, ErrCodePermissionDenied, ErrCodeUserDisabled, ErrCodeUserLocked, ErrCodeEmailNotVerified, ErrCodeUnverifiedEmail:
 		return http.StatusForbidden
 	case ErrCodeNotFound, ErrCodeUserNotFound:
 		return http.StatusNotFound
-	case ErrCodeConflict, ErrCodeDuplicateUser:
+	case ErrCodeConflict, ErrCodeDuplicateUser, ErrCodeUsernameTaken, ErrCodeUserIDTaken, ErrCodeEmailTaken, ErrCodePhoneTaken:
 		return http.StatusConflict
 	case ErrCodeTooManyRequests:
 		return http.StatusTooManyRequests
