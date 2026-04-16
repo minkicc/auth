@@ -58,8 +58,6 @@ oidc:
 auth:
   enabled_providers:
     - "account"
-  jwt:
-    issuer: "example.com"
 
 auth_admin:
   enabled: false

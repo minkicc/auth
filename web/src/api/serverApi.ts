@@ -8,13 +8,14 @@ import axios from 'axios'
 // API响应类型定义
 interface AuthResponse {
     user_id: string
-    token: string
-    nickname: string
-    avatar: string
+    nickname?: string
+    avatar?: string
+    authenticated?: boolean
+    expires_at?: string
+    message?: string
 }
 
 interface NestedAuthResponse {
-    token: string
     user?: {
         user_id: string
         nickname?: string
@@ -54,6 +55,7 @@ class ServerApi {
 
     clearStoredAuth() {
         localStorage.removeItem('token')
+        localStorage.removeItem('user')
         localStorage.removeItem('avatar')
         localStorage.removeItem('nickname')
         localStorage.removeItem('userId')
@@ -77,7 +79,6 @@ class ServerApi {
         if ('user' in response && response.user) {
             return {
                 user_id: response.user.user_id,
-                token: response.token,
                 nickname: response.user.nickname || '',
                 avatar: response.user.avatar || '',
             }
@@ -85,27 +86,14 @@ class ServerApi {
 
         return {
             user_id: response.user_id || '',
-            token: response.token,
             nickname: response.nickname || '',
             avatar: response.avatar || '',
         }
     }
 
     updateUserInfo(response: AuthResponse | NestedAuthResponse) {
-        const { user_id, token, nickname, avatar } = this.normalizeAuthResponse(response)
-
-        if (this.isOIDCFlow()) {
-            this.clearStoredAuth()
-        } else {
-            // 保存信息到本地存储
-            localStorage.setItem('token', token)
-            localStorage.setItem('avatar', avatar)
-            localStorage.setItem('nickname', nickname)
-            localStorage.setItem('userId', user_id)
-
-            // 设置 axios 默认 headers
-            axios.defaults.headers.common['Authorization'] = `Bearer ${token}`
-        }
+        this.normalizeAuthResponse(response)
+        this.clearStoredAuth()
 
         this.handleLoginRedirect() // 重定向到应用
     }

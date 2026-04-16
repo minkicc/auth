@@ -51,7 +51,6 @@ func (h *AuthHandler) Register(c *gin.Context) {
 
 	// Directly return login information
 	// Check login attempt limits
-	clientIP := c.ClientIP()
 	// if err := h.accountAuth.CheckLoginAttempts(req.Username, clientIP); err != nil {
 	// 	c.JSON(http.StatusTooManyRequests, gin.H{"error": err.Error()})
 	// 	return
@@ -68,43 +67,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	// Record successful login attempt
 	// h.accountAuth.RecordLoginAttempt(req.Username, clientIP, true)
 
-	// Create JWT token
-	// token, err := h.jwtService.GenerateJWT(user.UserID, "", "")
-
-	// Or create session
-	session, err := h.sessionMgr.CreateUserSession(user.UserID, clientIP, c.Request.UserAgent(), auth.SessionExpiration)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create session"})
-		return
-	}
-
-	accessToken, err := h.jwtService.GenerateAccessToken(user.UserID, session.ID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
-		return
-	}
-	if err := h.setBrowserSession(c, session); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to establish browser session"})
-		return
-	}
-
-	// // avata转换为url
-	// if user.Avatar != "" {
-	// 	url, err := h.avatarService.GetAvatarURL(user.Avatar)
-	// 	if err != nil {
-	// 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-	// 		return
-	// 	}
-	// 	user.Avatar = url
-	// }
-
-	c.JSON(http.StatusOK, gin.H{
-		"user_id":     user.UserID,
-		"token":       accessToken,
-		"nickname":    user.Nickname,
-		"avatar":      user.Avatar,
-		"expire_time": auth.TokenExpiration,
-	})
+	h.completeBrowserLogin(c, user, "")
 }
 
 // Login Regular login
@@ -137,76 +100,20 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	// Record successful login attempt
 	h.accountAuth.RecordLoginAttempt(req.Username, clientIP, true)
 
-	// Create JWT token
-	// token, err := h.jwtService.GenerateJWT(user.UserID, "", "")
-
-	// Or create session
-	session, err := h.sessionMgr.CreateUserSession(user.UserID, clientIP, c.Request.UserAgent(), auth.SessionExpiration)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	accessToken, err := h.jwtService.GenerateAccessToken(user.UserID, session.ID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	if err := h.setBrowserSession(c, session); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to establish browser session"})
-		return
-	}
-
-	// avata转换为url
-	if user.Avatar != "" {
-		url, err := h.avatarService.GetAvatarURL(user.Avatar)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		user.Avatar = url
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"user_id":     user.UserID,
-		"token":       accessToken,
-		"nickname":    user.Nickname,
-		"avatar":      user.Avatar,
-		"expire_time": auth.TokenExpiration,
-	})
+	h.completeBrowserLogin(c, user, "")
 }
 
 // Logout Logout handling
 func (h *AuthHandler) Logout(c *gin.Context) {
-
-	// Get session ID
-	sessionID, ok := c.Get("session_id")
-	if !ok {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Session ID not found"})
-		return
-	}
-
-	// Get user information from context
-	userID, ok := c.Get("user_id")
-	if !ok {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "User ID not found"})
-		return
-	}
-
-	// Revoke access token
-	if err := h.jwtService.RevokeJWTByID(userID.(string), sessionID.(string)); err != nil {
-		h.logger.Printf("Failed to revoke access token: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to revoke access token"})
-		return
-	}
-
 	// Clear browser session cookie
 	h.clearBrowserSession(c)
 
-	// Delete session
-	if err := h.sessionMgr.DeleteSession(userID.(string), sessionID.(string)); err != nil {
-		// Even if session deletion fails, continue trying to revoke token
-		h.logger.Printf("Failed to delete session: %v", err)
+	userID, hasUserID := c.Get("user_id")
+	sessionID, hasSessionID := c.Get("session_id")
+	if hasUserID && hasSessionID {
+		if err := h.sessionMgr.DeleteSession(userID.(string), sessionID.(string)); err != nil {
+			h.logger.Printf("Failed to delete session: %v", err)
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Logout successful"})
@@ -234,8 +141,8 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 // 	}
 
 // 	c.JSON(http.StatusOK, gin.H{
-// 		"session_id":  session.ID,
-// 		"expire_time": session.ExpiresAt,
+// 		"session_id": session.ID,
+// 		"expires_at": session.ExpiresAt,
 // 	})
 // }
 
@@ -295,14 +202,9 @@ func (h *AuthHandler) GetUserInfo(c *gin.Context) {
 		return
 	}
 
-	// avata转换为url
-	if user.Avatar != "" {
-		url, err := h.avatarService.GetAvatarURL(user.Avatar)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		user.Avatar = url
+	if err := h.populateAvatarURL(user); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
 	}
 
 	c.JSON(http.StatusOK, user)
@@ -336,14 +238,9 @@ func (h *AuthHandler) GetUserInfoById(c *gin.Context) {
 		return
 	}
 
-	// avata转换为url
-	if user.Avatar != "" {
-		url, err := h.avatarService.GetAvatarURL(user.Avatar)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		user.Avatar = url
+	if err := h.populateAvatarURL(user); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
 	}
 
 	c.JSON(http.StatusOK, user)
@@ -382,15 +279,10 @@ func (h *AuthHandler) GetUsersInfo(c *gin.Context) {
 		return
 	}
 
-	// 处理用户头像URL
 	for i := range users {
-		if users[i].Avatar != "" {
-			url, err := h.avatarService.GetAvatarURL(users[i].Avatar)
-			if err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-				return
-			}
-			users[i].Avatar = url
+		if err := h.populateAvatarURL(&users[i]); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
 		}
 	}
 
@@ -463,49 +355,17 @@ func (h *AuthHandler) UpdateUserInfo(c *gin.Context) {
 // AuthRequired Verify if user is logged in
 func (h *AuthHandler) AuthRequired() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Get session ID from request header
-		// sessionID := c.GetHeader("Session-ID")
-		// if sessionID != "" {
-		// 	// Validate session
-		// 	session, err := h.sessionMgr.GetSession(sessionID)
-		// 	if err == nil && session != nil {
-		// 		// Session valid, set user ID and continue
-		// 		c.Set("user_id", session.UserID)
-		// 		c.Next()
-		// 		return
-		// 	}
-		// }
-
-		var err error
-		// No valid session, try to validate JWT
-		authHeader := c.GetHeader("Authorization")
-		if authHeader != "" && len(authHeader) > 7 && authHeader[:7] == "Bearer " {
-			token := authHeader[7:]
-			var claims *auth.CustomClaims
-			// Validate JWT
-			claims, err = h.jwtService.ValidateJWT(token)
-			if err == nil && claims != nil {
-				// JWT valid, set user ID
-				// Note: claims.Subject should contain user ID
-				c.Set("user_id", claims.UserID)
-				c.Set("session_id", claims.SessionID)
-				c.Next()
-				return
-			} else {
-				// JWT invalid, deny access
-				c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
-				c.Abort()
-				return
-			}
-		} else {
-			// Not authenticated, deny access
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "no Authorization header"})
-			c.Abort()
+		if h.authenticateBrowserSession(c) {
+			c.Next()
 			return
 		}
 
-		// Not authenticated, deny access
-		// c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication failed, please log in"})
-		// c.Abort()
+		if err := h.authenticateOIDCAccessToken(c); err == nil {
+			c.Next()
+			return
+		}
+
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+		c.Abort()
 	}
 }

@@ -61,7 +61,7 @@ type authCode struct {
 	CreatedAt           time.Time `json:"created_at"`
 }
 
-type accessTokenClaims struct {
+type AccessTokenClaims struct {
 	Scope     string `json:"scope"`
 	ClientID  string `json:"client_id"`
 	TokenType string `json:"token_type"`
@@ -294,7 +294,7 @@ func (p *Provider) userInfo(c *gin.Context) {
 		return
 	}
 
-	claims, err := p.parseAccessToken(token)
+	claims, err := p.ParseAccessToken(token)
 	if err != nil || claims.TokenType != "access_token" {
 		c.Header("WWW-Authenticate", `Bearer error="invalid_token"`)
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid_token"})
@@ -357,7 +357,7 @@ func (p *Provider) logout(c *gin.Context) {
 func (p *Provider) signAccessToken(c *gin.Context, user *auth.User, client config.OIDCClientConfig, scope string) (string, time.Duration, error) {
 	now := time.Now()
 	ttl := p.accessTokenTTL()
-	claims := accessTokenClaims{
+	claims := AccessTokenClaims{
 		Scope:     scope,
 		ClientID:  client.ClientID,
 		TokenType: "access_token",
@@ -401,8 +401,8 @@ func (p *Provider) signIDToken(c *gin.Context, user *auth.User, client config.OI
 	return p.signer.sign(claims)
 }
 
-func (p *Provider) parseAccessToken(token string) (*accessTokenClaims, error) {
-	parsed, err := jwt.ParseWithClaims(token, &accessTokenClaims{}, func(t *jwt.Token) (interface{}, error) {
+func (p *Provider) ParseAccessToken(token string) (*AccessTokenClaims, error) {
+	parsed, err := jwt.ParseWithClaims(token, &AccessTokenClaims{}, func(t *jwt.Token) (interface{}, error) {
 		if t.Method != jwt.SigningMethodRS256 {
 			return nil, fmt.Errorf("unexpected signing method")
 		}
@@ -411,7 +411,7 @@ func (p *Provider) parseAccessToken(token string) (*accessTokenClaims, error) {
 	if err != nil {
 		return nil, err
 	}
-	claims, ok := parsed.Claims.(*accessTokenClaims)
+	claims, ok := parsed.Claims.(*AccessTokenClaims)
 	if !ok || !parsed.Valid {
 		return nil, errors.New("invalid token")
 	}

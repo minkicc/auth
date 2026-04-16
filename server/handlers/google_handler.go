@@ -144,41 +144,7 @@ func (h *AuthHandler) GoogleCredential(c *gin.Context) {
 		return
 	}
 
-	// 创建会话
-	clientIP := c.ClientIP()
-	session, err := h.sessionMgr.CreateUserSession(user.UserID, clientIP, c.Request.UserAgent(), auth.SessionExpiration)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create session"})
-		return
-	}
-
-	// 生成 access token
-	accessToken, err := h.jwtService.GenerateAccessToken(user.UserID, session.ID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
-		return
-	}
-	if err := h.setBrowserSession(c, session); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to establish browser session"})
-		return
-	}
-	// avata转换为url
-	if user.Avatar != "" {
-		url, err := h.avatarService.GetAvatarURL(user.Avatar)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		user.Avatar = url
-	}
-	// 返回用户信息和token
-	c.JSON(http.StatusOK, gin.H{
-		"user_id":     user.UserID,
-		"token":       accessToken,
-		"nickname":    user.Nickname,
-		"avatar":      user.Avatar,
-		"expire_time": auth.TokenExpiration,
-	})
+	h.completeBrowserLogin(c, user, "")
 }
 
 func (h *AuthHandler) GetGoogleClientID(c *gin.Context) {
