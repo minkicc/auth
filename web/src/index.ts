@@ -37,8 +37,9 @@ const initAuth = async () => {
   try {
     const session = await serverApi.fetchBrowserSession()
     context.setAuthenticated(!!session?.authenticated)
-    if (session?.authenticated && redirectUri) {
+    if (session?.authenticated && serverApi.isEntryRoute()) {
       await serverApi.handleLoginRedirect()
+      return
     }
   } catch (error) {
     context.setAuthenticated(false)

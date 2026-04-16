@@ -7,7 +7,7 @@
   <div class="email-verify-container">
     <div v-if="loading" class="verify-loading">
       <div class="spinner"></div>
-      <p>{{ $t('emailVerify.loading') }}</p>
+      <p>{{ statusMessage }}</p>
     </div>
     
     <div v-else-if="error" class="verify-error">
@@ -29,135 +29,139 @@
     
     <div v-else-if="success" class="verify-success">
       <h1>{{ $t('emailVerify.verifySuccess') }}</h1>
-      <p>{{ $t('emailVerify.emailVerified') }}</p>
-      <div class="user-info" v-if="userInfo">
-        <p>{{ $t('emailVerify.userId') }}: {{ userInfo.user_id }}</p>
-        <p>{{ $t('emailVerify.nickname') }}: {{ userInfo.nickname }}</p>
-      </div>
-      <div class="actions">
-        <button @click="goToHome">{{ $t('emailVerify.enterHome') }}</button>
-      </div>
+      <p>{{ $t('emailVerify.redirecting') }}</p>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
-import { useRoute, useRouter } from 'vue-router';
-import { useI18n } from 'vue-i18n';
-import { verificationEmailTpl } from './emailtpl'
-import axios from 'axios';
+import { computed, ref, onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
+import axios from 'axios'
+import { serverApi } from '@/api/serverApi'
+import { buildVerificationEmailTpl } from './emailtpl'
 
-const route = useRoute();
-const router = useRouter();
-const { t } = useI18n();
+const route = useRoute()
+const router = useRouter()
+const { t } = useI18n()
 
-const loading = ref(true);
-const error = ref('');
-const success = ref(false);
-const resending = ref(false);
-const verifiedEmail = ref('');
-const resendSuccess = ref(false);
+const loading = ref(true)
+const error = ref('')
+const success = ref(false)
+const resending = ref(false)
+const verifiedEmail = ref('')
+const resendSuccess = ref(false)
 
-// 定义用户信息接口
-interface UserInfo {
-  user_id: string;
-  nickname: string;
-  [key: string]: any;
-}
+const statusMessage = computed(() => {
+  if (success.value) {
+    return t('emailVerify.redirecting')
+  }
+  return t('emailVerify.loading')
+})
 
-const userInfo = ref<UserInfo | null>(null);
-
-// 验证邮箱
 const verifyEmail = async (token: string) => {
   try {
-    loading.value = true;
+    loading.value = true
     
-    const response = await axios.get(`/email/verify?token=${token}`, {
+    const response = await axios.get('/email/verify', {
+      params: { token },
       headers: {
         'Content-Type': 'application/json',
       },
-    });
-
-    const data = response.data;
+    })
 
     if (response.status !== 200) {
-      throw new Error(data.error || t('emailVerify.verifyFailed'));
+      throw new Error(response.data.error || t('emailVerify.verifyFailed'))
     }
     
-    // 验证成功，保存用户信息
-    success.value = true;
-    userInfo.value = data;
-    
+    success.value = true
+    serverApi.updateUserInfo(response.data)
   } catch (err: any) {
-    console.error('验证邮箱失败:', err);
-    error.value = err.message || t('emailVerify.verifyFailed');
+    console.error('验证邮箱失败:', err)
+    error.value = err.response?.data?.error || err.message || t('emailVerify.verifyFailed')
   } finally {
-    loading.value = false;
+    loading.value = false
   }
-};
+}
 
-// 重新发送验证邮件
 const resendVerification = async () => {
   if (!verifiedEmail.value) {
-    error.value = t('emailVerify.cannotResend');
-    return;
+    error.value = t('emailVerify.cannotResend')
+    return
   }
   
   try {
-    resending.value = true;
-    resendSuccess.value = false;
+    const verificationEmailTpl = buildVerificationEmailTpl({
+      clientId: serverApi.clientId,
+      redirectUri: serverApi.redirectUri,
+    })
+
+    resending.value = true
+    resendSuccess.value = false
     
     await axios.post('/email/resend-verification', {
       email: verifiedEmail.value,
-      title: t('emailVerify.verifyFailed'),
+      title: t('email.verificationTitle'),
       content: verificationEmailTpl
-    });
+    })
     
-    resendSuccess.value = true;
+    resendSuccess.value = true
     
     setTimeout(() => {
-      resendSuccess.value = false;
-    }, 5000);
+      resendSuccess.value = false
+    }, 5000)
     
   } catch (err: any) {
-    console.error('重新发送验证邮件失败:', err);
-    error.value = err.response?.data?.message || t('emailVerify.verifyFailed');
+    console.error('重新发送验证邮件失败:', err)
+    error.value = err.response?.data?.error || err.response?.data?.message || t('emailVerify.verifyFailed')
   } finally {
-    resending.value = false;
+    resending.value = false
   }
-};
+}
 
-// 跳转到注册页
 const goToRegister = () => {
-  router.push('/login?tab=register');
-};
+  router.push({
+    path: '/login',
+    query: {
+      tab: 'register',
+      ...(serverApi.clientId ? { client_id: serverApi.clientId } : {}),
+      ...(serverApi.redirectUri ? { redirect_uri: serverApi.redirectUri } : {}),
+    },
+  })
+}
 
-// 跳转到登录页
 const goToLogin = () => {
-  router.push('/login');
-};
-
-// 跳转到首页/仪表盘
-const goToHome = () => {
-  router.push('/dashboard');
-};
+  router.push({
+    path: '/login',
+    query: {
+      ...(serverApi.clientId ? { client_id: serverApi.clientId } : {}),
+      ...(serverApi.redirectUri ? { redirect_uri: serverApi.redirectUri } : {}),
+    },
+  })
+}
 
 onMounted(() => {
-  const token = route.query.token as string;
+  const token = route.query.token as string
+  const clientId = typeof route.query.client_id === 'string' ? route.query.client_id : ''
+  const redirectUri = typeof route.query.redirect_uri === 'string'
+    ? route.query.redirect_uri
+    : typeof route.query.redirect_url === 'string'
+      ? route.query.redirect_url
+      : undefined
+
+  serverApi.updateAuthData(clientId, redirectUri)
   
   if (!token) {
-    loading.value = false;
-    error.value = t('emailVerify.invalidLink');
-    return;
+    loading.value = false
+    error.value = t('emailVerify.invalidLink')
+    return
   }
   
-  // 从路由中提取邮箱（如果有）
-  verifiedEmail.value = route.query.email as string || '';
+  verifiedEmail.value = route.query.email as string || ''
   
-  // 开始验证
-  verifyEmail(token);
-});
+  verifyEmail(token)
+})
 </script>
 
 <style scoped>

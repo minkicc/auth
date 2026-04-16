@@ -92,6 +92,7 @@
 import { reactive, ref, defineEmits } from 'vue'
 import axios from 'axios'
 import { useI18n } from 'vue-i18n'
+import { serverApi } from '@/api/serverApi'
 
 const emit = defineEmits<{
   (e: 'register-send-email'): void
@@ -108,7 +109,7 @@ const resendSuccess = ref(false) // 是否成功重发验证邮件
 const resendError = ref('') // 重发验证邮件失败信息
 
 // 邮件模板
-import { verificationEmailTpl } from './emailtpl'
+import { buildVerificationEmailTpl } from './emailtpl'
 
 interface FormData {
   nickname: string
@@ -178,6 +179,11 @@ const resendVerification = async () => {
   }
   
   try {
+    const verificationEmailTpl = buildVerificationEmailTpl({
+      clientId: serverApi.clientId,
+      redirectUri: serverApi.redirectUri,
+    })
+
     resending.value = true
     resendSuccess.value = false
     resendError.value = ''
@@ -223,6 +229,11 @@ const handleEmailRegister = async () => {
     if (!validateForm()) return
     
     isLoading.value = true
+
+    const verificationEmailTpl = buildVerificationEmailTpl({
+      clientId: serverApi.clientId,
+      redirectUri: serverApi.redirectUri,
+    })
     
     // 实际实现邮箱注册逻辑
     await axios.post('/email/register', {

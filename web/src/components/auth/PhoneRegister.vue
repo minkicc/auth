@@ -70,15 +70,6 @@
         {{ isLoading ? $t('common.registering') : $t('auth.register') }}
       </button>
     </form>
-    
-    <!-- 验证成功提示 -->
-    <div v-if="registerSuccess" class="modal-overlay">
-      <div class="modal-content success-modal">
-        <h3>{{ $t('auth.registerSuccess') }}!</h3>
-        <p>{{ $t('auth.phoneRegisterSuccessMessage') }}</p>
-        <button @click="goToLogin" class="submit-btn">{{ $t('auth.goToLogin') }}</button>
-      </div>
-    </div>
   </div>
 </template>
 
@@ -127,9 +118,6 @@ const hasRequestedCode = ref(false)
 // 协议与隐私政策模态框
 // const showAgreement = ref(false)
 // const showPrivacy = ref(false)
-
-// 注册成功
-const registerSuccess = ref(false)
 
 // 验证手机号格式
 function validatePhone(phone: string): boolean {
@@ -284,21 +272,11 @@ async function handleRegister() {
     isLoading.value = true
     
     await serverApi.completePhoneRegistration(formData.phone, formData.code)
-    
-    // 注册成功
-    registerSuccess.value = true
   } catch (error: any) {
     emit('register-error', error.response?.data?.error || error.message || t('errors.phoneRegisterFailed'))
   } finally {
     isLoading.value = false
   }
-}
-
-// 去登录页
-function goToLogin() {
-  // 清除注册成功状态
-  registerSuccess.value = false
-  
 }
 </script>
 
