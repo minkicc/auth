@@ -12,7 +12,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"minki.cc/mkauth/server/auth"
 	"minki.cc/mkauth/server/common"
 )
 
@@ -136,47 +135,28 @@ func (h *AuthHandler) WeixinCallback(c *gin.Context) {
 		return
 	}
 
-	// Create session
-	clientIP := c.ClientIP()
-	session1, err := h.sessionMgr.CreateUserSession(user.UserID, clientIP, c.Request.UserAgent(), auth.SessionExpiration)
+	session, err := h.createBrowserSession(c, user)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create session"})
-		return
-	}
-
-	accessToken, err := h.jwtService.GenerateAccessToken(user.UserID, session1.ID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
-		return
-	}
-	if err := h.setBrowserSession(c, session1); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to establish browser session"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
 	// Return user and session information, or redirect to frontend application
 	if redirectURL := c.Query("redirect"); redirectURL != "" {
-		// Redirect to frontend with token parameter
-		redirectWithToken := redirectURL + "?token=" + accessToken
-		c.Redirect(http.StatusTemporaryRedirect, redirectWithToken)
+		c.Redirect(http.StatusTemporaryRedirect, redirectURL)
 		return
 	}
-	// avata转换为url
-	if user.Avatar != "" {
-		url, err := h.avatarService.GetAvatarURL(user.Avatar)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		user.Avatar = url
+
+	if err := h.populateAvatarURL(user); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
 	}
-	// Directly return JSON response
+
 	c.JSON(http.StatusOK, gin.H{
-		"user_id":     user.UserID,
-		"token":       accessToken,
-		"nickname":    user.Nickname,
-		"avatar":      user.Avatar,
-		"expire_time": auth.TokenExpiration,
-		// "weixin":      loginResp, // Keep WeChat login response information
+		"authenticated": true,
+		"user_id":       user.UserID,
+		"nickname":      user.Nickname,
+		"avatar":        user.Avatar,
+		"expires_at":    session.ExpiresAt,
 	})
 }

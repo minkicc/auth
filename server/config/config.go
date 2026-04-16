@@ -37,26 +37,15 @@ type StorageUrlConfig struct {
 // 	WriteTimeout string `json:"write_timeout" yaml:"write_timeout"` // Using string format like "15s", "5m"
 // }
 
-type JWTConfig struct {
-	Issuer string `json:"issuer" yaml:"issuer"`
-}
-
 // AuthConfig Authentication configuration
 type AuthConfig struct {
 	EnabledProviders []string         `json:"enabled_providers" yaml:"enabled_providers"` // "account", "email", "weixin", "google", "phone"
-	JWT              JWTConfig        `json:"jwt" yaml:"jwt"`
 	Google           GoogleConfig     `json:"google" yaml:"google"`
 	Weixin           WeixinConfig     `json:"weixin" yaml:"weixin"`
 	WeixinMini       WeixinMiniConfig `json:"weixin_mini" yaml:"weixin_mini"`
 	Smtp             SmtpConfig       `json:"smtp" yaml:"smtp"`
 	SMS              SMSConfig        `json:"sms" yaml:"sms"` // New: SMS configuration
 }
-
-// JWTConfig JWT configuration
-// type JWTConfig struct {
-// 	SecretKey string        `json:"secret_key"`
-// 	ExpireIn  time.Duration `json:"expire_in"`
-// }
 
 // GoogleConfig Google OAuth configuration
 type GoogleConfig struct {

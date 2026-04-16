@@ -58,8 +58,6 @@ oidc:
 auth:
   enabled_providers:
     - "account"
-  jwt:
-    issuer: "minki.cc"
 
 auth_admin:
   enabled: false

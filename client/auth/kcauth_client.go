@@ -566,46 +566,6 @@ func (c *KCAuthClient) Logout(accessToken string) error {
 
 // WeixinMiniLogin 微信小程序登录
 func (c *KCAuthClient) WeixinMiniLogin(code string) (*LoginVerifyResponse, error) {
-	// 创建请求URL
-	url := fmt.Sprintf("%s/weixin/miniprogram?code=%s", c.APIAddr, code)
-
-	// 创建请求
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("创建请求失败: %v", err)
-	}
-
-	// 设置请求头
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Client-ID", c.ClientID)
-	req.Header.Set("X-Client-Secret", c.ClientSecret)
-
-	// 发送请求
-	resp, err := c.HTTPClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("发送请求失败: %v", err)
-	}
-	defer resp.Body.Close()
-
-	// 检查响应状态
-	if resp.StatusCode != http.StatusOK {
-		var errResp struct {
-			Error string `json:"error"`
-		}
-		if err := json.NewDecoder(resp.Body).Decode(&errResp); err != nil {
-			return nil, fmt.Errorf("微信小程序登录失败: %d", resp.StatusCode)
-		}
-		return nil, errors.New(errResp.Error)
-	}
-
-	// 解析响应
-	var response LoginVerifyResponse
-	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
-		return nil, fmt.Errorf("解析响应失败: %v", err)
-	}
-
-	// 缓存token
-	c.cacheToken(response.Token)
-
-	return &response, nil
+	_ = code
+	return nil, errors.New("WeixinMiniLogin is not available on the OIDC-first branch; use the browser OIDC session flow or standard OIDC authorization code flow")
 }

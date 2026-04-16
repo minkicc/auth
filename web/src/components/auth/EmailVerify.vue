@@ -62,7 +62,6 @@ const resendSuccess = ref(false);
 // 定义用户信息接口
 interface UserInfo {
   user_id: string;
-  token: string;
   nickname: string;
   [key: string]: any;
 }
@@ -89,16 +88,6 @@ const verifyEmail = async (token: string) => {
     // 验证成功，保存用户信息
     success.value = true;
     userInfo.value = data;
-    
-    // 更新用户状态
-    if (data.token) {
-      localStorage.setItem('token', data.token);
-      localStorage.setItem('user', JSON.stringify({
-        userId: data.user_id,
-        nickname: data.nickname,
-        avatar: data.avatar
-      }));
-    }
     
   } catch (err: any) {
     console.error('验证邮箱失败:', err);
@@ -291,4 +280,3 @@ button:disabled {
   to { opacity: 1; transform: translateY(0); }
 }
 </style>
-

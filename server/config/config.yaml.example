@@ -88,8 +88,6 @@ auth:
     username: "YOUR_SMTP_USERNAME"
     password: "YOUR_SMTP_PASSWORD"
     from: "YOUR_SMTP_FROM"
-  jwt:
-    issuer: "minki.cc"
 
 auth_admin:
   enabled: true

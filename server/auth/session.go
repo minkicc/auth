@@ -15,6 +15,8 @@ import (
 	"github.com/go-redis/redis/v8"
 )
 
+const SessionExpiration = 7 * 24 * time.Hour
+
 // Session Manager
 type SessionManager struct {
 	redis *SessionRedisStore

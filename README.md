@@ -233,8 +233,6 @@ auth:
     - "google"
     - "weixin"
     - "weixin_mini"
-  jwt:
-    issuer: "mkauth"
 ```
 
 Only enable the providers you really plan to expose.
@@ -327,9 +325,11 @@ curl -X POST http://localhost:8080/oauth2/token \
   --data-urlencode 'code_verifier=dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk'
 ```
 
-### Pattern 2: call MKAuth APIs from your own frontend
+### Pattern 2: use MKAuth browser session APIs
 
-This is useful when you already have your own login UI and only want the authentication backend.
+This is useful when your login page is hosted by MKAuth itself, or when your frontend can call MKAuth in the same browser context and reuse the `oidc_session` cookie.
+
+If your app is on another domain or you want a standard third-party login contract, prefer Pattern 1 and use OIDC Authorization Code + PKCE.
 
 Common endpoints:
 - `GET /api/providers`
@@ -337,6 +337,7 @@ Common endpoints:
 - `POST /api/account/login`
 - `POST /api/email/login`
 - `POST /api/phone/login`
+- `GET /api/browser-session`
 - `POST /api/logout`
 - `GET /api/user`
 
@@ -352,27 +353,28 @@ Example response:
 
 ```json
 {
+  "authenticated": true,
   "user_id": "demo",
-  "token": "access-token",
   "nickname": "demo",
   "avatar": "",
-  "expire_time": 7200000000000
+  "expires_at": "2026-04-23T10:00:00Z"
 }
 ```
 
-After login, attach the returned token like this:
+These `/api` login endpoints now establish an `oidc_session` browser session only. They do not return a legacy `/api` bearer token, and this branch does not expose `POST /api/token/refresh`.
+
+Follow-up calls can authenticate in one of two ways:
 
 ```text
-Authorization: Bearer <access-token>
+1. Same-browser requests with the `oidc_session` cookie
+2. Authorization: Bearer <oidc-access-token>
 ```
-
-These `/api` login endpoints now return a short-lived access token only. This branch does not expose `POST /api/token/refresh`.
 
 If you need seamless token renewal in a browser app, prefer the standard OIDC authorization code flow with PKCE so MKAuth can reuse its `oidc_session` browser session.
 
 ## Go SDK
 
-The Go SDK under `client/auth` still mainly targets the older `/api` JWT endpoints. It can remain useful for management-style APIs or local transition work, but it is not the recommended OIDC integration path on this branch.
+The Go SDK under `client/auth` is now best treated as a helper for MKAuth management-style `/api` calls. It is not the recommended login integration path on this branch.
 
 ### Install
 
@@ -402,7 +404,9 @@ user, err := client.GetUserInfo(accessToken)
 
 This call targets MKAuth's management-style `/api/user` endpoint.
 
-Use it when you are still calling the older `/api` login endpoints directly.
+Use it when you intentionally call MKAuth's `/api` endpoints directly and authenticate with either:
+- an `oidc_session` browser session, or
+- a standard OIDC access token in `Authorization: Bearer <access_token>`
 
 If your app signs users in through standard OIDC, prefer `/oauth2/userinfo` for profile reads and see the Go backend callback example under [client/example](client/example/README.md).
 

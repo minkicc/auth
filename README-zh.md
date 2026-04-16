@@ -239,8 +239,6 @@ auth:
     - "google"
     - "weixin"
     - "weixin_mini"
-  jwt:
-    issuer: "mkauth"
 ```
 
 只配置你真正要开放的登录方式即可。
@@ -333,9 +331,11 @@ curl -X POST http://localhost:8080/oauth2/token \
   --data-urlencode 'code_verifier=dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk'
 ```
 
-### 方式二：你的前端直接调用 MKAuth API
+### 方式二：使用 MKAuth 浏览器会话接口
 
-适合你已经有自己的登录页，只想复用认证接口。
+适合登录页本身就由 MKAuth 承载，或者你的前端能在同一个浏览器上下文里直接调用 MKAuth，并复用 `oidc_session` cookie。
+
+如果你的业务应用在另一个域名下，或者你希望拿到标准第三方登录协议，还是更推荐方式一，直接走 OIDC Authorization Code + PKCE。
 
 常用接口：
 - `GET /api/providers`：查询当前启用的登录方式
@@ -343,6 +343,7 @@ curl -X POST http://localhost:8080/oauth2/token \
 - `POST /api/account/login`
 - `POST /api/email/login`
 - `POST /api/phone/login`
+- `GET /api/browser-session`
 - `POST /api/logout`
 - `GET /api/user`
 
@@ -358,27 +359,28 @@ curl -X POST http://localhost:8080/api/account/login \
 
 ```json
 {
+  "authenticated": true,
   "user_id": "demo",
-  "token": "access-token",
   "nickname": "demo",
   "avatar": "",
-  "expire_time": 7200000000000
+  "expires_at": "2026-04-23T10:00:00Z"
 }
 ```
 
-前端拿到 `token` 后，在后续请求中带上：
+这些 `/api` 登录接口现在只负责建立 `oidc_session` 浏览器会话，不再返回旧的 `/api` bearer token，这条分支也不再提供 `POST /api/token/refresh`。
+
+后续请求可以用两种方式鉴权：
 
 ```text
-Authorization: Bearer <access-token>
+1. 同一浏览器里的 `oidc_session` cookie
+2. Authorization: Bearer <oidc-access-token>
 ```
-
-这些 `/api` 登录接口现在只返回短时效的 access token，这条分支不再提供 `POST /api/token/refresh`。
 
 如果你需要浏览器里的无感续期，更推荐直接接标准 OIDC Authorization Code + PKCE，让 MKAuth 复用自己的 `oidc_session` 浏览器会话。
 
 ## Go SDK 使用方式
 
-`client/auth` 目录下的 Go SDK 仍然主要面向旧的 `/api` JWT 接口。它可以继续用于一些管理型 API 或本地过渡，但不是这条分支推荐的 OIDC 接入方式。
+`client/auth` 目录下的 Go SDK 现在更适合调用 MKAuth 管理型 `/api` 接口，但它不是这条分支推荐的登录接入方式。
 
 ### 安装
 
@@ -408,7 +410,9 @@ user, err := client.GetUserInfo(accessToken)
 
 这个调用走的是 MKAuth 管理型 `/api/user` 接口。
 
-它更适合你仍然直接调用旧 `/api` 登录接口的场景。
+它适合你明确要直接调用 MKAuth `/api` 接口，并使用下面任意一种鉴权方式：
+- 浏览器里的 `oidc_session` 会话
+- 标准 OIDC `Authorization: Bearer <access_token>`
 
 如果你的应用已经按标准 OIDC 登录，用户资料读取应优先使用 `/oauth2/userinfo`；Go 后端回调接法可以直接参考 [client/example](client/example/README.md)。
 

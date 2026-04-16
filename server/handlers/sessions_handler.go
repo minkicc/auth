@@ -64,13 +64,6 @@ func (h *AuthHandler) TerminateUserSession(c *gin.Context) {
 		return
 	}
 
-	// Revoke JWT session
-	if err := h.jwtService.RevokeJWTByID(userID, sessionID); err != nil {
-		h.logger.Printf("Failed to revoke JWT session: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to revoke JWT session"})
-		return
-	}
-
 	c.JSON(http.StatusOK, gin.H{"message": "Session successfully terminated"})
 }
 
@@ -89,15 +82,6 @@ func (h *AuthHandler) TerminateAllUserSessions(c *gin.Context) {
 		h.logger.Printf("Failed to terminate user sessions: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to terminate regular sessions"})
 		return
-	}
-
-	// Revoke JWT sessions
-	for _, sessionID := range deletedCount {
-		if err := h.jwtService.RevokeJWTByID(userID, sessionID); err != nil {
-			h.logger.Printf("Failed to revoke JWT session: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to revoke JWT session"})
-			return
-		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{

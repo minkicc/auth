@@ -12,13 +12,14 @@ import type { AuthProvider } from '@/api/serverApi'
 export class Context {
 
     private loading: boolean = false
+    private authenticated: boolean = false
     private supportedProviders: AuthProvider[] = []
 
 
 
     // Getters
     get isAuthenticated(): boolean {
-        return !!localStorage.getItem('token')
+        return this.authenticated
     }
 
     get isLoading(): boolean {
@@ -27,6 +28,10 @@ export class Context {
 
     hasProvider(provider: AuthProvider): boolean {
         return this.supportedProviders.includes(provider)
+    }
+
+    setAuthenticated(authenticated: boolean) {
+        this.authenticated = authenticated
     }
 
     // 获取支持的登录方式

@@ -1,6 +1,6 @@
 # MKAuth Go SDK
 
-`codex/oidc-break` 分支已经切到 OIDC-first，这个 SDK 主要兼容旧的 `/api` JWT 接口，适合作为过渡或管理型接口调用工具，不再是推荐的登录接入方式。
+`codex/oidc-break` 分支已经切到 OIDC-first，这个 SDK 现在更适合作为 MKAuth 管理型 `/api` 接口调用工具，不再是推荐的登录接入方式。
 
 `client/` 提供了一个面向 Go 服务的 SDK，用来完成以下事情：
 - 获取当前登录用户信息
@@ -82,8 +82,8 @@ fmt.Println(user.UserID, user.Nickname, user.Avatar)
 
 注意：
 - 这里的 `GetUserInfo()` 调用的是 MKAuth 的管理型 `/api/user`
-- 它更适合直接使用 `/api/account/login` 这类接口拿到的旧 `/api` token 场景
-- 如果你走的是标准 OIDC 登录，用户资料读取应优先使用 `/oauth2/userinfo`
+- 这类 `/api` 接口现在更适合配合标准 OIDC access token 使用
+- 如果你走的是标准 OIDC 登录，用户资料读取仍然优先推荐 `/oauth2/userinfo`
 
 ## 3. 按用户 ID 查询用户
 

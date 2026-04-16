@@ -14,6 +14,7 @@ import (
 	"minki.cc/mkauth/server/auth/storage"
 	"minki.cc/mkauth/server/config"
 	"minki.cc/mkauth/server/middleware"
+	"minki.cc/mkauth/server/oidc"
 )
 
 // AuthHandler Authentication handler
@@ -25,12 +26,12 @@ type AuthHandler struct {
 	weixinLogin     *auth.WeixinLogin
 	weixinMiniLogin *auth.WeixinMiniLogin
 	phoneAuth       *auth.PhoneAuth
-	jwtService      *auth.JWTService
 	sessionMgr      *auth.SessionManager
 	redisStore      *auth.RedisStore
 	storage         *storage.StorageClient
 	avatarService   *auth.AvatarService
 	avatarHandler   *AvatarHandler
+	oidcProvider    *oidc.Provider
 	config          *config.Config
 	logger          *log.Logger
 }
@@ -44,11 +45,11 @@ func NewAuthHandler(
 	weixinLogin *auth.WeixinLogin,
 	weixinMiniLogin *auth.WeixinMiniLogin,
 	phoneAuth *auth.PhoneAuth,
-	jwtService *auth.JWTService,
 	sessionMgr *auth.SessionManager,
 	redisStore *auth.RedisStore,
 	storage *storage.StorageClient,
 	avatarService *auth.AvatarService,
+	oidcProvider *oidc.Provider,
 	config *config.Config) *AuthHandler {
 	return &AuthHandler{
 		useAccountAuth:  useAccountAuth,
@@ -58,12 +59,12 @@ func NewAuthHandler(
 		weixinLogin:     weixinLogin,
 		weixinMiniLogin: weixinMiniLogin,
 		phoneAuth:       phoneAuth,
-		jwtService:      jwtService,
 		sessionMgr:      sessionMgr,
 		redisStore:      redisStore,
 		storage:         storage,
 		avatarService:   avatarService,
 		avatarHandler:   NewAvatarHandler(accountAuth, avatarService),
+		oidcProvider:    oidcProvider,
 		config:          config,
 		logger:          log.New(os.Stdout, "[AUTH] ", log.LstdFlags|log.Lshortfile),
 	}

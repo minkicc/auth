@@ -15,12 +15,6 @@ import { serverApi } from './api/serverApi'
 // 设置 axios 默认值
 axios.defaults.baseURL = import.meta.env.VITE_API_URL
 
-// 从本地存储中获取 token 并设置 axios 默认 headers
-const token = localStorage.getItem('token')
-if (token) {
-  axios.defaults.headers.common['Authorization'] = `Bearer ${token}`
-}
-
 const app = createApp(App)
 const pinia = createPinia()
 app.use(pinia)
@@ -38,27 +32,17 @@ const initAuth = async () => {
   const clientId = urlParams.get('client_id') || ''
   const redirectUri = urlParams.get('redirect_uri') || urlParams.get('redirect_url') || undefined
   serverApi.updateAuthData(clientId, redirectUri)
+  serverApi.clearStoredAuth()
 
-  if (serverApi.isOIDCFlow()) {
-    serverApi.clearStoredAuth()
-    try {
-      const session = await serverApi.fetchBrowserSession()
-      if (session?.authenticated) {
-        await serverApi.handleLoginRedirect()
-      }
-    } catch (error) {
-      console.error('获取浏览器会话失败:', error)
+  try {
+    const session = await serverApi.fetchBrowserSession()
+    context.setAuthenticated(!!session?.authenticated)
+    if (session?.authenticated && redirectUri) {
+      await serverApi.handleLoginRedirect()
     }
-  } else if (token) {
-    // 如果有token，尝试获取当前用户信息
-    try {
-      const user = await serverApi.fetchCurrentUser()
-      // 当前已经登陆，直接回调
-      if (user) await serverApi.handleLoginRedirect()
-    } catch (error) {
-      console.error('获取用户信息失败:', error)
-      serverApi.clearStoredAuth()
-    }
+  } catch (error) {
+    context.setAuthenticated(false)
+    console.error('获取浏览器会话失败:', error)
   }
 
   // 获取支持的登录方式
