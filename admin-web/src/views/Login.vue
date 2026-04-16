@@ -8,7 +8,11 @@
     <el-card class="login-card">
       <template #header>
         <div class="login-header">
-          <h2>{{ $t('auth.welcome') }}</h2>
+          <img src="/minki-logo.svg" alt="minki-auth logo" class="brand-logo" />
+          <div class="brand-copy">
+            <h2>minki-auth admin</h2>
+            <p>{{ $t('auth.welcome') }}</p>
+          </div>
         </div>
       </template>
       
@@ -133,12 +137,33 @@ const handleLogin = () => {
   max-width: 90%;
   
   .login-header {
-    text-align: center;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
     
     h2 {
       margin: 0;
       font-size: 1.5rem;
-      color: #409EFF;
+      color: #113F54;
+    }
+
+    p {
+      margin: 4px 0 0;
+      color: #607482;
+      font-size: 0.95rem;
+    }
+
+    .brand-logo {
+      width: 42px;
+      height: 42px;
+      border-radius: 12px;
+      box-shadow: 0 10px 24px rgba(17, 63, 84, 0.18);
+      flex-shrink: 0;
+    }
+
+    .brand-copy {
+      text-align: left;
     }
   }
 }

@@ -6,6 +6,14 @@
 <template>
   <!-- 登录表单容器 -->
   <div v-if="shouldShowLoginForm" class="login-container">
+    <div class="brand-header">
+      <img src="/minki-logo.svg" alt="minki-auth logo" class="brand-logo" />
+      <div class="brand-copy">
+        <p class="brand-kicker">Minki Technology</p>
+        <h1 class="brand-title">minki-auth</h1>
+      </div>
+    </div>
+
     <!-- 登录/注册标签页 -->
     <div class="auth-tabs">
       <button 
@@ -221,8 +229,8 @@ const handleWechatLogin = async () => {
     // 使用state存储client_id
     sessionStorage.setItem(state, serverApi.clientId)
     // 重定向到微信登录页面
-    // https://open.weixin.qq.com/connect/qrconnect?appid=xxxxx&redirect_uri=https://account.vextra.cn/wechat/callback&response_type=code&scope=snsapi_login&state=123#wechat_redirect
-    // 上述地址授权完成后，调转到https://account.vextra.cn/wechat/callback?code=xxx&state=123
+    // https://open.weixin.qq.com/connect/qrconnect?appid=xxxxx&redirect_uri=https://auth.example.com/wechat/callback&response_type=code&scope=snsapi_login&state=123#wechat_redirect
+    // 上述地址授权完成后，会跳转到 https://auth.example.com/wechat/callback?code=xxx&state=123
     window.location.href = url
   } catch (error: any) {
     console.error(t('errors.wechatLoginFailed'), error)
@@ -297,6 +305,41 @@ const handleRegisterSuccess = () => {
   border-radius: 12px;
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.1);
   background: white;
+}
+
+.brand-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 24px;
+}
+
+.brand-logo {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  box-shadow: 0 10px 24px rgba(17, 63, 84, 0.18);
+  flex-shrink: 0;
+}
+
+.brand-copy {
+  min-width: 0;
+}
+
+.brand-kicker {
+  margin: 0 0 2px;
+  color: #5b7280;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.brand-title {
+  margin: 0;
+  color: #113f54;
+  font-size: 26px;
+  line-height: 1.1;
+  font-weight: 700;
 }
 
 /* 标签页样式 */

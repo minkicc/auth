@@ -9,7 +9,11 @@
       <!-- 顶部导航 -->
       <el-header height="60px" class="header">
         <div class="logo">
-          <h1>{{ $t('auth.welcome') }}</h1>
+          <img src="/minki-logo.svg" alt="minki-auth logo" class="brand-logo" />
+          <div class="brand-copy">
+            <h1>minki-auth</h1>
+            <span>admin</span>
+          </div>
         </div>
         <div class="user-info">
           <language-switcher class="language-switcher" />
@@ -143,10 +147,36 @@ const handleCommand = (command: string) => {
     z-index: 10;
     
     .logo {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+
+      .brand-logo {
+        width: 34px;
+        height: 34px;
+        border-radius: 10px;
+        box-shadow: 0 8px 18px rgba(17, 63, 84, 0.16);
+        flex-shrink: 0;
+      }
+
+      .brand-copy {
+        display: flex;
+        align-items: baseline;
+        gap: 8px;
+      }
+
       h1 {
         margin: 0;
         font-size: 1.25rem;
         color: #001529;
+      }
+
+      span {
+        color: #607482;
+        font-size: 0.85rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
       }
     }
     
