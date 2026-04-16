@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"minki.cc/mkauth/server/auth"
+	"minki.cc/mkauth/server/common"
 )
 
 func (h *AuthHandler) setBrowserSession(c *gin.Context, session *auth.Session) error {
@@ -22,14 +23,22 @@ func (h *AuthHandler) refreshBrowserSessionCookie(c *gin.Context, browserSession
 	if maxAge < 1 {
 		maxAge = 1
 	}
-	c.SetCookie(auth.OIDCSessionCookieName, browserSessionID, maxAge, "/", "", true, true)
+	c.SetCookie(auth.OIDCSessionCookieName, browserSessionID, maxAge, "/", "", h.browserSessionCookieSecure(c), true)
 }
 
 func (h *AuthHandler) clearBrowserSession(c *gin.Context) {
 	if browserSessionID, err := c.Cookie(auth.OIDCSessionCookieName); err == nil && browserSessionID != "" {
 		_ = auth.DeleteBrowserSession(h.redisStore, browserSessionID)
 	}
-	c.SetCookie(auth.OIDCSessionCookieName, "", -1, "/", "", true, true)
+	c.SetCookie(auth.OIDCSessionCookieName, "", -1, "/", "", h.browserSessionCookieSecure(c), true)
+}
+
+func (h *AuthHandler) browserSessionCookieSecure(c *gin.Context) bool {
+	configuredIssuer := ""
+	if h.config != nil {
+		configuredIssuer = h.config.OIDC.Issuer
+	}
+	return common.IsSecureRequest(c.Request, configuredIssuer)
 }
 
 func (h *AuthHandler) GetBrowserSession(c *gin.Context) {

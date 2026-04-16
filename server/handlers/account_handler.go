@@ -6,6 +6,7 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 
@@ -45,6 +46,12 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	}
 
 	if err := h.accountAuth.Register(user.UserID, user.Password, user.Nickname); err != nil {
+		var appErr *auth.AppError
+		if errors.As(err, &appErr) {
+			c.JSON(appErr.GetHTTPStatus(), gin.H{"error": appErr.Error()})
+			return
+		}
+
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}

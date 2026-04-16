@@ -1,8 +1,11 @@
 package oidc
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
+	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
 	"minki.cc/mkauth/server/config"
 )
@@ -64,4 +67,32 @@ func TestValidPostLogoutRedirect(t *testing.T) {
 	if provider.validPostLogoutRedirect("demo-spa", "http://127.0.0.1:4000/") {
 		t.Fatalf("unregistered redirect should be rejected")
 	}
+}
+
+func TestBrowserSessionCookieSecure(t *testing.T) {
+	t.Run("plain http stays insecure in local development", func(t *testing.T) {
+		provider := &Provider{}
+		req, err := http.NewRequest(http.MethodGet, "http://localhost:5180/oauth2/authorize", nil)
+		if err != nil {
+			t.Fatalf("failed to build request: %v", err)
+		}
+		ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+		ctx.Request = req
+		if provider.browserSessionCookieSecure(ctx) {
+			t.Fatalf("expected local http request to use a non-secure cookie")
+		}
+	})
+
+	t.Run("configured https issuer stays secure behind proxies", func(t *testing.T) {
+		provider := &Provider{cfg: config.OIDCConfig{Issuer: "https://auth.example.com"}}
+		req, err := http.NewRequest(http.MethodGet, "http://mkauth-server/oauth2/authorize", nil)
+		if err != nil {
+			t.Fatalf("failed to build request: %v", err)
+		}
+		ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+		ctx.Request = req
+		if !provider.browserSessionCookieSecure(ctx) {
+			t.Fatalf("expected configured https issuer to keep cookie secure")
+		}
+	})
 }

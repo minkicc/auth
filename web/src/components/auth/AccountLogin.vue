@@ -37,7 +37,7 @@
 <script lang="ts" setup>
 import { reactive, ref, defineEmits } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { serverApi } from '@/api/serverApi';
+import { getApiErrorMessage, serverApi } from '@/api/serverApi';
 
 const emit = defineEmits<{
   (e: 'login-error', message: string): void
@@ -91,9 +91,9 @@ const handleLogin = async () => {
     await serverApi.login(formData.username, formData.password)
 
 
-  } catch (error: any) {
+  } catch (error: unknown) {
     // 登录失败，通知父组件
-    emit('login-error', error.message || t('errors.loginFailed'))
+    emit('login-error', getApiErrorMessage(error, t('errors.loginFailed')))
   } finally {
     isLoading.value = false
   }
@@ -155,4 +155,4 @@ input.error {
   background: #bfbfbf;
   cursor: not-allowed;
 }
-</style> 
+</style>
