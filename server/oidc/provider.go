@@ -425,14 +425,14 @@ func (p *Provider) currentUser(c *gin.Context) (*auth.User, error) {
 	}
 	_, session, err := auth.ResolveBrowserSession(p.redis, p.sessionMgr, browserSessionID)
 	if err != nil || session == nil {
-		c.SetCookie(auth.OIDCSessionCookieName, "", -1, "/", "", true, true)
+		c.SetCookie(auth.OIDCSessionCookieName, "", -1, "/", "", p.browserSessionCookieSecure(c), true)
 		return nil, errors.New("invalid browser session")
 	}
 	maxAge := int(time.Until(session.ExpiresAt).Seconds())
 	if maxAge < 1 {
 		maxAge = 1
 	}
-	c.SetCookie(auth.OIDCSessionCookieName, browserSessionID, maxAge, "/", "", true, true)
+	c.SetCookie(auth.OIDCSessionCookieName, browserSessionID, maxAge, "/", "", p.browserSessionCookieSecure(c), true)
 	return p.accountAuth.GetUserByID(session.UserID)
 }
 
@@ -547,6 +547,10 @@ func (p *Provider) issuer(c *gin.Context) string {
 
 func (p *Provider) currentRequestURL(c *gin.Context) string {
 	return p.issuer(c) + c.Request.URL.RequestURI()
+}
+
+func (p *Provider) browserSessionCookieSecure(c *gin.Context) bool {
+	return common.IsSecureRequest(c.Request, p.cfg.Issuer)
 }
 
 func (p *Provider) findClient(clientID string) (config.OIDCClientConfig, bool) {
