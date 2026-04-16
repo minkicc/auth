@@ -8,13 +8,14 @@ import axios from 'axios'
 // API响应类型定义
 interface AuthResponse {
     user_id: string
-    token: string
-    nickname: string
-    avatar: string
+    nickname?: string
+    avatar?: string
+    authenticated?: boolean
+    expires_at?: string
+    message?: string
 }
 
 interface NestedAuthResponse {
-    token: string
     user?: {
         user_id: string
         nickname?: string
@@ -52,11 +53,32 @@ class ServerApi {
     clientId: string = ''
     redirectUri: string = ''
 
+    clearStoredAuth() {
+        localStorage.removeItem('token')
+        localStorage.removeItem('user')
+        localStorage.removeItem('avatar')
+        localStorage.removeItem('nickname')
+        localStorage.removeItem('userId')
+        delete axios.defaults.headers.common['Authorization']
+    }
+
+    isOIDCFlow(): boolean {
+        if (!this.redirectUri) {
+            return false
+        }
+
+        try {
+            const url = new URL(this.redirectUri, window.location.origin)
+            return url.pathname === '/oauth2/authorize' || url.pathname.endsWith('/oauth2/authorize')
+        } catch {
+            return false
+        }
+    }
+
     private normalizeAuthResponse(response: AuthResponse | NestedAuthResponse): AuthResponse {
         if ('user' in response && response.user) {
             return {
                 user_id: response.user.user_id,
-                token: response.token,
                 nickname: response.user.nickname || '',
                 avatar: response.user.avatar || '',
             }
@@ -64,23 +86,14 @@ class ServerApi {
 
         return {
             user_id: response.user_id || '',
-            token: response.token,
             nickname: response.nickname || '',
             avatar: response.avatar || '',
         }
     }
 
     updateUserInfo(response: AuthResponse | NestedAuthResponse) {
-        const { user_id, token, nickname, avatar } = this.normalizeAuthResponse(response)
-    
-        // 保存信息到本地存储
-        localStorage.setItem('token', token)
-        localStorage.setItem('avatar', avatar)
-        localStorage.setItem('nickname', nickname)
-        localStorage.setItem('userId', user_id)
-    
-        // 设置 axios 默认 headers
-        axios.defaults.headers.common['Authorization'] = `Bearer ${token}`
+        this.normalizeAuthResponse(response)
+        this.clearStoredAuth()
 
         this.handleLoginRedirect() // 重定向到应用
     }
@@ -93,15 +106,6 @@ class ServerApi {
         } else {
             serverApi.redirectUri = sessionStorage.getItem(clientId) || ''
         }
-    }
-
-    async refreshToken() {
-        const response = await axios.post('/token/refresh', { client_id: this.clientId, redirect_uri: this.redirectUri })
-        const token = response.data.token
-        const expireTime = response.data.expire_time
-        axios.defaults.headers.common['Authorization'] = `Bearer ${token}`
-        localStorage.setItem('token', token)
-        return { token, expireTime }
     }
 
     // 获取支持的登录方式
@@ -130,12 +134,14 @@ class ServerApi {
         return response.data
     }
 
+    async fetchBrowserSession() {
+        const response = await axios.get('/browser-session')
+        return response.data
+    }
+
     // 登出
     async logout() {
-        localStorage.removeItem('token')
-        localStorage.removeItem('avatar')
-        localStorage.removeItem('nickname')
-        localStorage.removeItem('userId')
+        this.clearStoredAuth()
         return axios.post('/logout')
     }
 
@@ -169,12 +175,7 @@ class ServerApi {
             return
         }
 
-        const response = await axios.get('/login/redirect', { params: { client_id: this.clientId, redirect_uri: this.redirectUri } })
-        const url = response.data.url as string
-        if (url) {
-            window.location.href = url
-        }
-        // return response.data
+        window.location.href = this.redirectUri
     }
 
     // 手机相关
