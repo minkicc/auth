@@ -9,24 +9,41 @@ import { createRouter, createWebHistory } from 'vue-router'
 const routes = [
   {
     path: '/',
-    redirect: '/login',
+    redirect: '/profile',
   },
   {
     path: '/login',
     name: 'Login',
     component: () => import('../views/Login.vue'),
     // 记录client_id和redirect_uri
-    beforeEnter: () => {
-      const urlParams = new URLSearchParams(window.location.search)
-      const client_id = urlParams.get('client_id') || ''
-      const redirect_uri = urlParams.get('redirect_uri') || urlParams.get('redirect_url') || undefined
+    beforeEnter: (to) => {
+      const client_id = typeof to.query.client_id === 'string' ? to.query.client_id : ''
+      const redirect_uri = typeof to.query.redirect_uri === 'string'
+        ? to.query.redirect_uri
+        : typeof to.query.redirect_url === 'string'
+          ? to.query.redirect_url
+          : undefined
       serverApi.updateAuthData(client_id, redirect_uri)
     }
   },
   {
+    path: '/profile',
+    name: 'Profile',
+    component: () => import('../views/Profile.vue'),
+  },
+  {
     path: '/verify-email',
     name: 'EmailVerify',
-    component: () => import('../components/auth/EmailVerify.vue')
+    component: () => import('../components/auth/EmailVerify.vue'),
+    beforeEnter: (to) => {
+      const client_id = typeof to.query.client_id === 'string' ? to.query.client_id : ''
+      const redirect_uri = typeof to.query.redirect_uri === 'string'
+        ? to.query.redirect_uri
+        : typeof to.query.redirect_url === 'string'
+          ? to.query.redirect_url
+          : undefined
+      serverApi.updateAuthData(client_id, redirect_uri)
+    }
   },
   {
     path: '/wechat/callback',

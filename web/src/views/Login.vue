@@ -165,6 +165,7 @@
 import { ref, onMounted, computed } from 'vue'
 import { context } from '@/context'
 import { useI18n } from 'vue-i18n'
+import { useRoute } from 'vue-router'
 
 
 // 组件导入
@@ -180,6 +181,7 @@ import { AuthProvider, serverApi } from '@/api/serverApi'
 
 
 const { t } = useI18n()
+const route = useRoute()
 
 
 // 响应式状态
@@ -242,6 +244,20 @@ const handleWechatLogin = async () => {
 onMounted(async () => {
 
   try {
+    if (context.isAuthenticated) {
+      try {
+        await serverApi.fetchBrowserSession()
+        await serverApi.handleLoginRedirect()
+        return
+      } catch {
+        context.setAuthenticated(false)
+      }
+    }
+
+    if (route.query.tab === 'register') {
+      activeTab.value = 'register'
+    }
+
     // 如果只有微信登录
     if (!hasAccountLogin && !hasEmailLogin && !hasPhoneLogin && !hasGoogleLogin && hasWeixinLogin) {
       handleWechatLogin()
@@ -283,14 +299,6 @@ const handleLoginError = (message: string) => {
 
 const handleRegisterSuccess = () => {
   errorMessage.value = t('auth.registerSuccess')
-  activeTab.value = 'login'
-  if (registerType.value === 'account') {
-    loginType.value = 'account'
-  } else if (registerType.value === 'email') {
-    loginType.value = 'email'
-  } else {
-    loginType.value = 'phone'
-  }
   handleLoginSuccess()
 }
 </script>

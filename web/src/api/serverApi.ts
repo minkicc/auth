@@ -53,6 +53,29 @@ class ServerApi {
     clientId: string = ''
     redirectUri: string = ''
 
+    private redirectStorageKey(clientId: string): string {
+        return `mkauth:redirect:${clientId}`
+    }
+
+    private appBaseURL(): URL {
+        const base = import.meta.env.VITE_BASE_URL || import.meta.env.BASE_URL || '/'
+        return new URL(base, window.location.origin)
+    }
+
+    private normalizePath(path: string): string {
+        const normalized = path.replace(/\/+$/, '')
+        return normalized || '/'
+    }
+
+    private buildAppURL(path: string): string {
+        const normalizedPath = path.replace(/^\/+/, '')
+        return new URL(normalizedPath, this.appBaseURL()).toString()
+    }
+
+    private routePath(path: string): string {
+        return this.normalizePath(new URL(path.replace(/^\/+/, ''), this.appBaseURL()).pathname)
+    }
+
     clearStoredAuth() {
         localStorage.removeItem('token')
         localStorage.removeItem('user')
@@ -102,10 +125,32 @@ class ServerApi {
         serverApi.clientId = clientId
         if (redirectUri) {
             serverApi.redirectUri = redirectUri
-            sessionStorage.setItem(clientId, redirectUri)
-        } else {
-            serverApi.redirectUri = sessionStorage.getItem(clientId) || ''
+            if (clientId) {
+                sessionStorage.setItem(this.redirectStorageKey(clientId), redirectUri)
+            }
+            return
         }
+
+        if (clientId) {
+            serverApi.redirectUri = sessionStorage.getItem(this.redirectStorageKey(clientId)) || ''
+            return
+        }
+
+        serverApi.redirectUri = ''
+    }
+
+    hasBusinessConnection(): boolean {
+        return !!this.redirectUri.trim()
+    }
+
+    getDefaultAuthenticatedURL(): string {
+        return this.buildAppURL('/profile')
+    }
+
+    isEntryRoute(pathname: string = window.location.pathname): boolean {
+        const currentPath = this.normalizePath(pathname)
+        const rootPath = this.normalizePath(this.appBaseURL().pathname)
+        return currentPath === rootPath || currentPath === this.routePath('/login')
     }
 
     // 获取支持的登录方式
@@ -171,11 +216,7 @@ class ServerApi {
 
     // 当前已经登陆，直接回调
     async handleLoginRedirect(): Promise<void> {
-        if (!this.redirectUri) {
-            return
-        }
-
-        window.location.href = this.redirectUri
+        window.location.href = this.redirectUri || this.getDefaultAuthenticatedURL()
     }
 
     // 手机相关

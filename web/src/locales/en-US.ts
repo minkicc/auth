@@ -23,6 +23,7 @@ export default {
     delete: 'Delete',
     edit: 'Edit',
     view: 'View',
+    refresh: 'Refresh',
     logout: 'Logout',
     language: 'Language',
     email: 'Email',
@@ -154,17 +155,17 @@ export default {
     verificationEmailTpl: `
   <h2>Email Verification</h2>
   <p>Hello, please click the link below to verify your email:</p>
-  <p><a href="<%BaseURL%>/auth/verify-email?token=<%Token%>">Verify Email</a></p>
+  <p><a href="<%VerifyURL%>">Verify Email</a></p>
   <p>If the link cannot be clicked, please copy the following address to your browser:</p>
-  <p><%BaseURL%>/auth/verify-email?token=<%Token%></p>
+  <p><%VerifyURL%></p>
   <p>This link will expire in 24 hours.</p>
   `,
     passwordResetEmailTpl: `
   <h2>Password Reset</h2>
   <p>Hello, please click the link below to reset your password:</p>
-  <p><a href="<%BaseURL%>/auth/reset-password?token=<%Token%>">Reset Password</a></p>
+  <p><a href="<%ResetURL%>">Reset Password</a></p>
   <p>If the link cannot be clicked, please copy the following address to your browser:</p>
-  <p><%BaseURL%>/auth/reset-password?token=<%Token%></p>
+  <p><%ResetURL%></p>
   <p>This link will expire in 24 hours. If you did not request a password reset, please ignore this email.</p>
   `,
     loginNotificationEmailTpl: `
@@ -189,6 +190,7 @@ export default {
   emailVerify: {
     loading: 'Verifying your email...',
     verifyFailed: 'Verification Failed',
+    redirecting: 'Verification succeeded, redirecting...',
     resendVerification: 'Resend Verification Email',
     sending: 'Sending...',
     register: 'Register Again',
@@ -201,5 +203,17 @@ export default {
     enterHome: 'Enter Home',
     invalidLink: 'Invalid verification link, missing verification token',
     cannotResend: 'Cannot resend verification email, please register again'
+  },
+  profile: {
+    title: 'User Profile',
+    subtitle: 'This browser is already signed in, so you can review the basic account details here.',
+    loading: 'Loading user profile...',
+    loadFailed: 'Failed to load user profile',
+    userId: 'User ID',
+    nickname: 'Nickname',
+    avatar: 'Avatar',
+    sessionExpiresAt: 'Session Expires At',
+    noAvatar: 'No avatar yet',
+    backToLogin: 'Back to Login'
   }
 } 

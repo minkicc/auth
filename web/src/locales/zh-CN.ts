@@ -23,6 +23,7 @@ export default {
     delete: '删除',
     edit: '编辑',
     view: '查看',
+    refresh: '刷新',
     logout: '退出登录',
     language: '语言',
     email: '邮箱',
@@ -154,17 +155,17 @@ export default {
     verificationEmailTpl: `
   <h2>邮箱验证</h2>
   <p>您好，请点击以下链接验证您的邮箱：</p>
-  <p><a href="<%BaseURL%>/auth/verify-email?token=<%Token%>">验证邮箱</a></p>
+  <p><a href="<%VerifyURL%>">验证邮箱</a></p>
   <p>如果链接无法点击，请复制以下地址到浏览器打开：</p>
-  <p><%BaseURL%>/auth/verify-email?token=<%Token%></p>
+  <p><%VerifyURL%></p>
   <p>此链接将在24小时后过期。</p>
   `,
   passwordResetEmailTpl: `
   <h2>密码重置</h2>
   <p>您好，请点击以下链接重置您的密码：</p>
-  <p><a href="<%BaseURL%>/auth/reset-password?token=<%Token%>">重置密码</a></p>
+  <p><a href="<%ResetURL%>">重置密码</a></p>
   <p>如果链接无法点击，请复制以下地址到浏览器打开：</p>
-  <p><%BaseURL%>/auth/reset-password?token=<%Token%></p>
+  <p><%ResetURL%></p>
   <p>此链接将在24小时后过期。如果您没有请求重置密码，请忽略此邮件。</p>
   `,
   loginNotificationEmailTpl: `
@@ -189,6 +190,7 @@ export default {
   emailVerify: {
     loading: '正在验证您的邮箱...',
     verifyFailed: '验证失败',
+    redirecting: '验证成功，正在跳转...',
     resendVerification: '重新发送验证邮件',
     sending: '发送中...',
     register: '重新注册',
@@ -201,5 +203,17 @@ export default {
     enterHome: '进入首页',
     invalidLink: '验证链接无效，缺少验证令牌',
     cannotResend: '无法重新发送验证邮件，请重新注册'
+  },
+  profile: {
+    title: '用户信息',
+    subtitle: '当前浏览器已经登录，可以直接查看基础资料。',
+    loading: '正在加载用户信息...',
+    loadFailed: '加载用户信息失败',
+    userId: '用户 ID',
+    nickname: '昵称',
+    avatar: '头像',
+    sessionExpiresAt: '会话过期时间',
+    noAvatar: '暂无头像',
+    backToLogin: '返回登录页'
   }
 } 
