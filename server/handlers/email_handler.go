@@ -16,7 +16,7 @@ import (
 // EmailLogin Email login
 func (h *AuthHandler) EmailLogin(c *gin.Context) {
 	var req struct {
-		Email    string `json:"email" binding:"required,email"`
+		Email    string `json:"email" binding:"required"`
 		Password string `json:"password" binding:"required"`
 	}
 
@@ -61,7 +61,7 @@ func (h *AuthHandler) EmailLogin(c *gin.Context) {
 // EmailRegister Email pre-registration
 func (h *AuthHandler) EmailRegister(c *gin.Context) {
 	var req struct {
-		Email    string `json:"email" binding:"required,email"`
+		Email    string `json:"email" binding:"required"`
 		Password string `json:"password" binding:"required"`
 		Nickname string `json:"nickname"`
 		Title    string `json:"title" binding:"required"`
@@ -117,7 +117,7 @@ func (h *AuthHandler) EmailVerify(c *gin.Context) {
 // ResendEmailVerification Resend email verification
 func (h *AuthHandler) ResendEmailVerification(c *gin.Context) {
 	var req struct {
-		Email   string `json:"email" binding:"required,email"`
+		Email   string `json:"email" binding:"required"`
 		Title   string `json:"title" binding:"required"`
 		Content string `json:"content" binding:"required"`
 	}
@@ -154,7 +154,7 @@ func (h *AuthHandler) ResendEmailVerification(c *gin.Context) {
 // EmailPasswordReset Email password reset
 func (h *AuthHandler) EmailPasswordReset(c *gin.Context) {
 	var req struct {
-		Email   string `json:"email" binding:"required,email"`
+		Email   string `json:"email" binding:"required"`
 		Title   string `json:"title" binding:"required"`
 		Content string `json:"content" binding:"required"`
 	}

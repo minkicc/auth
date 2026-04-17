@@ -372,6 +372,24 @@ Follow-up calls can authenticate in one of two ways:
 
 If you need seamless token renewal in a browser app, prefer the standard OIDC authorization code flow with PKCE so MKAuth can reuse its `oidc_session` browser session.
 
+#### Input normalization and browser-session write rules
+
+MKAuth now normalizes user identifiers consistently before duplicate checks, login checks, and rate limiting:
+
+- Account `username`: trimmed, length `3-64`, allowed characters are letters, digits, `.`, `_`, `@`, `-`, and it must start and end with a letter or digit
+- Email: trimmed and lowercased before registration, login, resend-verification, and password-reset flows
+- Phone: separators such as spaces, `-`, `.`, `(`, `)` are removed, with an optional leading `+`, and the final normalized value must contain `7-15` digits
+
+When a request is authenticated by the browser `oidc_session` cookie, state-changing `/api` endpoints also require `Origin` or `Referer` to match the MKAuth issuer/origin. This applies to routes such as logout, password change, profile update, avatar mutation, and session termination. Calls authenticated with `Authorization: Bearer <access_token>` do not need this browser-only same-origin check.
+
+Example `curl` logout using a browser session cookie:
+
+```bash
+curl -X POST http://localhost:8080/api/logout \
+  -H 'Origin: http://localhost:8080' \
+  -b 'oidc_session=YOUR_BROWSER_SESSION'
+```
+
 ## Go SDK
 
 The Go SDK under `client/auth` is now best treated as a helper for MKAuth management-style `/api` calls. It is not the recommended login integration path on this branch.

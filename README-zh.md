@@ -378,6 +378,24 @@ curl -X POST http://localhost:8080/api/account/login \
 
 如果你需要浏览器里的无感续期，更推荐直接接标准 OIDC Authorization Code + PKCE，让 MKAuth 复用自己的 `oidc_session` 浏览器会话。
 
+#### 标识规范化与浏览器会话写操作限制
+
+MKAuth 现在会在重复校验、登录校验和限流前，对用户标识做统一规范化处理：
+
+- 账号 `username`：先去首尾空格，长度要求 `3-64`，允许字符为字母、数字、`.`、`_`、`@`、`-`，并且首尾必须是字母或数字
+- 邮箱：在注册、登录、重发验证、找回密码前都会先去空格并转成小写
+- 手机号：会去掉空格、`-`、`.`、`(`、`)` 这些分隔符，允许保留一个前导 `+`，最终规范化后的数字长度必须是 `7-15`
+
+如果请求是通过浏览器里的 `oidc_session` cookie 鉴权，那么所有会修改状态的 `/api` 接口还要求 `Origin` 或 `Referer` 必须与 MKAuth 的 issuer/origin 一致。比如登出、改密、更新资料、头像上传/删除、终止会话等接口都受这个限制。使用 `Authorization: Bearer <access_token>` 的调用则不需要这层浏览器 same-origin 校验。
+
+使用浏览器会话 cookie 做 `curl` 登出时，示例可以写成：
+
+```bash
+curl -X POST http://localhost:8080/api/logout \
+  -H 'Origin: http://localhost:8080' \
+  -b 'oidc_session=YOUR_BROWSER_SESSION'
+```
+
 ## Go SDK 使用方式
 
 `client/auth` 目录下的 Go SDK 现在更适合调用 MKAuth 管理型 `/api` 接口，但它不是这条分支推荐的登录接入方式。
