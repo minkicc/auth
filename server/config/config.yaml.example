@@ -46,9 +46,10 @@ oidc:
         - "email"
 
 storage:
+  # provider: minio / s3 / r2 / oss
   provider: "minio"
-  endpoint: "YOUR_MINIO_ENDPOINT"
-  region: "YOUR_REGION"
+  endpoint: "YOUR_MINIO_OR_R2_ENDPOINT"
+  region: "YOUR_REGION_OR_AUTO_FOR_R2"
   accessKeyID: "YOUR_ACCESS_KEY_ID"
   secretAccessKey: "YOUR_SECRET_ACCESS_KEY"
   stsAccessKeyID: "YOUR_STS_ACCESS_KEY_ID"

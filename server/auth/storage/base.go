@@ -16,6 +16,7 @@ type Provider string
 const (
 	MINIO Provider = "minio"
 	S3    Provider = "s3"
+	R2    Provider = "r2"
 	OSS   Provider = "oss"
 )
 

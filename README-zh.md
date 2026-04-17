@@ -227,7 +227,7 @@ redis:
 
 ```yaml
 storage:
-  provider: "minio" # minio / s3 / oss
+  provider: "minio" # minio / s3 / r2 / oss
   endpoint: "localhost:9000"
   region: "zhuhai-1"
   accessKeyID: "your-access-key"
@@ -237,6 +237,23 @@ storage:
 storage_public_url:
   attatch: "http://localhost:9000/attatch"
 ```
+
+如果使用 Cloudflare R2，可以直接配置专门的 `r2` provider：
+
+```yaml
+storage:
+  provider: "r2"
+  endpoint: "https://<account_id>.r2.cloudflarestorage.com"
+  region: "auto"
+  accessKeyID: "YOUR_R2_ACCESS_KEY_ID"
+  secretAccessKey: "YOUR_R2_SECRET_ACCESS_KEY"
+  attatchBucket: "mkauth-avatar"
+
+storage_public_url:
+  attatch: "https://pub-xxxx.r2.dev"
+```
+
+Cloudflare 部署说明和 R2 配置示例见 [docs/cloudflare.md](docs/cloudflare.md)。
 
 ### 登录方式开关
 

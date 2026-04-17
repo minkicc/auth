@@ -1,0 +1,82 @@
+db:
+  driver: "mysql"
+  user: "YOUR_DB_USER"
+  password: "YOUR_DB_PASSWORD"
+  host: "YOUR_DB_HOST"
+  port: 3306
+  database: "mkauth"
+  charset: "utf8mb4"
+
+redis:
+  # Cloudflare does not provide Redis as a native binding for this service.
+  # Use a managed Redis endpoint for browser sessions, verification codes, and rate limits.
+  addr: "YOUR_REDIS_HOST:6379"
+  password: "YOUR_REDIS_PASSWORD"
+  db: 0
+
+oidc:
+  enabled: true
+  issuer: "https://auth.example.com"
+  key_id: "mkauth-oidc-v1"
+  private_key_file: ""
+  private_key_pem: "PASTE_B64_OR_PEM_PRIVATE_KEY_HERE"
+  code_ttl_seconds: 300
+  access_token_ttl_seconds: 900
+  id_token_ttl_seconds: 900
+  clients:
+    - client_id: "minki-chat"
+      public: true
+      require_pkce: true
+      redirect_uris:
+        - "https://app.example.com/auth/callback"
+      scopes:
+        - "openid"
+        - "profile"
+        - "email"
+
+storage:
+  provider: "r2"
+  endpoint: "https://<account_id>.r2.cloudflarestorage.com"
+  region: "auto"
+  accessKeyID: "YOUR_R2_ACCESS_KEY_ID"
+  secretAccessKey: "YOUR_R2_SECRET_ACCESS_KEY"
+  attatchBucket: "mkauth-avatar"
+
+storage_public_url:
+  # Prefer an R2 custom public domain for production instead of an r2.dev URL.
+  attatch: "https://assets.example.com"
+
+auth:
+  enabled_providers:
+    - "account"
+    - "email"
+    - "google"
+  google:
+    client_id: "YOUR_GOOGLE_CLIENT_ID"
+    client_secret: "YOUR_GOOGLE_CLIENT_SECRET"
+    redirect_url: "https://auth.example.com/api/google/callback"
+    scopes:
+      - "https://www.googleapis.com/auth/userinfo.email"
+      - "https://www.googleapis.com/auth/userinfo.profile"
+  smtp:
+    host: "YOUR_SMTP_HOST"
+    port: 587
+    username: "YOUR_SMTP_USERNAME"
+    password: "YOUR_SMTP_PASSWORD"
+    from: "YOUR_SMTP_FROM"
+
+auth_admin:
+  enabled: true
+  secret_key: "YOUR_ADMIN_SECRET_KEY"
+  accounts:
+    - username: "admin"
+      password: "YOUR_BCRYPT_PASSWORD_HASH"
+      roles:
+        - "super_admin"
+  allowed_ips:
+    - "*"
+  require_tls: true
+  session_ttl: 30
+  login_timeout: 60
+
+auth_trusted_clients: []

@@ -221,7 +221,7 @@ If you do not configure MySQL, MKAuth now starts with SQLite by default and stor
 
 ```yaml
 storage:
-  provider: "minio" # minio / s3 / oss
+  provider: "minio" # minio / s3 / r2 / oss
   endpoint: "localhost:9000"
   region: "zhuhai-1"
   accessKeyID: "your-access-key"
@@ -231,6 +231,23 @@ storage:
 storage_public_url:
   attatch: "http://localhost:9000/attatch"
 ```
+
+Cloudflare R2 can be used with the dedicated `r2` provider:
+
+```yaml
+storage:
+  provider: "r2"
+  endpoint: "https://<account_id>.r2.cloudflarestorage.com"
+  region: "auto"
+  accessKeyID: "YOUR_R2_ACCESS_KEY_ID"
+  secretAccessKey: "YOUR_R2_SECRET_ACCESS_KEY"
+  attatchBucket: "mkauth-avatar"
+
+storage_public_url:
+  attatch: "https://pub-xxxx.r2.dev"
+```
+
+See [docs/cloudflare.md](docs/cloudflare.md) for Cloudflare deployment notes and the R2 configuration example.
 
 ### Enabled login providers
 

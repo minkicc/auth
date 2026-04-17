@@ -196,6 +196,9 @@ func (dc *DatabaseConfig) EffectiveDriver() string {
 	case "mysql", "sqlite":
 		return driver
 	}
+	if driver != "" {
+		return driver
+	}
 	if dc.HasMySQLConfig() {
 		return "mysql"
 	}

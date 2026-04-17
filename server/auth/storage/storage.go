@@ -33,6 +33,9 @@ func NewStorageClient(config *Config) (*StorageClient, error) {
 	case S3:
 		client, err = NewS3Client(&config.ClientConfig)
 		bucketConfig = config.BucketConfig
+	case R2:
+		client, err = NewR2Client(&config.ClientConfig)
+		bucketConfig = config.BucketConfig
 	case OSS:
 		client, err = NewOSSClient(&config.ClientConfig)
 		bucketConfig = config.BucketConfig
