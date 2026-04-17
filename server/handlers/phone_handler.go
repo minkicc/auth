@@ -66,6 +66,17 @@ func (h *AuthHandler) PhoneCodeLogin(c *gin.Context) {
 		return
 	}
 
+	normalizedPhone, err := auth.NormalizePhoneNumber(req.Phone)
+	if err != nil {
+		if appErr, ok := err.(*auth.AppError); ok {
+			c.JSON(appErr.GetHTTPStatus(), gin.H{"error": appErr.Error()})
+			return
+		}
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request format"})
+		return
+	}
+	req.Phone = normalizedPhone
+
 	clientIP := c.ClientIP()
 	attemptKey := phoneAttemptKey("code_login", req.Phone)
 	if err := h.accountAuth.CheckLoginAttempts(attemptKey, clientIP); err != nil {
@@ -93,6 +104,17 @@ func (h *AuthHandler) SendVerificationCode(c *gin.Context) {
 		return
 	}
 
+	normalizedPhone, err := auth.NormalizePhoneNumber(req.Phone)
+	if err != nil {
+		if appErr, ok := err.(*auth.AppError); ok {
+			c.JSON(appErr.GetHTTPStatus(), gin.H{"error": appErr.Error()})
+			return
+		}
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request format"})
+		return
+	}
+	req.Phone = normalizedPhone
+
 	// Validate phone number format
 	if err := h.phoneAuth.ValidatePhoneFormat(req.Phone); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -102,7 +124,7 @@ func (h *AuthHandler) SendVerificationCode(c *gin.Context) {
 	// Send verification code
 	// Different types of verification codes can be sent for different scenarios
 	// For example: login verification code, registration verification code, etc.
-	_, err := h.phoneAuth.SendLoginSMS(req.Phone)
+	_, err = h.phoneAuth.SendLoginSMS(req.Phone)
 	if err != nil {
 		var appErr *auth.AppError
 		if !errors.As(err, &appErr) || appErr.Code != auth.ErrCodeUserNotFound {
@@ -129,6 +151,17 @@ func (h *AuthHandler) VerifyPhone(c *gin.Context) {
 		return
 	}
 
+	normalizedPhone, err := auth.NormalizePhoneNumber(req.Phone)
+	if err != nil {
+		if appErr, ok := err.(*auth.AppError); ok {
+			c.JSON(appErr.GetHTTPStatus(), gin.H{"error": appErr.Error()})
+			return
+		}
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request format"})
+		return
+	}
+	req.Phone = normalizedPhone
+
 	// Verify phone number
 	if err := h.phoneAuth.VerifyPhone(req.Phone, req.Code); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid or expired verification code"})
@@ -149,6 +182,17 @@ func (h *AuthHandler) PhoneInitiatePasswordReset(c *gin.Context) {
 		return
 	}
 
+	normalizedPhone, err := auth.NormalizePhoneNumber(req.Phone)
+	if err != nil {
+		if appErr, ok := err.(*auth.AppError); ok {
+			c.JSON(appErr.GetHTTPStatus(), gin.H{"error": appErr.Error()})
+			return
+		}
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request format"})
+		return
+	}
+	req.Phone = normalizedPhone
+
 	// Validate phone number format
 	if err := h.phoneAuth.ValidatePhoneFormat(req.Phone); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -156,7 +200,7 @@ func (h *AuthHandler) PhoneInitiatePasswordReset(c *gin.Context) {
 	}
 
 	// Initiate password reset
-	_, err := h.phoneAuth.InitiatePasswordReset(req.Phone)
+	_, err = h.phoneAuth.InitiatePasswordReset(req.Phone)
 	if err != nil {
 		var appErr *auth.AppError
 		if !errors.As(err, &appErr) || appErr.Code != auth.ErrCodeUserNotFound {
@@ -188,8 +232,19 @@ func (h *AuthHandler) PhonePreregister(c *gin.Context) {
 		return
 	}
 
+	normalizedPhone, err := auth.NormalizePhoneNumber(req.Phone)
+	if err != nil {
+		if appErr, ok := err.(*auth.AppError); ok {
+			c.JSON(appErr.GetHTTPStatus(), gin.H{"error": appErr.Error()})
+			return
+		}
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request parameters"})
+		return
+	}
+	req.Phone = normalizedPhone
+
 	// Pre-register phone user, send verification code
-	_, err := h.phoneAuth.PhonePreregister(req.Phone, req.Password, req.Nickname)
+	_, err = h.phoneAuth.PhonePreregister(req.Phone, req.Password, req.Nickname)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -212,8 +267,19 @@ func (h *AuthHandler) ResendPhoneVerification(c *gin.Context) {
 		return
 	}
 
+	normalizedPhone, err := auth.NormalizePhoneNumber(req.Phone)
+	if err != nil {
+		if appErr, ok := err.(*auth.AppError); ok {
+			c.JSON(appErr.GetHTTPStatus(), gin.H{"error": appErr.Error()})
+			return
+		}
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request parameters"})
+		return
+	}
+	req.Phone = normalizedPhone
+
 	// Resend verification code
-	_, err := h.phoneAuth.ResendPhoneVerification(req.Phone)
+	_, err = h.phoneAuth.ResendPhoneVerification(req.Phone)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -235,6 +301,17 @@ func (h *AuthHandler) VerifyPhoneAndRegister(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request parameters"})
 		return
 	}
+
+	normalizedPhone, err := auth.NormalizePhoneNumber(req.Phone)
+	if err != nil {
+		if appErr, ok := err.(*auth.AppError); ok {
+			c.JSON(appErr.GetHTTPStatus(), gin.H{"error": appErr.Error()})
+			return
+		}
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request parameters"})
+		return
+	}
+	req.Phone = normalizedPhone
 
 	clientIP := c.ClientIP()
 	attemptKey := phoneAttemptKey("register_verify", req.Phone)
@@ -262,6 +339,17 @@ func (h *AuthHandler) PhoneLogin(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request format"})
 		return
 	}
+
+	normalizedPhone, err := auth.NormalizePhoneNumber(req.Phone)
+	if err != nil {
+		if appErr, ok := err.(*auth.AppError); ok {
+			c.JSON(appErr.GetHTTPStatus(), gin.H{"error": appErr.Error()})
+			return
+		}
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request format"})
+		return
+	}
+	req.Phone = normalizedPhone
 
 	clientIP := c.ClientIP()
 	attemptKey := phoneAttemptKey("password_login", req.Phone)
@@ -303,6 +391,17 @@ func (h *AuthHandler) SendLoginSMS(c *gin.Context) {
 		return
 	}
 
+	normalizedPhone, err := auth.NormalizePhoneNumber(req.Phone)
+	if err != nil {
+		if appErr, ok := err.(*auth.AppError); ok {
+			c.JSON(appErr.GetHTTPStatus(), gin.H{"error": appErr.Error()})
+			return
+		}
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request parameters"})
+		return
+	}
+	req.Phone = normalizedPhone
+
 	// Validate phone number format
 	if err := h.phoneAuth.ValidatePhoneFormat(req.Phone); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -310,7 +409,7 @@ func (h *AuthHandler) SendLoginSMS(c *gin.Context) {
 	}
 
 	// Send login verification code
-	_, err := h.phoneAuth.SendLoginSMS(req.Phone)
+	_, err = h.phoneAuth.SendLoginSMS(req.Phone)
 	if err != nil {
 		var appErr *auth.AppError
 		if !errors.As(err, &appErr) || appErr.Code != auth.ErrCodeUserNotFound {
@@ -336,6 +435,17 @@ func (h *AuthHandler) PhoneCompletePasswordReset(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request format"})
 		return
 	}
+
+	normalizedPhone, err := auth.NormalizePhoneNumber(req.Phone)
+	if err != nil {
+		if appErr, ok := err.(*auth.AppError); ok {
+			c.JSON(appErr.GetHTTPStatus(), gin.H{"error": appErr.Error()})
+			return
+		}
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request format"})
+		return
+	}
+	req.Phone = normalizedPhone
 
 	clientIP := c.ClientIP()
 	attemptKey := phoneAttemptKey("reset_password", req.Phone)

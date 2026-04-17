@@ -95,6 +95,12 @@ func generateVerificationCode() (string, error) {
 
 // InitiatePasswordReset Initiate password reset
 func (a *PhoneAuth) InitiatePasswordReset(phone string) (string, error) {
+	var err error
+	phone, err = NormalizePhoneNumber(phone)
+	if err != nil {
+		return "", err
+	}
+
 	user, err := a.GetUserByPhone(phone)
 	if err != nil {
 		return "", err
@@ -121,6 +127,12 @@ func (a *PhoneAuth) InitiatePasswordReset(phone string) (string, error) {
 
 // CompletePasswordReset Complete password reset
 func (a *PhoneAuth) CompletePasswordReset(code, phone, newPassword string) (string, error) {
+	var err error
+	phone, err = NormalizePhoneNumber(phone)
+	if err != nil {
+		return "", err
+	}
+
 	// Get verification record from Redis
 	verification, err := a.redis.GetVerification(VerificationTypePhoneReset, phone)
 	if err != nil {
@@ -200,6 +212,12 @@ func (a *PhoneAuth) CompletePasswordReset(code, phone, newPassword string) (stri
 
 // VerifyPhone Verify phone number
 func (a *PhoneAuth) VerifyPhone(phone, code string) error {
+	var err error
+	phone, err = NormalizePhoneNumber(phone)
+	if err != nil {
+		return err
+	}
+
 	verification, err := a.redis.GetVerification(VerificationTypePhoneRegister, phone)
 	if err != nil {
 		return ErrInvalidToken("Invalid or expired verification code")
@@ -226,8 +244,9 @@ func (a *PhoneAuth) VerifyPhone(phone, code string) error {
 
 // Login Login with phone number and password
 func (a *PhoneAuth) PhoneLogin(phone, password string) (*User, error) {
-	// Validate phone number format
-	if err := a.ValidatePhoneFormat(phone); err != nil {
+	var err error
+	phone, err = NormalizePhoneNumber(phone)
+	if err != nil {
 		return nil, err
 	}
 
@@ -273,6 +292,12 @@ func (a *PhoneAuth) PhoneLogin(phone, password string) (*User, error) {
 
 // GetUserByPhone Get user by phone number
 func (a *PhoneAuth) GetUserByPhone(phone string) (*User, error) {
+	var err error
+	phone, err = NormalizePhoneNumber(phone)
+	if err != nil {
+		return nil, err
+	}
+
 	var phoneUser PhoneUser
 	if err := a.db.Where("phone = ?", phone).First(&phoneUser).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -294,6 +319,12 @@ func (a *PhoneAuth) GetUserByPhone(phone string) (*User, error) {
 
 // CheckDuplicatePhone Check if phone number is already in use
 func (a *PhoneAuth) CheckDuplicatePhone(phone string) error {
+	var err error
+	phone, err = NormalizePhoneNumber(phone)
+	if err != nil {
+		return err
+	}
+
 	var count int64
 	if err := a.db.Model(&PhoneUser{}).Where("phone = ?", phone).Count(&count).Error; err != nil {
 		return err
@@ -306,8 +337,9 @@ func (a *PhoneAuth) CheckDuplicatePhone(phone string) error {
 
 // PhonePreregister Phone pre-registration, sends verification code but doesn't create user
 func (a *PhoneAuth) PhonePreregister(phone, password, nickname string) (string, error) {
-	// Check phone number format
-	if err := a.ValidatePhoneFormat(phone); err != nil {
+	var err error
+	phone, err = NormalizePhoneNumber(phone)
+	if err != nil {
 		return "", err
 	}
 
@@ -362,6 +394,12 @@ func (a *PhoneAuth) PhonePreregister(phone, password, nickname string) (string, 
 
 // ResendPhoneVerification Resend phone verification code
 func (a *PhoneAuth) ResendPhoneVerification(phone string) (string, error) {
+	var err error
+	phone, err = NormalizePhoneNumber(phone)
+	if err != nil {
+		return "", err
+	}
+
 	// Get previous verification record from Redis
 	verification, err := a.redis.GetVerification(VerificationTypePhoneRegister, phone)
 	if err != nil {
@@ -401,6 +439,12 @@ func (a *PhoneAuth) ResendPhoneVerification(phone string) (string, error) {
 
 // VerifyPhoneAndRegister Verify phone number and complete registration
 func (a *PhoneAuth) VerifyPhoneAndRegister(phone, code string) (*User, error) {
+	var err error
+	phone, err = NormalizePhoneNumber(phone)
+	if err != nil {
+		return nil, err
+	}
+
 	// Get verification record from Redis
 	verification, err := a.redis.GetVerification(VerificationTypePhoneRegister, phone)
 	if err != nil {
@@ -491,6 +535,12 @@ func (a *PhoneAuth) VerifyPhoneAndRegister(phone, code string) (*User, error) {
 
 // PhoneCodeLogin Phone verification code login (no password required)
 func (a *PhoneAuth) PhoneCodeLogin(phone, code string) (*User, error) {
+	var err error
+	phone, err = NormalizePhoneNumber(phone)
+	if err != nil {
+		return nil, err
+	}
+
 	// Get verification record from Redis
 	verification, err := a.redis.GetVerification(VerificationTypePhoneLogin, phone)
 	if err != nil {
@@ -544,6 +594,12 @@ func (a *PhoneAuth) PhoneCodeLogin(phone, code string) (*User, error) {
 
 // SendLoginSMS Send login verification code
 func (a *PhoneAuth) SendLoginSMS(phone string) (string, error) {
+	var err error
+	phone, err = NormalizePhoneNumber(phone)
+	if err != nil {
+		return "", err
+	}
+
 	// Check if phone number is registered
 	var phoneUser PhoneUser
 	if err := a.db.Where("phone = ?", phone).First(&phoneUser).Error; err != nil {
@@ -574,9 +630,6 @@ func (a *PhoneAuth) SendLoginSMS(phone string) (string, error) {
 
 // ValidatePhoneFormat Validate phone number format
 func (a *PhoneAuth) ValidatePhoneFormat(phone string) error {
-	// This is just a simple example, actual implementation should strictly validate according to phone number rules for different countries/regions
-	if len(phone) < 11 {
-		return ErrInvalidPhoneFormat("Invalid phone number format")
-	}
-	return nil
+	_, err := NormalizePhoneNumber(phone)
+	return err
 }

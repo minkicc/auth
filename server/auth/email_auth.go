@@ -86,6 +86,12 @@ func generateToken() (string, error) {
 
 // InitiatePasswordReset Initiate password reset
 func (a *EmailAuth) InitiatePasswordReset(email, title, content string) (string, error) {
+	var err error
+	email, err = NormalizeEmailAddress(email)
+	if err != nil {
+		return "", err
+	}
+
 	user, err := a.GetUserByEmail(email)
 	if err != nil {
 		return "", err
@@ -162,9 +168,10 @@ func (a *EmailAuth) CompletePasswordReset(token, newPassword string) (string, er
 
 // EmailPreregister Email pre-registration, sends verification email but doesn't create user
 func (a *EmailAuth) EmailPreregister(email, password, nickname, title, content string) (string, error) {
-	// Email must be provided
-	if email == "" {
-		return "", ErrInvalidInput("Valid email must be provided")
+	var err error
+	email, err = NormalizeEmailAddress(email)
+	if err != nil {
+		return "", err
 	}
 
 	// Check if email is duplicate
@@ -223,6 +230,12 @@ func (a *EmailAuth) EmailPreregister(email, password, nickname, title, content s
 }
 
 func (a *EmailAuth) ResentEmailVerification(email, title, content string) (bool, error) {
+	var err error
+	email, err = NormalizeEmailAddress(email)
+	if err != nil {
+		return false, err
+	}
+
 	verification, err := a.redis.GetVerification(VerificationTypeEmail, email)
 	if err != nil {
 		return false, err
@@ -238,9 +251,10 @@ func (a *EmailAuth) ResentEmailVerification(email, title, content string) (bool,
 
 // RegisterEmailUser Email user registration - this function is now used internally, called after verification
 func (a *EmailAuth) RegisterEmailUser(email, password, nickname string) (*User, error) {
-	// Email must be provided
-	if email == "" {
-		return nil, ErrInvalidInput("Valid email must be provided")
+	var err error
+	email, err = NormalizeEmailAddress(email)
+	if err != nil {
+		return nil, err
 	}
 
 	// Check if email is duplicate
@@ -375,9 +389,15 @@ func (a *EmailAuth) VerifyEmail(token string) (*User, error) {
 
 // EmailLogin Email user login
 func (a *EmailAuth) EmailLogin(email, password string) (*User, error) {
+	var err error
+	email, err = NormalizeEmailAddress(email)
+	if err != nil {
+		return nil, err
+	}
+
 	// First query the corresponding email user
 	var emailUser EmailUser
-	err := a.db.Where("email = ?", email).First(&emailUser).Error
+	err = a.db.Where("email = ?", email).First(&emailUser).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrInvalidPassword("Invalid email or password")
@@ -411,6 +431,12 @@ func (a *EmailAuth) EmailLogin(email, password string) (*User, error) {
 
 // GetUserByEmail Get user by email
 func (a *EmailAuth) GetUserByEmail(email string) (*User, error) {
+	var err error
+	email, err = NormalizeEmailAddress(email)
+	if err != nil {
+		return nil, err
+	}
+
 	// First query EmailUser record
 	var emailUser EmailUser
 	if err := a.db.Where("email = ?", email).First(&emailUser).Error; err != nil {
@@ -434,6 +460,12 @@ func (a *EmailAuth) GetUserByEmail(email string) (*User, error) {
 
 // CheckDuplicateEmail Check if email is duplicate
 func (a *EmailAuth) CheckDuplicateEmail(email string) error {
+	var err error
+	email, err = NormalizeEmailAddress(email)
+	if err != nil {
+		return err
+	}
+
 	var count int64
 	if err := a.db.Model(&EmailUser{}).Where("email = ?", email).Count(&count).Error; err != nil {
 		return err

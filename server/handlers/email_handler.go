@@ -25,6 +25,17 @@ func (h *AuthHandler) EmailLogin(c *gin.Context) {
 		return
 	}
 
+	normalizedEmail, err := auth.NormalizeEmailAddress(req.Email)
+	if err != nil {
+		if appErr, ok := err.(*auth.AppError); ok {
+			c.JSON(appErr.GetHTTPStatus(), gin.H{"error": appErr.Error()})
+			return
+		}
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request parameters"})
+		return
+	}
+	req.Email = normalizedEmail
+
 	// Check login attempt limits
 	clientIP := c.ClientIP()
 	if err := h.accountAuth.CheckLoginAttempts(req.Email, clientIP); err != nil {
@@ -62,8 +73,19 @@ func (h *AuthHandler) EmailRegister(c *gin.Context) {
 		return
 	}
 
+	normalizedEmail, err := auth.NormalizeEmailAddress(req.Email)
+	if err != nil {
+		if appErr, ok := err.(*auth.AppError); ok {
+			c.JSON(appErr.GetHTTPStatus(), gin.H{"error": appErr.Error()})
+			return
+		}
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request parameters"})
+		return
+	}
+	req.Email = normalizedEmail
+
 	// Pre-register email user, only send verification email, don't create user
-	_, err := h.emailAuth.EmailPreregister(req.Email, req.Password, req.Nickname, req.Title, req.Content)
+	_, err = h.emailAuth.EmailPreregister(req.Email, req.Password, req.Nickname, req.Title, req.Content)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -105,7 +127,18 @@ func (h *AuthHandler) ResendEmailVerification(c *gin.Context) {
 		return
 	}
 
-	_, err := h.emailAuth.ResentEmailVerification(req.Email, req.Title, req.Content)
+	normalizedEmail, err := auth.NormalizeEmailAddress(req.Email)
+	if err != nil {
+		if appErr, ok := err.(*auth.AppError); ok {
+			c.JSON(appErr.GetHTTPStatus(), gin.H{"error": appErr.Error()})
+			return
+		}
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request parameters"})
+		return
+	}
+	req.Email = normalizedEmail
+
+	_, err = h.emailAuth.ResentEmailVerification(req.Email, req.Title, req.Content)
 	if err != nil {
 		var appErr *auth.AppError
 		if !errors.As(err, &appErr) || appErr.Code != auth.ErrCodeUserNotFound {
@@ -131,8 +164,19 @@ func (h *AuthHandler) EmailPasswordReset(c *gin.Context) {
 		return
 	}
 
+	normalizedEmail, err := auth.NormalizeEmailAddress(req.Email)
+	if err != nil {
+		if appErr, ok := err.(*auth.AppError); ok {
+			c.JSON(appErr.GetHTTPStatus(), gin.H{"error": appErr.Error()})
+			return
+		}
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request parameters"})
+		return
+	}
+	req.Email = normalizedEmail
+
 	// Initiate password reset
-	_, err := h.emailAuth.InitiatePasswordReset(req.Email, req.Title, req.Content)
+	_, err = h.emailAuth.InitiatePasswordReset(req.Email, req.Title, req.Content)
 	if err != nil {
 		var appErr *auth.AppError
 		if !errors.As(err, &appErr) || appErr.Code != auth.ErrCodeUserNotFound {
