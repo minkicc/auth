@@ -84,6 +84,13 @@ func TestDatabaseConfigEffectiveDriver(t *testing.T) {
 			},
 			want: "mysql",
 		},
+		{
+			name: "unknown explicit driver is surfaced",
+			cfg: config.DatabaseConfig{
+				Driver: "custom",
+			},
+			want: "custom",
+		},
 	}
 
 	for _, tt := range tests {

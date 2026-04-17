@@ -27,12 +27,23 @@ type S3Client struct {
 }
 
 func NewS3Client(config *ClientConfig) (Client, error) {
+	return newS3CompatibleClient(config, true, false)
+}
+
+func NewR2Client(config *ClientConfig) (Client, error) {
+	if strings.TrimSpace(config.Region) == "" {
+		config.Region = "auto"
+	}
+	return newS3CompatibleClient(config, false, true)
+}
+
+func newS3CompatibleClient(config *ClientConfig, disableSSL bool, forcePathStyle bool) (Client, error) {
 	sess, err := session.NewSession(&aws.Config{
 		Endpoint:         aws.String(config.Endpoint),
 		Region:           aws.String(config.Region),
 		Credentials:      credentials.NewStaticCredentials(config.AccessKeyID, config.SecretAccessKey, ""),
-		DisableSSL:       aws.Bool(true),
-		S3ForcePathStyle: aws.Bool(false), // oss需要为false，minio需要为true
+		DisableSSL:       aws.Bool(disableSSL),
+		S3ForcePathStyle: aws.Bool(forcePathStyle),
 	})
 	if err != nil {
 		return nil, err
@@ -104,8 +115,12 @@ func (that *S3Bucket) GetObjectInfo(objectName string) (*ObjectInfo, error) {
 	if err != nil {
 		return nil, err
 	}
+	versionID := ""
+	if result.VersionId != nil {
+		versionID = *result.VersionId
+	}
 	return &ObjectInfo{
-		VersionID: *result.VersionId,
+		VersionID: versionID,
 	}, nil
 }
 
