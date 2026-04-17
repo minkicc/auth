@@ -52,7 +52,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	user := &auth.User{
 		UserID:   req.Username,
 		Password: req.Password,
-		// Status:   auth.UserStatusActive,
+		Status:   auth.UserStatusActive,
 		Nickname: req.Username,
 	}
 

@@ -173,17 +173,17 @@ func (p *Provider) authorize(c *gin.Context) {
 
 	user, err := p.currentUser(c)
 	if err != nil {
+		var appErr *auth.AppError
+		if errors.As(err, &appErr) && (appErr.Code == auth.ErrCodeUserDisabled || appErr.Code == auth.ErrCodeUserLocked) {
+			p.redirectAuthorizeError(c, redirectURI, "access_denied", c.Query("state"))
+			return
+		}
 		if c.Query("prompt") == "none" {
 			p.redirectAuthorizeError(c, redirectURI, "login_required", c.Query("state"))
 			return
 		}
 		loginURL := "/login?client_id=" + url.QueryEscape(client.ClientID) + "&redirect_uri=" + url.QueryEscape(p.currentRequestURL(c))
 		c.Redirect(http.StatusFound, loginURL)
-		return
-	}
-
-	if user.Status != auth.UserStatusActive {
-		p.redirectAuthorizeError(c, redirectURI, "access_denied", c.Query("state"))
 		return
 	}
 
@@ -260,7 +260,7 @@ func (p *Provider) token(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_grant"})
 		return
 	}
-	if user.Status != auth.UserStatusActive {
+	if err := auth.EnsureUserCanAuthenticate(user); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_grant"})
 		return
 	}
@@ -432,17 +432,26 @@ func (p *Provider) currentUser(c *gin.Context) (*auth.User, error) {
 	}
 	_, session, err := auth.ResolveBrowserSession(p.redis, p.sessionMgr, browserSessionID)
 	if err != nil || session == nil {
-		c.SetSameSite(http.SameSiteLaxMode)
-		c.SetCookie(auth.OIDCSessionCookieName, "", -1, "/", "", p.browserSessionCookieSecure(c), true)
+		p.clearBrowserSession(c)
 		return nil, errors.New("invalid browser session")
 	}
+	user, err := p.accountAuth.GetUserByID(session.UserID)
+	if err != nil {
+		p.clearBrowserSession(c)
+		return nil, errors.New("invalid browser session")
+	}
+	if err := auth.EnsureUserCanAuthenticate(user); err != nil {
+		p.clearBrowserSession(c)
+		return nil, err
+	}
+
 	maxAge := int(time.Until(session.ExpiresAt).Seconds())
 	if maxAge < 1 {
 		maxAge = 1
 	}
 	c.SetSameSite(http.SameSiteLaxMode)
 	c.SetCookie(auth.OIDCSessionCookieName, browserSessionID, maxAge, "/", "", p.browserSessionCookieSecure(c), true)
-	return p.accountAuth.GetUserByID(session.UserID)
+	return user, nil
 }
 
 func (p *Provider) validAuthorizeRequest(c *gin.Context) (config.OIDCClientConfig, string, bool) {
@@ -560,6 +569,14 @@ func (p *Provider) currentRequestURL(c *gin.Context) string {
 
 func (p *Provider) browserSessionCookieSecure(c *gin.Context) bool {
 	return common.IsSecureRequest(c.Request, p.cfg.Issuer)
+}
+
+func (p *Provider) clearBrowserSession(c *gin.Context) {
+	if browserSessionID, err := c.Cookie(auth.OIDCSessionCookieName); err == nil && browserSessionID != "" {
+		_ = auth.DeleteBrowserSession(p.redis, browserSessionID)
+	}
+	c.SetSameSite(http.SameSiteLaxMode)
+	c.SetCookie(auth.OIDCSessionCookieName, "", -1, "/", "", p.browserSessionCookieSecure(c), true)
 }
 
 func (p *Provider) findClient(clientID string) (config.OIDCClientConfig, bool) {
