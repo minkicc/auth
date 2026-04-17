@@ -13,6 +13,10 @@ import (
 	"minki.cc/mkauth/server/auth"
 )
 
+func emailAttemptKey(scope, email string) string {
+	return "email:" + scope + ":" + email
+}
+
 // EmailLogin Email login
 func (h *AuthHandler) EmailLogin(c *gin.Context) {
 	var req struct {
@@ -84,12 +88,20 @@ func (h *AuthHandler) EmailRegister(c *gin.Context) {
 	}
 	req.Email = normalizedEmail
 
+	clientIP := c.ClientIP()
+	attemptKey := emailAttemptKey("register", req.Email)
+	if err := h.accountAuth.CheckRequestRateLimit(attemptKey, clientIP); err != nil {
+		c.JSON(http.StatusTooManyRequests, gin.H{"error": err.Error()})
+		return
+	}
+
 	// Pre-register email user, only send verification email, don't create user
 	_, err = h.emailAuth.EmailPreregister(req.Email, req.Password, req.Nickname, req.Title, req.Content)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	_ = h.accountAuth.RecordRateLimitedRequest(attemptKey, clientIP)
 
 	c.JSON(http.StatusOK, gin.H{
 		"message": "Verification email has been sent, please check and click the verification link to complete registration",
@@ -138,7 +150,15 @@ func (h *AuthHandler) ResendEmailVerification(c *gin.Context) {
 	}
 	req.Email = normalizedEmail
 
+	clientIP := c.ClientIP()
+	attemptKey := emailAttemptKey("resend_verification", req.Email)
+	if err := h.accountAuth.CheckRequestRateLimit(attemptKey, clientIP); err != nil {
+		c.JSON(http.StatusTooManyRequests, gin.H{"error": err.Error()})
+		return
+	}
+
 	_, err = h.emailAuth.ResentEmailVerification(req.Email, req.Title, req.Content)
+	_ = h.accountAuth.RecordRateLimitedRequest(attemptKey, clientIP)
 	if err != nil {
 		var appErr *auth.AppError
 		if !errors.As(err, &appErr) || appErr.Code != auth.ErrCodeUserNotFound {
@@ -175,8 +195,16 @@ func (h *AuthHandler) EmailPasswordReset(c *gin.Context) {
 	}
 	req.Email = normalizedEmail
 
+	clientIP := c.ClientIP()
+	attemptKey := emailAttemptKey("password_reset", req.Email)
+	if err := h.accountAuth.CheckRequestRateLimit(attemptKey, clientIP); err != nil {
+		c.JSON(http.StatusTooManyRequests, gin.H{"error": err.Error()})
+		return
+	}
+
 	// Initiate password reset
 	_, err = h.emailAuth.InitiatePasswordReset(req.Email, req.Title, req.Content)
+	_ = h.accountAuth.RecordRateLimitedRequest(attemptKey, clientIP)
 	if err != nil {
 		var appErr *auth.AppError
 		if !errors.As(err, &appErr) || appErr.Code != auth.ErrCodeUserNotFound {

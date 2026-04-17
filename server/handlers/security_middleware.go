@@ -3,6 +3,7 @@ package handlers
 import (
 	"net/http"
 	"net/url"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"minki.cc/mkauth/server/common"
@@ -16,38 +17,56 @@ func (h *AuthHandler) RequireSameOriginForBrowserSession() gin.HandlerFunc {
 			return
 		}
 
-		expectedOrigin := common.RequestOrigin(c.Request, h.publicBaseURL())
-		if expectedOrigin == "" {
+		if !h.isSameOriginBrowserRequest(c, true) {
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "forbidden"})
 			return
 		}
+		c.Next()
+	}
+}
 
-		origin := c.GetHeader("Origin")
-		if origin != "" {
-			if origin != expectedOrigin {
-				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "forbidden"})
-				return
-			}
-			c.Next()
-			return
-		}
-
-		referer := c.GetHeader("Referer")
-		if referer == "" {
+func (h *AuthHandler) RejectCrossOriginBrowserSessionCreation() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !h.isSameOriginBrowserRequest(c, false) {
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "forbidden"})
 			return
 		}
+		c.Next()
+	}
+}
 
+func (h *AuthHandler) isSameOriginBrowserRequest(c *gin.Context, requireBrowserSignal bool) bool {
+	expectedOrigin := common.RequestOrigin(c.Request, h.publicBaseURL())
+	if expectedOrigin == "" {
+		return false
+	}
+
+	origin := c.GetHeader("Origin")
+	if origin != "" {
+		return origin == expectedOrigin
+	}
+
+	referer := c.GetHeader("Referer")
+	if referer != "" {
 		refererURL, err := url.Parse(referer)
 		if err != nil || refererURL.Scheme == "" || refererURL.Host == "" {
-			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "forbidden"})
-			return
+			return false
 		}
-		if refererURL.Scheme+"://"+refererURL.Host != expectedOrigin {
-			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "forbidden"})
-			return
-		}
+		return refererURL.Scheme+"://"+refererURL.Host == expectedOrigin
+	}
 
-		c.Next()
+	if isCrossOriginFetchSite(c.GetHeader("Sec-Fetch-Site")) {
+		return false
+	}
+
+	return !requireBrowserSignal
+}
+
+func isCrossOriginFetchSite(fetchSite string) bool {
+	switch strings.ToLower(strings.TrimSpace(fetchSite)) {
+	case "cross-site", "same-site":
+		return true
+	default:
+		return false
 	}
 }

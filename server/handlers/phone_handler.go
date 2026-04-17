@@ -193,6 +193,13 @@ func (h *AuthHandler) PhoneInitiatePasswordReset(c *gin.Context) {
 	}
 	req.Phone = normalizedPhone
 
+	clientIP := c.ClientIP()
+	attemptKey := phoneAttemptKey("reset_init", req.Phone)
+	if err := h.accountAuth.CheckRequestRateLimit(attemptKey, clientIP); err != nil {
+		c.JSON(http.StatusTooManyRequests, gin.H{"error": err.Error()})
+		return
+	}
+
 	// Validate phone number format
 	if err := h.phoneAuth.ValidatePhoneFormat(req.Phone); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -201,6 +208,7 @@ func (h *AuthHandler) PhoneInitiatePasswordReset(c *gin.Context) {
 
 	// Initiate password reset
 	_, err = h.phoneAuth.InitiatePasswordReset(req.Phone)
+	_ = h.accountAuth.RecordRateLimitedRequest(attemptKey, clientIP)
 	if err != nil {
 		var appErr *auth.AppError
 		if !errors.As(err, &appErr) || appErr.Code != auth.ErrCodeUserNotFound {
@@ -243,12 +251,20 @@ func (h *AuthHandler) PhonePreregister(c *gin.Context) {
 	}
 	req.Phone = normalizedPhone
 
+	clientIP := c.ClientIP()
+	attemptKey := phoneAttemptKey("preregister", req.Phone)
+	if err := h.accountAuth.CheckRequestRateLimit(attemptKey, clientIP); err != nil {
+		c.JSON(http.StatusTooManyRequests, gin.H{"error": err.Error()})
+		return
+	}
+
 	// Pre-register phone user, send verification code
 	_, err = h.phoneAuth.PhonePreregister(req.Phone, req.Password, req.Nickname)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	_ = h.accountAuth.RecordRateLimitedRequest(attemptKey, clientIP)
 
 	c.JSON(http.StatusOK, gin.H{
 		"message": "Verification code has been sent, please check and enter the code to complete registration",
@@ -278,8 +294,16 @@ func (h *AuthHandler) ResendPhoneVerification(c *gin.Context) {
 	}
 	req.Phone = normalizedPhone
 
+	clientIP := c.ClientIP()
+	attemptKey := phoneAttemptKey("resend_verification", req.Phone)
+	if err := h.accountAuth.CheckRequestRateLimit(attemptKey, clientIP); err != nil {
+		c.JSON(http.StatusTooManyRequests, gin.H{"error": err.Error()})
+		return
+	}
+
 	// Resend verification code
 	_, err = h.phoneAuth.ResendPhoneVerification(req.Phone)
+	_ = h.accountAuth.RecordRateLimitedRequest(attemptKey, clientIP)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -402,6 +426,13 @@ func (h *AuthHandler) SendLoginSMS(c *gin.Context) {
 	}
 	req.Phone = normalizedPhone
 
+	clientIP := c.ClientIP()
+	attemptKey := phoneAttemptKey("send_login_code", req.Phone)
+	if err := h.accountAuth.CheckRequestRateLimit(attemptKey, clientIP); err != nil {
+		c.JSON(http.StatusTooManyRequests, gin.H{"error": err.Error()})
+		return
+	}
+
 	// Validate phone number format
 	if err := h.phoneAuth.ValidatePhoneFormat(req.Phone); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -410,6 +441,7 @@ func (h *AuthHandler) SendLoginSMS(c *gin.Context) {
 
 	// Send login verification code
 	_, err = h.phoneAuth.SendLoginSMS(req.Phone)
+	_ = h.accountAuth.RecordRateLimitedRequest(attemptKey, clientIP)
 	if err != nil {
 		var appErr *auth.AppError
 		if !errors.As(err, &appErr) || appErr.Code != auth.ErrCodeUserNotFound {

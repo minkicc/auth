@@ -126,6 +126,29 @@ func (a *AccountAuth) CheckLoginAttempts(userID string, ip string) error {
 	return nil
 }
 
+// RecordRateLimitedRequest increments the rate-limit bucket for a request-scoped identifier.
+func (a *AccountAuth) RecordRateLimitedRequest(identifier string, ip string) error {
+	_, err := a.redis.IncrLoginAttempts(identifier, ip, a.loginLockDuration)
+	if err != nil {
+		return fmt.Errorf("failed to record rate-limited request: %w", err)
+	}
+	return nil
+}
+
+// CheckRequestRateLimit checks whether a request-scoped identifier has exceeded its request budget.
+func (a *AccountAuth) CheckRequestRateLimit(identifier string, ip string) error {
+	count, err := a.redis.GetLoginAttempts(identifier, ip)
+	if err != nil {
+		return fmt.Errorf("failed to check request rate limit: %w", err)
+	}
+
+	if count >= a.maxLoginAttempts {
+		return NewAppError(ErrCodeTooManyRequests, "Too many requests, please try again later", nil)
+	}
+
+	return nil
+}
+
 // Login User login
 func (a *AccountAuth) Login(userID string, password string) (*User, error) {
 	userID, err := NormalizeAccountID(userID)

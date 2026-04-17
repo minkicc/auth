@@ -380,6 +380,10 @@ MKAuth now normalizes user identifiers consistently before duplicate checks, log
 - Email: trimmed and lowercased before registration, login, resend-verification, and password-reset flows
 - Phone: separators such as spaces, `-`, `.`, `(`, `)` are removed, with an optional leading `+`, and the final normalized value must contain `7-15` digits
 
+Email and SMS sending flows are rate-limited by normalized identifier plus client IP. This applies to email registration, resend-verification, and password-reset initiation, and to phone pre-registration, resend-verification, login-code sending, and password-reset initiation.
+
+POST endpoints that create an `oidc_session` browser session reject explicit cross-origin browser requests. If a browser sends a mismatched `Origin`, mismatched `Referer`, or `Sec-Fetch-Site: cross-site` / `same-site`, MKAuth returns `403`. Non-browser server-side calls that do not send browser origin metadata are still accepted for compatibility.
+
 When a request is authenticated by the browser `oidc_session` cookie, state-changing `/api` endpoints also require `Origin` or `Referer` to match the MKAuth issuer/origin. This applies to routes such as logout, password change, profile update, avatar mutation, and session termination. Calls authenticated with `Authorization: Bearer <access_token>` do not need this browser-only same-origin check.
 
 Example `curl` logout using a browser session cookie:
