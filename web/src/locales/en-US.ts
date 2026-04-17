@@ -210,6 +210,7 @@ export default {
     loading: 'Loading user profile...',
     loadFailed: 'Failed to load user profile',
     userId: 'User ID',
+    username: 'Username',
     nickname: 'Nickname',
     avatar: 'Avatar',
     sessionExpiresAt: 'Session Expires At',

@@ -82,6 +82,7 @@ func (a *AccountAuth) AutoMigrate() error {
 	// Ensure UserRole type is registered first
 	if err := a.db.AutoMigrate(
 		&User{},
+		&AccountUser{},
 	); err != nil {
 		return err
 	}
@@ -149,20 +150,26 @@ func (a *AccountAuth) CheckRequestRateLimit(identifier string, ip string) error 
 	return nil
 }
 
-// Login User login
-func (a *AccountAuth) Login(userID string, password string) (*User, error) {
-	userID, err := NormalizeAccountID(userID)
+// Login authenticates a regular username/password account.
+func (a *AccountAuth) Login(username string, password string) (*User, error) {
+	username, err := NormalizeAccountID(username)
 	if err != nil {
 		return nil, err
 	}
 
-	user, err := a.GetUserByID(userID)
+	accountUser, err := a.GetAccountUserByUsername(username)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrInvalidPassword("Invalid account or password")
 		}
 		return nil, err
 	}
+
+	user, err := a.GetUserByID(accountUser.UserID)
+	if err != nil {
+		return nil, err
+	}
+	user.Username = accountUser.Username
 
 	// Verify password
 	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password)); err != nil {
@@ -174,7 +181,7 @@ func (a *AccountAuth) Login(userID string, password string) (*User, error) {
 
 	now := time.Now()
 	user.LastLogin = &now
-	if err := a.db.Save(&user).Error; err != nil {
+	if err := a.db.Save(user).Error; err != nil {
 		return nil, err
 	}
 
@@ -196,7 +203,54 @@ func (a *AccountAuth) GetUserByID(id string) (*User, error) {
 		}
 		return nil, err
 	}
+	_ = a.PopulateAccountUsername(&user)
 	return &user, nil
+}
+
+// GetAccountUserByUsername returns the regular account mapping for a normalized username.
+func (a *AccountAuth) GetAccountUserByUsername(username string) (*AccountUser, error) {
+	username, err := NormalizeAccountID(username)
+	if err != nil {
+		return nil, err
+	}
+
+	var accountUser AccountUser
+	if err := a.db.First(&accountUser, "username = ?", username).Error; err != nil {
+		return nil, err
+	}
+	return &accountUser, nil
+}
+
+// PopulateAccountUsername attaches the regular-account username to a public User response when one exists.
+func (a *AccountAuth) PopulateAccountUsername(user *User) error {
+	if user == nil || user.UserID == "" || user.Username != "" {
+		return nil
+	}
+
+	var accountUser AccountUser
+	if err := a.db.First(&accountUser, "user_id = ?", user.UserID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil
+		}
+		return err
+	}
+	user.Username = accountUser.Username
+	return nil
+}
+
+// PreferredUsername returns a human-facing username without exposing it as the stable subject.
+func (a *AccountAuth) PreferredUsername(user *User) string {
+	if user == nil {
+		return ""
+	}
+	_ = a.PopulateAccountUsername(user)
+	if user.Username != "" {
+		return user.Username
+	}
+	if user.Nickname != "" {
+		return user.Nickname
+	}
+	return user.UserID
 }
 
 // UpdateProfile Update user profile
@@ -253,31 +307,40 @@ func (a *AccountAuth) ChangePassword(userID string, oldPassword, newPassword str
 	}).Error
 }
 
-// Register User registration (normal account)
-func (a *AccountAuth) Register(userID string, password string, nickname string) error {
+// Register creates a regular username/password account.
+func (a *AccountAuth) Register(username string, password string, nickname string) (*User, error) {
 	var err error
-	userID, err = NormalizeAccountID(userID)
+	username, err = NormalizeAccountID(username)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	// Check if UserID is duplicate
-	if err := a.CheckDuplicateUserID(userID); err != nil {
-		return err
+	// Check if username is duplicate
+	if err := a.CheckDuplicateUsername(username); err != nil {
+		return nil, err
 	}
 
 	if err := a.ValidatePassword(password); err != nil {
-		return err
+		return nil, err
 	}
 
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
-		return fmt.Errorf("failed to hash password: %v", err)
+		return nil, fmt.Errorf("failed to hash password: %v", err)
+	}
+
+	userID, err := GenerateUserID(a.db)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate user ID: %v", err)
 	}
 
 	now := time.Now()
+	if nickname == "" {
+		nickname = username
+	}
 	user := &User{
 		UserID:       userID,
+		Username:     username,
 		Password:     string(hashedPassword),
 		TokenVersion: DefaultTokenVersion,
 		Status:       UserStatusActive,
@@ -287,11 +350,37 @@ func (a *AccountAuth) Register(userID string, password string, nickname string) 
 		Nickname:  nickname,
 	}
 
-	if err := a.db.Create(user).Error; err != nil {
-		return fmt.Errorf("failed to create user: %v", err)
+	tx := a.db.Begin()
+	if tx.Error != nil {
+		return nil, tx.Error
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
+
+	if err := tx.Create(user).Error; err != nil {
+		tx.Rollback()
+		return nil, fmt.Errorf("failed to create user: %v", err)
 	}
 
-	return nil
+	accountUser := &AccountUser{
+		Username:  username,
+		UserID:    userID,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	if err := tx.Create(accountUser).Error; err != nil {
+		tx.Rollback()
+		return nil, fmt.Errorf("failed to create account mapping: %v", err)
+	}
+
+	if err := tx.Commit().Error; err != nil {
+		return nil, err
+	}
+
+	return user, nil
 }
 
 // ValidateToken Validate token
@@ -312,7 +401,20 @@ func (a *AccountAuth) ValidatePassword(password string) error {
 
 // CheckDuplicateUsername Check if username is duplicate
 func (a *AccountAuth) CheckDuplicateUsername(username string) error {
-	return a.CheckDuplicateUserID(username)
+	var err error
+	username, err = NormalizeAccountID(username)
+	if err != nil {
+		return err
+	}
+
+	var count int64
+	if err := a.db.Model(&AccountUser{}).Where("username = ?", username).Count(&count).Error; err != nil {
+		return err
+	}
+	if count > 0 {
+		return ErrDuplicateUser("Username is already in use")
+	}
+	return nil
 }
 
 // CleanExpiredVerifications Clean expired verification records
@@ -336,12 +438,6 @@ func (a *AccountAuth) CleanExpiredVerifications() error {
 
 // CheckDuplicateUserID Check if UserID is duplicate
 func (a *AccountAuth) CheckDuplicateUserID(userID string) error {
-	var err error
-	userID, err = NormalizeAccountID(userID)
-	if err != nil {
-		return err
-	}
-
 	var count int64
 	if err := a.db.Model(&User{}).Where("user_id = ?", userID).Count(&count).Error; err != nil {
 		return err

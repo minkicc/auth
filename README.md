@@ -280,6 +280,8 @@ When enabled, MKAuth exposes these standard endpoints:
 - `/oauth2/userinfo`
 - `/oauth2/jwks`
 
+OIDC `sub` uses MKAuth's stable internal user ID, not the login username. New users receive IDs such as `usr_8m3kq7p2x9zc4vna`; regular account usernames are returned separately as `preferred_username` / `username` when available.
+
 ### Trusted backend client
 
 On this branch, `auth_trusted_clients` is only used for legacy management-style `/api` calls such as fetching users by ID or batch-reading users. It is no longer part of the login callback flow:
@@ -364,7 +366,8 @@ Example response:
 ```json
 {
   "authenticated": true,
-  "user_id": "demo",
+  "user_id": "usr_8m3kq7p2x9zc4vna",
+  "username": "demo",
   "nickname": "demo",
   "avatar": "",
   "expires_at": "2026-04-23T10:00:00Z"
@@ -389,6 +392,8 @@ MKAuth now normalizes user identifiers consistently before duplicate checks, log
 - Account `username`: trimmed, length `3-64`, allowed characters are letters, digits, `.`, `_`, `@`, `-`, and it must start and end with a letter or digit
 - Email: trimmed and lowercased before registration, login, resend-verification, and password-reset flows
 - Phone: separators such as spaces, `-`, `.`, `(`, `)` are removed, with an optional leading `+`, and the final normalized value must contain `7-15` digits
+
+`user_id` is no longer a login identifier. It is an opaque internal ID generated as `usr_` plus 16 readable random characters, and it is the value used as the OIDC subject. For username/password accounts, the submitted `username` is stored in a separate account mapping and returned as `username` in `/api` responses.
 
 Email and SMS sending flows are rate-limited by normalized identifier plus client IP. This applies to email registration, resend-verification, and password-reset initiation, and to phone pre-registration, resend-verification, login-code sending, and password-reset initiation.
 

@@ -340,7 +340,7 @@ const getUserId = (user: User): string => {
 
 // 辅助函数：获取用户名
 const getUserName = (user: User): string => {
-  return user.nickname || t('userDetail.unknown_username')
+  return user.username || user.nickname || t('userDetail.unknown_username')
 }
 
 // 辅助函数：获取状态

@@ -13,7 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/go-redis/redis/v8"
-	"golang.org/x/crypto/bcrypt"
+	"github.com/golang-jwt/jwt/v5"
 	"gorm.io/gorm"
 
 	"minki.cc/mkauth/server/auth"
@@ -29,6 +29,7 @@ const (
 type integrationEnv struct {
 	router      *gin.Engine
 	db          *gorm.DB
+	accountAuth *auth.AccountAuth
 	provider    *Provider
 	redisClient *redis.Client
 	redisServer *miniredis.Miniredis
@@ -86,6 +87,7 @@ func newIntegrationEnv(t *testing.T) *integrationEnv {
 	return &integrationEnv{
 		router:      router,
 		db:          db,
+		accountAuth: accountAuth,
 		provider:    provider,
 		redisClient: redisClient,
 		redisServer: redisServer,
@@ -97,25 +99,12 @@ func (e *integrationEnv) Close() {
 	e.redisServer.Close()
 }
 
-func (e *integrationEnv) createUser(t *testing.T, userID string) *auth.User {
+func (e *integrationEnv) createAccountUser(t *testing.T, username string) *auth.User {
 	t.Helper()
 
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte("demo12345"), bcrypt.DefaultCost)
+	user, err := e.accountAuth.Register(username, "demo12345", username)
 	if err != nil {
-		t.Fatalf("failed to hash password: %v", err)
-	}
-
-	user := &auth.User{
-		UserID:       userID,
-		Password:     string(hashedPassword),
-		TokenVersion: auth.DefaultTokenVersion,
-		Status:       auth.UserStatusActive,
-		Nickname:     userID,
-		CreatedAt:    time.Now(),
-		UpdatedAt:    time.Now(),
-	}
-	if err := e.db.Create(user).Error; err != nil {
-		t.Fatalf("failed to create user: %v", err)
+		t.Fatalf("failed to create account user: %v", err)
 	}
 	return user
 }
@@ -138,6 +127,23 @@ func (e *integrationEnv) createBrowserSessionCookie(t *testing.T, userID string)
 		Value: browserSessionID,
 		Path:  "/",
 	}
+}
+
+func (e *integrationEnv) parseIDToken(t *testing.T, token string) *idTokenClaims {
+	t.Helper()
+
+	parsed, err := jwt.ParseWithClaims(token, &idTokenClaims{}, func(t *jwt.Token) (interface{}, error) {
+		return e.provider.signer.publicKey, nil
+	}, jwt.WithValidMethods([]string{jwt.SigningMethodRS256.Alg()}))
+	if err != nil {
+		t.Fatalf("failed to parse id token: %v", err)
+	}
+
+	claims, ok := parsed.Claims.(*idTokenClaims)
+	if !ok || !parsed.Valid {
+		t.Fatalf("expected valid id token claims")
+	}
+	return claims
 }
 
 func performRequest(t *testing.T, router http.Handler, method, target string, form url.Values, cookie *http.Cookie) *httptest.ResponseRecorder {
@@ -164,6 +170,18 @@ func performRequest(t *testing.T, router http.Handler, method, target string, fo
 	return recorder
 }
 
+func performBearerRequest(t *testing.T, router http.Handler, method, target, accessToken string) *httptest.ResponseRecorder {
+	t.Helper()
+
+	req := httptest.NewRequest(method, target, nil)
+	req.Host = "127.0.0.1:8080"
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, req)
+	return recorder
+}
+
 func responseCookie(recorder *httptest.ResponseRecorder, name string) *http.Cookie {
 	for _, cookie := range recorder.Result().Cookies() {
 		if cookie.Name == name {
@@ -177,7 +195,7 @@ func TestAuthorizeReusesBrowserSessionAndTokenExchangeSucceeds(t *testing.T) {
 	env := newIntegrationEnv(t)
 	defer env.Close()
 
-	user := env.createUser(t, "demo_user")
+	user := env.createAccountUser(t, "demo")
 	sessionCookie := env.createBrowserSessionCookie(t, user.UserID)
 
 	authorizeURL := "/oauth2/authorize?client_id=demo-spa" +
@@ -245,11 +263,49 @@ func TestAuthorizeReusesBrowserSessionAndTokenExchangeSucceeds(t *testing.T) {
 	if claims.Subject != user.UserID {
 		t.Fatalf("expected token subject %s, got %s", user.UserID, claims.Subject)
 	}
+	if !strings.HasPrefix(claims.Subject, auth.UserIDPrefix) {
+		t.Fatalf("expected access token subject to use internal user ID prefix %s, got %s", auth.UserIDPrefix, claims.Subject)
+	}
 	if claims.ClientID != "demo-spa" {
 		t.Fatalf("expected client_id demo-spa, got %s", claims.ClientID)
 	}
 	if claims.Scope != "openid profile" {
 		t.Fatalf("expected scope 'openid profile', got %q", claims.Scope)
+	}
+
+	idToken, _ := tokenBody["id_token"].(string)
+	if idToken == "" {
+		t.Fatalf("expected id_token in token response")
+	}
+	idTokenClaims := env.parseIDToken(t, idToken)
+	if idTokenClaims.Subject != user.UserID {
+		t.Fatalf("expected id token subject %s, got %s", user.UserID, idTokenClaims.Subject)
+	}
+	if !strings.HasPrefix(idTokenClaims.Subject, auth.UserIDPrefix) {
+		t.Fatalf("expected id token subject to use internal user ID prefix %s, got %s", auth.UserIDPrefix, idTokenClaims.Subject)
+	}
+	if idTokenClaims.PreferredUsername != "demo" {
+		t.Fatalf("expected id token preferred_username demo, got %q", idTokenClaims.PreferredUsername)
+	}
+
+	userInfoResp := performBearerRequest(t, env.router, http.MethodGet, "/oauth2/userinfo", accessToken)
+	if userInfoResp.Code != http.StatusOK {
+		t.Fatalf("expected userinfo status 200, got %d with body %s", userInfoResp.Code, userInfoResp.Body.String())
+	}
+
+	var userInfoBody map[string]interface{}
+	if err := json.Unmarshal(userInfoResp.Body.Bytes(), &userInfoBody); err != nil {
+		t.Fatalf("failed to decode userinfo response: %v", err)
+	}
+	userInfoSub, ok := userInfoBody["sub"].(string)
+	if !ok || userInfoSub != user.UserID {
+		t.Fatalf("expected userinfo sub %s, got %#v", user.UserID, userInfoBody["sub"])
+	}
+	if !strings.HasPrefix(userInfoSub, auth.UserIDPrefix) {
+		t.Fatalf("expected userinfo sub to use internal user ID prefix %s, got %s", auth.UserIDPrefix, userInfoSub)
+	}
+	if userInfoBody["preferred_username"] != "demo" {
+		t.Fatalf("expected userinfo preferred_username demo, got %#v", userInfoBody["preferred_username"])
 	}
 }
 
@@ -257,7 +313,7 @@ func TestAuthorizeDisabledUserReturnsAccessDeniedAndClearsBrowserSession(t *test
 	env := newIntegrationEnv(t)
 	defer env.Close()
 
-	user := env.createUser(t, "disabled_user")
+	user := env.createAccountUser(t, "disabled_user")
 	sessionCookie := env.createBrowserSessionCookie(t, user.UserID)
 
 	if err := env.db.Model(&auth.User{}).

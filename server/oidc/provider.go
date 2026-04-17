@@ -315,7 +315,7 @@ func (p *Provider) userInfo(c *gin.Context) {
 	scopes := strings.Fields(claims.Scope)
 	resp := gin.H{"sub": user.UserID}
 	if containsString(scopes, "profile") {
-		resp["preferred_username"] = user.UserID
+		resp["preferred_username"] = p.accountAuth.PreferredUsername(user)
 		resp["name"] = user.Nickname
 		if user.Avatar != "" {
 			resp["picture"] = user.Avatar
@@ -394,7 +394,7 @@ func (p *Provider) signIDToken(c *gin.Context, user *auth.User, client config.OI
 		},
 	}
 	if containsString(scopes, "profile") {
-		claims.PreferredUsername = user.UserID
+		claims.PreferredUsername = p.accountAuth.PreferredUsername(user)
 		claims.Name = user.Nickname
 		claims.Picture = user.Avatar
 	}

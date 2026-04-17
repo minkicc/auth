@@ -15,6 +15,7 @@ import (
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
+	"gorm.io/gorm"
 	"minki.cc/mkauth/server/auth"
 	"minki.cc/mkauth/server/config"
 )
@@ -215,8 +216,12 @@ func (s *AdminServer) handleGetUsers(c *gin.Context) {
 
 	if search != "" {
 		searchTerm := "%" + search + "%"
-		// According to actual field adjustment
-		query = query.Where("user_id LIKE ?", searchTerm)
+		matchedUserIDs := findUserIDsByLoginIdentifier(s.db, searchTerm)
+		if len(matchedUserIDs) > 0 {
+			query = query.Where("user_id LIKE ? OR nickname LIKE ? OR user_id IN ?", searchTerm, searchTerm, matchedUserIDs)
+		} else {
+			query = query.Where("user_id LIKE ? OR nickname LIKE ?", searchTerm, searchTerm)
+		}
 	}
 
 	// Total result count
@@ -239,6 +244,7 @@ func (s *AdminServer) handleGetUsers(c *gin.Context) {
 		// Delete non-existent TwoFactorSecret field, according to actual User structure definition
 		// users[i].TwoFactorSecret = ""
 	}
+	attachAccountUsernames(s.db, users)
 
 	c.JSON(http.StatusOK, gin.H{
 		"users":      users,
@@ -247,6 +253,75 @@ func (s *AdminServer) handleGetUsers(c *gin.Context) {
 		"page_size":  pageSize,
 		"total_page": (total + int64(pageSize) - 1) / int64(pageSize),
 	})
+}
+
+func attachAccountUsernames(db *gorm.DB, users []auth.User) {
+	if db == nil || len(users) == 0 || !db.Migrator().HasTable(&auth.AccountUser{}) {
+		return
+	}
+
+	userIDs := make([]string, 0, len(users))
+	for _, user := range users {
+		if user.UserID != "" {
+			userIDs = append(userIDs, user.UserID)
+		}
+	}
+	if len(userIDs) == 0 {
+		return
+	}
+
+	var accountUsers []auth.AccountUser
+	if err := db.Where("user_id IN ?", userIDs).Find(&accountUsers).Error; err != nil {
+		return
+	}
+
+	usernameByUserID := make(map[string]string, len(accountUsers))
+	for _, accountUser := range accountUsers {
+		usernameByUserID[accountUser.UserID] = accountUser.Username
+	}
+	for i := range users {
+		users[i].Username = usernameByUserID[users[i].UserID]
+	}
+}
+
+func findUserIDsByLoginIdentifier(db *gorm.DB, searchTerm string) []string {
+	if db == nil {
+		return nil
+	}
+
+	seen := make(map[string]struct{})
+	addUserIDs := func(ids []string) {
+		for _, id := range ids {
+			if id != "" {
+				seen[id] = struct{}{}
+			}
+		}
+	}
+
+	if db.Migrator().HasTable(&auth.AccountUser{}) {
+		var ids []string
+		if err := db.Model(&auth.AccountUser{}).Where("username LIKE ?", searchTerm).Pluck("user_id", &ids).Error; err == nil {
+			addUserIDs(ids)
+		}
+	}
+	if db.Migrator().HasTable(&auth.EmailUser{}) {
+		var ids []string
+		if err := db.Model(&auth.EmailUser{}).Where("email LIKE ?", searchTerm).Pluck("user_id", &ids).Error; err == nil {
+			addUserIDs(ids)
+		}
+	}
+	if db.Migrator().HasTable(&auth.PhoneUser{}) {
+		var ids []string
+		if err := db.Model(&auth.PhoneUser{}).Where("phone LIKE ?", searchTerm).Pluck("user_id", &ids).Error; err == nil {
+			addUserIDs(ids)
+		}
+	}
+
+	userIDs := make([]string, 0, len(seen))
+	for id := range seen {
+		userIDs = append(userIDs, id)
+	}
+	return userIDs
 }
 
 // Get user activity

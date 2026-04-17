@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,7 +13,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/go-redis/redis/v8"
-	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 
 	"minki.cc/mkauth/server/auth"
@@ -76,6 +76,7 @@ func (f *fakeSMSService) SendLoginNotificationSMS(phone, ip string) error {
 type authTestEnv struct {
 	router       *gin.Engine
 	db           *gorm.DB
+	accountAuth  *auth.AccountAuth
 	emailService *fakeEmailService
 	smsService   *fakeSMSService
 	redisClient  *redis.Client
@@ -158,6 +159,7 @@ func newAuthTestEnv(t *testing.T) *authTestEnv {
 	return &authTestEnv{
 		router:       router,
 		db:           db,
+		accountAuth:  accountAuth,
 		emailService: emailService,
 		smsService:   smsService,
 		redisClient:  redisClient,
@@ -324,8 +326,12 @@ func TestAccountRegisterCreatesBrowserSessionAndLogoutRequiresSameOrigin(t *test
 	}
 
 	body := decodeBodyMap(t, registerResp)
-	if body["user_id"] != "Demo_User" {
-		t.Fatalf("expected normalized user_id Demo_User, got %#v", body["user_id"])
+	userID, ok := body["user_id"].(string)
+	if !ok || !strings.HasPrefix(userID, auth.UserIDPrefix) {
+		t.Fatalf("expected generated internal user_id with prefix %s, got %#v", auth.UserIDPrefix, body["user_id"])
+	}
+	if body["username"] != "Demo_User" {
+		t.Fatalf("expected normalized username Demo_User, got %#v", body["username"])
 	}
 
 	sessionCookie := requireCookie(t, registerResp, auth.OIDCSessionCookieName)
@@ -334,8 +340,16 @@ func TestAccountRegisterCreatesBrowserSessionAndLogoutRequiresSameOrigin(t *test
 	}
 
 	var user auth.User
-	if err := env.db.First(&user, "user_id = ?", "Demo_User").Error; err != nil {
-		t.Fatalf("expected normalized user to be stored: %v", err)
+	if err := env.db.First(&user, "user_id = ?", userID).Error; err != nil {
+		t.Fatalf("expected generated user to be stored: %v", err)
+	}
+
+	var accountUser auth.AccountUser
+	if err := env.db.First(&accountUser, "username = ?", "Demo_User").Error; err != nil {
+		t.Fatalf("expected normalized account mapping to be stored: %v", err)
+	}
+	if accountUser.UserID != userID {
+		t.Fatalf("expected account mapping to point to %s, got %s", userID, accountUser.UserID)
 	}
 
 	logoutResp := performJSONRequest(t, env.router, http.MethodPost, "/api/logout", nil, sessionCookie, nil)
@@ -366,11 +380,11 @@ func TestAccountRegisterRejectsCrossOriginSessionCreation(t *testing.T) {
 	}
 
 	var count int64
-	if err := env.db.Model(&auth.User{}).Where("user_id = ?", "cross_origin_user").Count(&count).Error; err != nil {
-		t.Fatalf("failed to count users: %v", err)
+	if err := env.db.Model(&auth.AccountUser{}).Where("username = ?", "cross_origin_user").Count(&count).Error; err != nil {
+		t.Fatalf("failed to count account mappings: %v", err)
 	}
 	if count != 0 {
-		t.Fatalf("expected cross-origin register not to create user, found %d", count)
+		t.Fatalf("expected cross-origin register not to create account mapping, found %d", count)
 	}
 
 	resp = performJSONRequest(t, env.router, http.MethodPost, "/api/account/register", map[string]string{
@@ -407,8 +421,11 @@ func TestBrowserSessionEndpointReturnsAuthenticatedUser(t *testing.T) {
 	if body["authenticated"] != true {
 		t.Fatalf("expected authenticated=true, got %#v", body["authenticated"])
 	}
-	if body["user_id"] != "demo_user" {
-		t.Fatalf("expected user_id demo_user, got %#v", body["user_id"])
+	if userID, ok := body["user_id"].(string); !ok || !strings.HasPrefix(userID, auth.UserIDPrefix) {
+		t.Fatalf("expected generated internal user_id with prefix %s, got %#v", auth.UserIDPrefix, body["user_id"])
+	}
+	if body["username"] != "demo_user" {
+		t.Fatalf("expected username demo_user, got %#v", body["username"])
 	}
 
 	refreshedCookie := requireCookie(t, resp, auth.OIDCSessionCookieName)
@@ -430,8 +447,13 @@ func TestDisabledUserInvalidatesBrowserSession(t *testing.T) {
 	}
 
 	sessionCookie := requireCookie(t, registerResp, auth.OIDCSessionCookieName)
+	body := decodeBodyMap(t, registerResp)
+	userID, ok := body["user_id"].(string)
+	if !ok || userID == "" {
+		t.Fatalf("expected user_id in register response, got %#v", body["user_id"])
+	}
 	if err := env.db.Model(&auth.User{}).
-		Where("user_id = ?", "disabled_user").
+		Where("user_id = ?", userID).
 		Update("status", auth.UserStatusInactive).Error; err != nil {
 		t.Fatalf("failed to disable user: %v", err)
 	}
@@ -457,23 +479,8 @@ func TestAccountLoginRateLimitUsesNormalizedIdentifier(t *testing.T) {
 	defer env.Close()
 
 	password := "demo12345"
-	hashedPasswordBytes, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-	if err != nil {
-		t.Fatalf("failed to hash password: %v", err)
-	}
-	hashedPassword := string(hashedPasswordBytes)
-
-	user := &auth.User{
-		UserID:       "Demo_User",
-		Password:     hashedPassword,
-		TokenVersion: auth.DefaultTokenVersion,
-		Status:       auth.UserStatusActive,
-		Nickname:     "Demo_User",
-		CreatedAt:    time.Now(),
-		UpdatedAt:    time.Now(),
-	}
-	if err := env.db.Create(user).Error; err != nil {
-		t.Fatalf("failed to seed user: %v", err)
+	if _, err := env.accountAuth.Register("Demo_User", password, "Demo_User"); err != nil {
+		t.Fatalf("failed to seed account user: %v", err)
 	}
 
 	variants := []string{

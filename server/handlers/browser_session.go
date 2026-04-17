@@ -76,11 +76,15 @@ func (h *AuthHandler) GetBrowserSession(c *gin.Context) {
 	}
 
 	h.refreshBrowserSessionCookie(c, browserSessionID, session)
-	c.JSON(http.StatusOK, gin.H{
+	response := gin.H{
 		"authenticated": true,
 		"user_id":       user.UserID,
 		"nickname":      user.Nickname,
 		"avatar":        user.Avatar,
 		"expires_at":    session.ExpiresAt,
-	})
+	}
+	if user.Username != "" {
+		response["username"] = user.Username
+	}
+	c.JSON(http.StatusOK, response)
 }

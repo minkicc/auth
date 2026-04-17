@@ -48,42 +48,16 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	}
 	req.Username = normalizedUsername
 
-	// Create user
-	user := &auth.User{
-		UserID:   req.Username,
-		Password: req.Password,
-		Status:   auth.UserStatusActive,
-		Nickname: req.Username,
-	}
-
-	if err := h.accountAuth.Register(user.UserID, user.Password, user.Nickname); err != nil {
+	user, err := h.accountAuth.Register(req.Username, req.Password, req.Username)
+	if err != nil {
 		var appErr *auth.AppError
 		if errors.As(err, &appErr) {
 			c.JSON(appErr.GetHTTPStatus(), gin.H{"error": appErr.Error()})
 			return
 		}
-
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-
-	// Directly return login information
-	// Check login attempt limits
-	// if err := h.accountAuth.CheckLoginAttempts(req.Username, clientIP); err != nil {
-	// 	c.JSON(http.StatusTooManyRequests, gin.H{"error": err.Error()})
-	// 	return
-	// }
-
-	// user, err := h.accountAuth.Login(req.Username, req.Password)
-	// if err != nil {
-	// 	// Record failed login attempt
-	// 	h.accountAuth.RecordLoginAttempt(req.Username, clientIP, false)
-	// 	c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
-	// 	return
-	// }
-
-	// Record successful login attempt
-	// h.accountAuth.RecordLoginAttempt(req.Username, clientIP, true)
 
 	h.completeBrowserLogin(c, user, "")
 }
@@ -91,7 +65,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 // Login Regular login
 func (h *AuthHandler) Login(c *gin.Context) {
 	var req struct {
-		Username string `json:"username" binding:"required"` // Username or email
+		Username string `json:"username" binding:"required"`
 		Password string `json:"password" binding:"required"`
 	}
 
