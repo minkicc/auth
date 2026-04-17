@@ -1,4 +1,8 @@
 db:
+  # Optional: mysql / sqlite. If omitted and the MySQL fields below are empty,
+  # Auth defaults to SQLite at data/auth.sqlite3.
+  # driver: "sqlite"
+  # sqlite_path: "data/auth.sqlite3"
   user: "root"
   password: "YOUR_DB_PASSWORD"
   host: "YOUR_DB_HOST"

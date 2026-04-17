@@ -63,6 +63,7 @@ Notes:
 - `quickstart/config.yaml` also preconfigures a confidential client named `demo-backend` for the Go backend callback example under [client/example](client/example/README.md).
 - `auth_admin.enabled` is `false` in the quickstart config.
 - `quickstart/docker-compose.yml` builds the current checkout so the quickstart always matches this branch.
+- `quickstart/docker-compose.sqlite.yml` builds the current checkout too, but uses SQLite instead of MySQL for a smaller local stack.
 - `quickstart/docker-compose.release.yml` pulls `ghcr.io/example/auth` directly and is the better option for other users consuming published releases.
 - If you want anonymous pulls from GHCR, set the published container package visibility to `public` in GitHub.
 
@@ -156,6 +157,7 @@ git push origin v1.2.3
 For users who only want to deploy Auth, a prebuilt-image flow is usually better than asking them to run a local Docker build. This repository now supports both patterns:
 
 - Development / branch verification: `quickstart/docker-compose.yml`
+- Minimal local startup with SQLite: `quickstart/docker-compose.sqlite.yml`
 - Release / consumer deployment: `quickstart/docker-compose.release.yml`
 
 ## Local Development
@@ -194,6 +196,10 @@ See [server/config/config.yaml.example](server/config/config.yaml.example) for t
 
 ```yaml
 db:
+  # Optional. If omitted and the MySQL fields below are empty,
+  # Auth defaults to SQLite at data/auth.sqlite3.
+  # driver: "sqlite"
+  # sqlite_path: "data/auth.sqlite3"
   user: "root"
   password: "CHANGE_ME"
   host: "localhost"
@@ -206,6 +212,8 @@ redis:
   password: ""
   db: 0
 ```
+
+If you do not configure MySQL, Auth now starts with SQLite by default and stores data in `data/auth.sqlite3`. You can also set `db.driver: sqlite` explicitly and override the file location with `db.sqlite_path`.
 
 ### Storage
 

@@ -14,13 +14,12 @@ require (
 	golang.org/x/crypto v0.37.0
 	golang.org/x/oauth2 v0.24.0
 	gorm.io/driver/mysql v1.5.7
+	gorm.io/driver/sqlite v1.5.7
 	gorm.io/gorm v1.25.12
 )
 
 require (
-	// Test-only dependencies used by handler and OIDC integration tests.
 	github.com/alicebob/miniredis/v2 v2.37.0
-	gorm.io/driver/sqlite v1.5.7
 )
 
 require (
