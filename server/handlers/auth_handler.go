@@ -82,10 +82,12 @@ func (h *AuthHandler) RegisterRoutes(authGroup *gin.RouterGroup, cfg *config.Con
 	// Get supported login methods
 	authGroup.GET("/providers", h.GetSupportedProviders)
 
+	rejectCrossOriginSessionCreation := h.RejectCrossOriginBrowserSessionCreation()
+
 	// Account login related routes
 	if h.useAccountAuth {
-		authGroup.POST("/account/register", h.Register)
-		authGroup.POST("/account/login", h.Login)
+		authGroup.POST("/account/register", rejectCrossOriginSessionCreation, h.Register)
+		authGroup.POST("/account/login", rejectCrossOriginSessionCreation, h.Login)
 		authGroup.POST("/account/password/reset", h.AuthRequired(), h.RequireSameOriginForBrowserSession(), h.ResetPassword)
 	}
 	authGroup.POST("/logout", h.AuthRequired(), h.RequireSameOriginForBrowserSession(), h.Logout)
@@ -95,7 +97,7 @@ func (h *AuthHandler) RegisterRoutes(authGroup *gin.RouterGroup, cfg *config.Con
 
 	// Email login related routes
 	if h.emailAuth != nil {
-		authGroup.POST("/email/login", h.EmailLogin)
+		authGroup.POST("/email/login", rejectCrossOriginSessionCreation, h.EmailLogin)
 		authGroup.POST("/email/register", h.EmailRegister)
 		authGroup.GET("/email/verify", h.EmailVerify)
 		authGroup.POST("/email/resend-verification", h.ResendEmailVerification)
@@ -107,7 +109,7 @@ func (h *AuthHandler) RegisterRoutes(authGroup *gin.RouterGroup, cfg *config.Con
 	if h.googleOAuth != nil {
 		// Get Google client ID, for frontend to use
 		authGroup.GET("/google/client_id", h.GetGoogleClientID)
-		authGroup.POST("/google/callback", h.GoogleCredential)
+		authGroup.POST("/google/callback", rejectCrossOriginSessionCreation, h.GoogleCredential)
 	}
 
 	// WeChat login related routes
@@ -126,15 +128,15 @@ func (h *AuthHandler) RegisterRoutes(authGroup *gin.RouterGroup, cfg *config.Con
 		// Phone pre-registration - send verification code
 		authGroup.POST("/phone/preregister", h.PhonePreregister)
 		// Verify phone number and complete registration
-		authGroup.POST("/phone/verify-register", h.VerifyPhoneAndRegister)
+		authGroup.POST("/phone/verify-register", rejectCrossOriginSessionCreation, h.VerifyPhoneAndRegister)
 		// Resend verification code
 		authGroup.POST("/phone/resend-verification", h.ResendPhoneVerification)
 		// Login with phone number + password
-		authGroup.POST("/phone/login", h.PhoneLogin)
+		authGroup.POST("/phone/login", rejectCrossOriginSessionCreation, h.PhoneLogin)
 		// Send login verification code
 		authGroup.POST("/phone/send-login-code", h.SendLoginSMS)
 		// Login with phone number + verification code
-		authGroup.POST("/phone/code-login", h.PhoneCodeLogin)
+		authGroup.POST("/phone/code-login", rejectCrossOriginSessionCreation, h.PhoneCodeLogin)
 		// Initiate password reset - send verification code
 		authGroup.POST("/phone/reset-password/init", h.PhoneInitiatePasswordReset)
 		// Complete password reset

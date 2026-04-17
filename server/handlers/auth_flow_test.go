@@ -229,6 +229,88 @@ func decodeBodyMap(t *testing.T, recorder *httptest.ResponseRecorder) map[string
 	return body
 }
 
+func requireEmailPreregister(t *testing.T, env *authTestEnv, email, password string) string {
+	t.Helper()
+
+	resp := performJSONRequest(t, env.router, http.MethodPost, "/api/email/register", map[string]string{
+		"email":    email,
+		"password": password,
+		"title":    "Verify",
+		"content":  "Please verify your account",
+	}, nil, nil)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected email preregister status 200, got %d with body %s", resp.Code, resp.Body.String())
+	}
+
+	body := decodeBodyMap(t, resp)
+	normalizedEmail, ok := body["email"].(string)
+	if !ok || normalizedEmail == "" {
+		t.Fatalf("expected normalized email in response, got %#v", body["email"])
+	}
+
+	return normalizedEmail
+}
+
+func requireVerifiedEmailUser(t *testing.T, env *authTestEnv, email, password string) string {
+	t.Helper()
+
+	initialVerificationCount := len(env.emailService.verificationEmails)
+	normalizedEmail := requireEmailPreregister(t, env, email, password)
+	if len(env.emailService.verificationEmails) != initialVerificationCount+1 {
+		t.Fatalf("expected a verification email to be sent, got %d total", len(env.emailService.verificationEmails))
+	}
+
+	token := env.emailService.verificationEmails[len(env.emailService.verificationEmails)-1].Token
+	verifyResp := performJSONRequest(t, env.router, http.MethodGet, "/api/email/verify?token="+token, nil, nil, nil)
+	if verifyResp.Code != http.StatusOK {
+		t.Fatalf("expected email verify status 200, got %d with body %s", verifyResp.Code, verifyResp.Body.String())
+	}
+
+	return normalizedEmail
+}
+
+func requirePhonePreregister(t *testing.T, env *authTestEnv, phone, password string) string {
+	t.Helper()
+
+	resp := performJSONRequest(t, env.router, http.MethodPost, "/api/phone/preregister", map[string]string{
+		"phone":    phone,
+		"password": password,
+		"nickname": "demo",
+	}, nil, nil)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected phone preregister status 200, got %d with body %s", resp.Code, resp.Body.String())
+	}
+
+	body := decodeBodyMap(t, resp)
+	normalizedPhone, ok := body["phone"].(string)
+	if !ok || normalizedPhone == "" {
+		t.Fatalf("expected normalized phone in response, got %#v", body["phone"])
+	}
+
+	return normalizedPhone
+}
+
+func requireVerifiedPhoneUser(t *testing.T, env *authTestEnv, phone, password string) string {
+	t.Helper()
+
+	initialSMSCount := len(env.smsService.verificationSMS)
+	normalizedPhone := requirePhonePreregister(t, env, phone, password)
+	if len(env.smsService.verificationSMS) != initialSMSCount+1 {
+		t.Fatalf("expected a verification SMS to be sent, got %d total", len(env.smsService.verificationSMS))
+	}
+
+	code := env.smsService.verificationSMS[len(env.smsService.verificationSMS)-1].Code
+	verifyResp := performJSONRequest(t, env.router, http.MethodPost, "/api/phone/verify-register", map[string]string{
+		"phone": phone,
+		"code":  code,
+	}, nil, nil)
+	if verifyResp.Code != http.StatusOK {
+		t.Fatalf("expected phone verify-register status 200, got %d with body %s", verifyResp.Code, verifyResp.Body.String())
+	}
+
+	return normalizedPhone
+}
+
 func TestAccountRegisterCreatesBrowserSessionAndLogoutRequiresSameOrigin(t *testing.T) {
 	env := newAuthTestEnv(t)
 	defer env.Close()
@@ -267,6 +349,40 @@ func TestAccountRegisterCreatesBrowserSessionAndLogoutRequiresSameOrigin(t *test
 	if logoutResp.Code != http.StatusOK {
 		t.Fatalf("expected logout with matching Origin to succeed, got %d with body %s", logoutResp.Code, logoutResp.Body.String())
 	}
+}
+
+func TestAccountRegisterRejectsCrossOriginSessionCreation(t *testing.T) {
+	env := newAuthTestEnv(t)
+	defer env.Close()
+
+	resp := performJSONRequest(t, env.router, http.MethodPost, "/api/account/register", map[string]string{
+		"username": "cross_origin_user",
+		"password": "demo12345",
+	}, nil, map[string]string{
+		"Origin": "https://evil.example.com",
+	})
+	if resp.Code != http.StatusForbidden {
+		t.Fatalf("expected cross-origin register to be forbidden, got %d with body %s", resp.Code, resp.Body.String())
+	}
+
+	var count int64
+	if err := env.db.Model(&auth.User{}).Where("user_id = ?", "cross_origin_user").Count(&count).Error; err != nil {
+		t.Fatalf("failed to count users: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("expected cross-origin register not to create user, found %d", count)
+	}
+
+	resp = performJSONRequest(t, env.router, http.MethodPost, "/api/account/register", map[string]string{
+		"username": "same_origin_user",
+		"password": "demo12345",
+	}, nil, map[string]string{
+		"Origin": "http://127.0.0.1:8080",
+	})
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected same-origin register to succeed, got %d with body %s", resp.Code, resp.Body.String())
+	}
+	requireCookie(t, resp, auth.OIDCSessionCookieName)
 }
 
 func TestBrowserSessionEndpointReturnsAuthenticatedUser(t *testing.T) {
@@ -430,6 +546,111 @@ func TestEmailFlowsNormalizeEmail(t *testing.T) {
 	}
 }
 
+func TestEmailRegisterRateLimitUsesNormalizedIdentifier(t *testing.T) {
+	env := newAuthTestEnv(t)
+	defer env.Close()
+
+	variants := []string{
+		"  USER@Example.COM  ",
+		"user@example.com",
+		"USER@example.com",
+		" user@example.com",
+		"user@example.com ",
+	}
+
+	for i, email := range variants {
+		resp := performJSONRequest(t, env.router, http.MethodPost, "/api/email/register", map[string]string{
+			"email":    email,
+			"password": "demo12345",
+			"title":    "Verify",
+			"content":  "Please verify your account",
+		}, nil, nil)
+		if resp.Code != http.StatusOK {
+			t.Fatalf("attempt %d expected 200, got %d with body %s", i+1, resp.Code, resp.Body.String())
+		}
+	}
+
+	resp := performJSONRequest(t, env.router, http.MethodPost, "/api/email/register", map[string]string{
+		"email":    "USER@example.com",
+		"password": "demo12345",
+		"title":    "Verify",
+		"content":  "Please verify your account",
+	}, nil, nil)
+	if resp.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected normalized email register attempts to hit shared rate limit, got %d with body %s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestEmailResendVerificationRateLimitUsesNormalizedIdentifier(t *testing.T) {
+	env := newAuthTestEnv(t)
+	defer env.Close()
+
+	requireEmailPreregister(t, env, "  USER@Example.COM  ", "demo12345")
+
+	variants := []string{
+		"user@example.com",
+		" USER@example.com",
+		"user@example.com ",
+		"User@Example.com",
+		"  user@example.com  ",
+	}
+
+	for i, email := range variants {
+		resp := performJSONRequest(t, env.router, http.MethodPost, "/api/email/resend-verification", map[string]string{
+			"email":   email,
+			"title":   "Verify",
+			"content": "Please verify your account",
+		}, nil, nil)
+		if resp.Code != http.StatusOK {
+			t.Fatalf("attempt %d expected 200, got %d with body %s", i+1, resp.Code, resp.Body.String())
+		}
+	}
+
+	resp := performJSONRequest(t, env.router, http.MethodPost, "/api/email/resend-verification", map[string]string{
+		"email":   "USER@example.com",
+		"title":   "Verify",
+		"content": "Please verify your account",
+	}, nil, nil)
+	if resp.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected normalized email resend attempts to hit shared rate limit, got %d with body %s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestEmailPasswordResetRateLimitUsesNormalizedIdentifier(t *testing.T) {
+	env := newAuthTestEnv(t)
+	defer env.Close()
+
+	requireVerifiedEmailUser(t, env, "  USER@Example.COM  ", "demo12345")
+
+	variants := []string{
+		"user@example.com",
+		" USER@example.com",
+		"user@example.com ",
+		"User@Example.com",
+		"  user@example.com  ",
+	}
+
+	for i, email := range variants {
+		resp := performJSONRequest(t, env.router, http.MethodPost, "/api/email/password/reset", map[string]string{
+			"email":   email,
+			"title":   "Reset",
+			"content": "Reset your password",
+		}, nil, nil)
+		if resp.Code != http.StatusOK {
+			t.Fatalf("attempt %d expected 200, got %d with body %s", i+1, resp.Code, resp.Body.String())
+		}
+	}
+
+	resp := performJSONRequest(t, env.router, http.MethodPost, "/api/email/password/reset", map[string]string{
+		"email":   "USER@example.com",
+		"title":   "Reset",
+		"content": "Reset your password",
+	}, nil, nil)
+	if resp.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected normalized email password reset attempts to hit shared rate limit, got %d with body %s", resp.Code, resp.Body.String())
+	}
+}
+
 func TestPhoneFlowsNormalizePhone(t *testing.T) {
 	env := newAuthTestEnv(t)
 	defer env.Close()
@@ -473,5 +694,131 @@ func TestPhoneFlowsNormalizePhone(t *testing.T) {
 	var phoneUser auth.PhoneUser
 	if err := env.db.First(&phoneUser, "phone = ?", "+8613800138000").Error; err != nil {
 		t.Fatalf("expected normalized phone to be stored: %v", err)
+	}
+}
+
+func TestPhonePreregisterRateLimitUsesNormalizedIdentifier(t *testing.T) {
+	env := newAuthTestEnv(t)
+	defer env.Close()
+
+	variants := []string{
+		"+86 138-0013-8000",
+		"+8613800138000",
+		"+86 (138) 0013-8000",
+		"+86 138 0013 8000",
+		" +8613800138000 ",
+	}
+
+	for i, phone := range variants {
+		resp := performJSONRequest(t, env.router, http.MethodPost, "/api/phone/preregister", map[string]string{
+			"phone":    phone,
+			"password": "demo12345",
+			"nickname": "demo",
+		}, nil, nil)
+		if resp.Code != http.StatusOK {
+			t.Fatalf("attempt %d expected 200, got %d with body %s", i+1, resp.Code, resp.Body.String())
+		}
+	}
+
+	resp := performJSONRequest(t, env.router, http.MethodPost, "/api/phone/preregister", map[string]string{
+		"phone":    "+8613800138000",
+		"password": "demo12345",
+		"nickname": "demo",
+	}, nil, nil)
+	if resp.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected normalized phone preregister attempts to hit shared rate limit, got %d with body %s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestPhoneResendVerificationRateLimitUsesNormalizedIdentifier(t *testing.T) {
+	env := newAuthTestEnv(t)
+	defer env.Close()
+
+	requirePhonePreregister(t, env, "+86 138-0013-8000", "demo12345")
+
+	variants := []string{
+		"+8613800138000",
+		"+86 (138) 0013-8000",
+		"+86 138 0013 8000",
+		" +8613800138000 ",
+		"+86-138-0013-8000",
+	}
+
+	for i, phone := range variants {
+		resp := performJSONRequest(t, env.router, http.MethodPost, "/api/phone/resend-verification", map[string]string{
+			"phone": phone,
+		}, nil, nil)
+		if resp.Code != http.StatusOK {
+			t.Fatalf("attempt %d expected 200, got %d with body %s", i+1, resp.Code, resp.Body.String())
+		}
+	}
+
+	resp := performJSONRequest(t, env.router, http.MethodPost, "/api/phone/resend-verification", map[string]string{
+		"phone": "+8613800138000",
+	}, nil, nil)
+	if resp.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected normalized phone resend attempts to hit shared rate limit, got %d with body %s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestPhoneSendLoginCodeRateLimitUsesNormalizedIdentifier(t *testing.T) {
+	env := newAuthTestEnv(t)
+	defer env.Close()
+
+	requireVerifiedPhoneUser(t, env, "+86 138-0013-8000", "demo12345")
+
+	variants := []string{
+		"+8613800138000",
+		"+86 (138) 0013-8000",
+		"+86 138 0013 8000",
+		" +8613800138000 ",
+		"+86-138-0013-8000",
+	}
+
+	for i, phone := range variants {
+		resp := performJSONRequest(t, env.router, http.MethodPost, "/api/phone/send-login-code", map[string]string{
+			"phone": phone,
+		}, nil, nil)
+		if resp.Code != http.StatusOK {
+			t.Fatalf("attempt %d expected 200, got %d with body %s", i+1, resp.Code, resp.Body.String())
+		}
+	}
+
+	resp := performJSONRequest(t, env.router, http.MethodPost, "/api/phone/send-login-code", map[string]string{
+		"phone": "+8613800138000",
+	}, nil, nil)
+	if resp.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected normalized phone send-login-code attempts to hit shared rate limit, got %d with body %s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestPhonePasswordResetInitRateLimitUsesNormalizedIdentifier(t *testing.T) {
+	env := newAuthTestEnv(t)
+	defer env.Close()
+
+	requireVerifiedPhoneUser(t, env, "+86 138-0013-8000", "demo12345")
+
+	variants := []string{
+		"+8613800138000",
+		"+86 (138) 0013-8000",
+		"+86 138 0013 8000",
+		" +8613800138000 ",
+		"+86-138-0013-8000",
+	}
+
+	for i, phone := range variants {
+		resp := performJSONRequest(t, env.router, http.MethodPost, "/api/phone/reset-password/init", map[string]string{
+			"phone": phone,
+		}, nil, nil)
+		if resp.Code != http.StatusOK {
+			t.Fatalf("attempt %d expected 200, got %d with body %s", i+1, resp.Code, resp.Body.String())
+		}
+	}
+
+	resp := performJSONRequest(t, env.router, http.MethodPost, "/api/phone/reset-password/init", map[string]string{
+		"phone": "+8613800138000",
+	}, nil, nil)
+	if resp.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected normalized phone password reset init attempts to hit shared rate limit, got %d with body %s", resp.Code, resp.Body.String())
 	}
 }
