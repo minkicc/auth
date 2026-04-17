@@ -220,6 +220,22 @@ func ErrInvalidPassword(details string) error {
 	}
 }
 
+func ErrInvalidUsername(details string) error {
+	return &AppError{
+		Code:    ErrCodeInvalidUsername,
+		Message: "Invalid username",
+		Details: details,
+	}
+}
+
+func ErrInvalidEmail(details string) error {
+	return &AppError{
+		Code:    ErrCodeInvalidEmail,
+		Message: "Invalid email",
+		Details: details,
+	}
+}
+
 // ErrInvalidOAuthState Invalid OAuth state
 func ErrInvalidOAuthState(details string) error {
 	return &AppError{

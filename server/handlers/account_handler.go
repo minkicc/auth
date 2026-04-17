@@ -37,6 +37,17 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		return
 	}
 
+	normalizedUsername, err := auth.NormalizeAccountID(req.Username)
+	if err != nil {
+		if appErr, ok := err.(*auth.AppError); ok {
+			c.JSON(appErr.GetHTTPStatus(), gin.H{"error": appErr.Error()})
+			return
+		}
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request parameters"})
+		return
+	}
+	req.Username = normalizedUsername
+
 	// Create user
 	user := &auth.User{
 		UserID:   req.Username,
@@ -88,6 +99,17 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request parameters"})
 		return
 	}
+
+	normalizedUsername, err := auth.NormalizeAccountID(req.Username)
+	if err != nil {
+		if appErr, ok := err.(*auth.AppError); ok {
+			c.JSON(appErr.GetHTTPStatus(), gin.H{"error": appErr.Error()})
+			return
+		}
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request parameters"})
+		return
+	}
+	req.Username = normalizedUsername
 
 	// Check login attempt limits
 	clientIP := c.ClientIP()

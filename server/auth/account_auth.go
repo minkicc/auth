@@ -128,6 +128,11 @@ func (a *AccountAuth) CheckLoginAttempts(userID string, ip string) error {
 
 // Login User login
 func (a *AccountAuth) Login(userID string, password string) (*User, error) {
+	userID, err := NormalizeAccountID(userID)
+	if err != nil {
+		return nil, err
+	}
+
 	user, err := a.GetUserByID(userID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -227,9 +232,10 @@ func (a *AccountAuth) ChangePassword(userID string, oldPassword, newPassword str
 
 // Register User registration (normal account)
 func (a *AccountAuth) Register(userID string, password string, nickname string) error {
-
-	if userID == "" {
-		return ErrInvalidInput("Account ID must be provided for normal account")
+	var err error
+	userID, err = NormalizeAccountID(userID)
+	if err != nil {
+		return err
 	}
 
 	// Check if UserID is duplicate
@@ -307,6 +313,12 @@ func (a *AccountAuth) CleanExpiredVerifications() error {
 
 // CheckDuplicateUserID Check if UserID is duplicate
 func (a *AccountAuth) CheckDuplicateUserID(userID string) error {
+	var err error
+	userID, err = NormalizeAccountID(userID)
+	if err != nil {
+		return err
+	}
+
 	var count int64
 	if err := a.db.Model(&User{}).Where("user_id = ?", userID).Count(&count).Error; err != nil {
 		return err
