@@ -36,7 +36,7 @@ docker compose -f docker-compose.sqlite.yml up -d --build
 - `quickstart/docker-compose.sqlite.yml`
 - `quickstart/config.sqlite.yaml`
 
-### 方式三：直接拉取 GitHub 自动发布的镜像
+### 方式三：直接拉取 GitHub 自动发布的镜像，使用 MySQL
 
 适合其他团队或部署环境直接使用预构建版本：
 
@@ -53,6 +53,26 @@ MKAUTH_IMAGE=ghcr.io/minkicc/auth:v1.2.3 docker compose -f docker-compose.releas
 ```
 
 对应文件：`quickstart/docker-compose.release.yml`
+
+### 方式四：直接拉取 GitHub 自动发布的镜像，使用 SQLite 最小启动
+
+适合其他团队直接体验发布版，但不想额外起 MySQL：
+
+```bash
+cd quickstart
+docker compose -f docker-compose.sqlite.release.yml up -d
+```
+
+如果你想固定版本，可以显式指定镜像标签：
+
+```bash
+cd quickstart
+MKAUTH_IMAGE=ghcr.io/minkicc/auth:v1.2.3 docker compose -f docker-compose.sqlite.release.yml up -d
+```
+
+对应文件：
+- `quickstart/docker-compose.sqlite.release.yml`
+- `quickstart/config.sqlite.yaml`
 
 如果 GHCR 包还是私有的，先执行：
 
@@ -189,6 +209,8 @@ auth:
 
 - `quickstart/docker-compose.yml` 会直接构建你本地 checkout 的代码，并依赖 MySQL，更适合验证完整依赖场景。
 - `quickstart/docker-compose.sqlite.yml` 会直接构建你本地 checkout 的代码，但不依赖 MySQL，更适合本地最小启动和快速体验。
-- `quickstart/docker-compose.release.yml` 会直接拉取 `ghcr.io/minkicc/auth` 镜像，更适合发给其他用户或部署环境使用。
+- `quickstart/docker-compose.release.yml` 会直接拉取 `ghcr.io/minkicc/auth` 镜像，并依赖 MySQL，更适合发给其他用户或部署环境使用。
+- `quickstart/docker-compose.sqlite.release.yml` 会直接拉取 `ghcr.io/minkicc/auth` 镜像，但数据库改成了 SQLite，适合给其他用户做最小体验。
 - `quickstart/docker-compose.yml` 和 `quickstart/docker-compose.release.yml` 会等待 MySQL、Redis、MinIO 健康后再启动 `mkauth-server`。
 - `quickstart/docker-compose.sqlite.yml` 会等待 Redis、MinIO 健康后再启动 `mkauth-server`，数据库则直接使用 SQLite 文件。
+- `quickstart/docker-compose.sqlite.release.yml` 会等待 Redis、MinIO 健康后再启动 `mkauth-server`，数据库则直接使用 SQLite 文件。

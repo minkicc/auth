@@ -65,6 +65,7 @@ Notes:
 - `quickstart/docker-compose.yml` builds the current checkout so the quickstart always matches this branch.
 - `quickstart/docker-compose.sqlite.yml` builds the current checkout too, but uses SQLite instead of MySQL for a smaller local stack.
 - `quickstart/docker-compose.release.yml` pulls `ghcr.io/minkicc/auth` directly and is the better option for other users consuming published releases.
+- `quickstart/docker-compose.sqlite.release.yml` pulls the published image too, but uses SQLite for the smallest release quickstart stack.
 - If you want anonymous pulls from GHCR, set the published container package visibility to `public` in GitHub.
 
 ### 2. Enable the admin console
@@ -159,6 +160,7 @@ For users who only want to deploy MKAuth, a prebuilt-image flow is usually bette
 - Development / branch verification: `quickstart/docker-compose.yml`
 - Minimal local startup with SQLite: `quickstart/docker-compose.sqlite.yml`
 - Release / consumer deployment: `quickstart/docker-compose.release.yml`
+- Minimal release startup with SQLite: `quickstart/docker-compose.sqlite.release.yml`
 
 ## Local Development
 

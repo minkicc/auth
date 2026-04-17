@@ -65,6 +65,7 @@ docker compose -f docker-compose.release.yml up -d
 - `quickstart/docker-compose.yml` 会直接构建当前仓库代码，因此 quickstart 与这条分支保持一致。
 - `quickstart/docker-compose.sqlite.yml` 也会直接构建当前仓库代码，但数据库改成了 SQLite，适合本地最小启动。
 - `quickstart/docker-compose.release.yml` 会直接拉取 `ghcr.io/minkicc/auth`，更适合给其他用户或部署环境使用。
+- `quickstart/docker-compose.sqlite.release.yml` 也会直接拉取发布镜像，但数据库改成了 SQLite，适合给其他用户最小体验。
 - 如果你希望别人不登录 GHCR 也能直接拉取镜像，需要把 GitHub 上发布出来的 container package 可见性改成 `public`。
 
 ### 2. 启用管理后台
@@ -159,6 +160,7 @@ git push origin v1.2.3
 - 开发验证：`quickstart/docker-compose.yml`
 - 本地最小启动（SQLite）：`quickstart/docker-compose.sqlite.yml`
 - 发布使用：`quickstart/docker-compose.release.yml`
+- 发布最小启动（SQLite）：`quickstart/docker-compose.sqlite.release.yml`
 
 ## 本地开发
 
