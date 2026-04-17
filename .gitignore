@@ -1,4 +1,6 @@
 .VSCodeCounter
 .DS_Store
 package-lock.json
+!web/package-lock.json
+!admin-web/package-lock.json
 server/server*

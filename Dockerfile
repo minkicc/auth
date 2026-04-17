@@ -26,15 +26,19 @@ RUN npm config set registry https://registry.npmjs.org/
 WORKDIR /app
 
 # 构建 web 项目
-COPY web ./web/
+COPY web/package.json web/package-lock.json ./web/
 WORKDIR /app/web
-RUN npm ci && npm run build
+RUN npm ci
+COPY web ./
+RUN npm run build
 
 # 构建 admin-web 项目
 WORKDIR /app
-COPY admin-web ./admin-web/
+COPY admin-web/package.json admin-web/package-lock.json ./admin-web/
 WORKDIR /app/admin-web
-RUN npm ci && npm run build
+RUN npm ci
+COPY admin-web ./
+RUN npm run build
 
 FROM golang:1.23-alpine3.20
 WORKDIR /app
