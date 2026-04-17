@@ -27,6 +27,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"gorm.io/driver/mysql"
+	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
 	"minki.cc/mkauth/server/admin"
@@ -126,6 +127,44 @@ func collectAllowedOrigins(cfg *config.Config) []string {
 	return allowedOrigins
 }
 
+func openDatabase(dbCfg config.DatabaseConfig) (*gorm.DB, error) {
+	switch dbCfg.EffectiveDriver() {
+	case "mysql":
+		db, err := gorm.Open(mysql.Open(dbCfg.GetDSN()), &gorm.Config{})
+		if err != nil {
+			return nil, fmt.Errorf("connect mysql database: %w", err)
+		}
+		return db, nil
+	case "sqlite":
+		sqlitePath := dbCfg.SQLitePathOrDefault()
+		if err := ensureSQLitePath(sqlitePath); err != nil {
+			return nil, err
+		}
+		db, err := gorm.Open(sqlite.Open(sqlitePath), &gorm.Config{})
+		if err != nil {
+			return nil, fmt.Errorf("open sqlite database %q: %w", sqlitePath, err)
+		}
+		return db, nil
+	default:
+		return nil, fmt.Errorf("unsupported database driver %q", dbCfg.EffectiveDriver())
+	}
+}
+
+func ensureSQLitePath(sqlitePath string) error {
+	if sqlitePath == "" || sqlitePath == ":memory:" || strings.HasPrefix(sqlitePath, "file:") {
+		return nil
+	}
+
+	dir := filepath.Dir(sqlitePath)
+	if dir == "." || dir == "" {
+		return nil
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("create sqlite directory %q: %w", dir, err)
+	}
+	return nil
+}
+
 func main() {
 	// Parse command line arguments
 	configPath := flag.String("config", defaultConfigFilePath, "Configuration file path")
@@ -142,9 +181,14 @@ func main() {
 	}
 
 	// Initialize database connection
-	globalDB, err = gorm.Open(mysql.Open(cfg.Database.GetDSN()), &gorm.Config{})
+	globalDB, err = openDatabase(cfg.Database)
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
+	}
+	if cfg.Database.EffectiveDriver() == "sqlite" {
+		log.Printf("Using sqlite database at %s", cfg.Database.SQLitePathOrDefault())
+	} else {
+		log.Printf("Using mysql database %s on host %s", cfg.Database.Database, cfg.Database.Host)
 	}
 
 	// Initialize Redis connection

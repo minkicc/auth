@@ -1,0 +1,59 @@
+db:
+  driver: "sqlite"
+  sqlite_path: "/app/data/mkauth.sqlite3"
+
+redis:
+  addr: "redis:6379"
+  password: ""
+  db: 0
+
+storage:
+  provider: "minio"
+  endpoint: "minio:9000"
+  region: "zhuhai-1"
+  accessKeyID: "T64JKDV276dJp10"
+  secretAccessKey: "1JzdCtZqgiys22q"
+  stsAccessKeyID: "user"
+  stsSecretAccessKey: "LRfETL5HGUGAGv9"
+  attatchBucket: "attatch"
+
+storage_public_url:
+  attatch: "http://127.0.0.1:9002/attatch"
+
+oidc:
+  enabled: true
+  issuer: ""
+  key_id: "mkauth-quickstart"
+  private_key_file: "/app/config/oidc-private-key.pem"
+  code_ttl_seconds: 300
+  access_token_ttl_seconds: 900
+  id_token_ttl_seconds: 900
+  clients:
+    - client_id: "demo-spa"
+      public: true
+      require_pkce: true
+      redirect_uris:
+        - "http://127.0.0.1:3000/"
+        - "http://localhost:3000/"
+      scopes:
+        - "openid"
+        - "profile"
+        - "email"
+    - client_id: "demo-backend"
+      client_secret: "demo-backend-secret"
+      public: false
+      require_pkce: true
+      redirect_uris:
+        - "http://127.0.0.1:8082/auth/callback"
+        - "http://localhost:8082/auth/callback"
+      scopes:
+        - "openid"
+        - "profile"
+        - "email"
+
+auth:
+  enabled_providers:
+    - "account"
+
+auth_admin:
+  enabled: false

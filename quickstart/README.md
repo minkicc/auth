@@ -1,6 +1,6 @@
 # MKAuth Quickstart
 
-`quickstart/` 提供了两套可直接体验的 Docker Compose 配置，用来快速启动 MKAuth 所需的基础依赖，以及一个最小可运行的 OIDC PKCE demo。
+`quickstart/` 提供了几套可直接体验的 Docker Compose 配置，用来快速启动 MKAuth 所需的基础依赖，以及一个最小可运行的 OIDC PKCE demo。
 
 ## 会启动什么
 
@@ -12,7 +12,7 @@
 
 ## 使用方法
 
-### 方式一：本地构建当前仓库代码
+### 方式一：本地构建当前仓库代码，使用 MySQL
 
 适合开发、联调、验证当前 checkout：
 
@@ -23,7 +23,20 @@ docker compose up -d --build
 
 对应文件：`quickstart/docker-compose.yml`
 
-### 方式二：直接拉取 GitHub 自动发布的镜像
+### 方式二：本地构建当前仓库代码，使用 SQLite 最小启动
+
+适合本地快速体验，不想额外起 MySQL：
+
+```bash
+cd quickstart
+docker compose -f docker-compose.sqlite.yml up -d --build
+```
+
+对应文件：
+- `quickstart/docker-compose.sqlite.yml`
+- `quickstart/config.sqlite.yaml`
+
+### 方式三：直接拉取 GitHub 自动发布的镜像
 
 适合其他团队或部署环境直接使用预构建版本：
 
@@ -66,6 +79,8 @@ docker login ghcr.io
 - 存储后端使用 MinIO
 - OIDC demo 的回调地址已经预先配置为 `http://127.0.0.1:3000/`
 - `quickstart/oidc-private-key.pem` 只是为了本地演示方便而提交的开发私钥，生产环境请务必替换
+
+`quickstart/config.sqlite.yaml` 与上面保持一致，只是数据库改成了 SQLite，并把数据文件落到容器内的 `/app/data/mkauth.sqlite3`。
 
 ## 先体验一遍 OIDC 登录
 
@@ -172,6 +187,8 @@ auth:
 
 ## 说明
 
-- `quickstart/docker-compose.yml` 会直接构建你本地 checkout 的代码，更适合当前分支的验证和演示。首次 `--build` 会稍慢一些，但可以确保 OIDC demo 与当前代码一致。
+- `quickstart/docker-compose.yml` 会直接构建你本地 checkout 的代码，并依赖 MySQL，更适合验证完整依赖场景。
+- `quickstart/docker-compose.sqlite.yml` 会直接构建你本地 checkout 的代码，但不依赖 MySQL，更适合本地最小启动和快速体验。
 - `quickstart/docker-compose.release.yml` 会直接拉取 `ghcr.io/minkicc/auth` 镜像，更适合发给其他用户或部署环境使用。
-- 两个 compose 文件都会等待 MySQL、Redis、MinIO 健康后再启动 `mkauth-server`，启动顺序更稳。
+- `quickstart/docker-compose.yml` 和 `quickstart/docker-compose.release.yml` 会等待 MySQL、Redis、MinIO 健康后再启动 `mkauth-server`。
+- `quickstart/docker-compose.sqlite.yml` 会等待 Redis、MinIO 健康后再启动 `mkauth-server`，数据库则直接使用 SQLite 文件。

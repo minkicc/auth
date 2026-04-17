@@ -8,6 +8,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 	"minki.cc/mkauth/server/auth/storage"
@@ -101,13 +102,14 @@ type Account struct {
 
 // DatabaseConfig Database configuration
 type DatabaseConfig struct {
-	// Driver   string `json:"driver" yaml:"driver"`
-	Username string `json:"user" yaml:"user"`
-	Password string `json:"password" yaml:"password"`
-	Host     string `json:"host" yaml:"host"`
-	Port     int    `json:"port" yaml:"port"`
-	Database string `json:"database" yaml:"database"`
-	Charset  string `json:"charset" yaml:"charset"`
+	Driver     string `json:"driver" yaml:"driver"`
+	SQLitePath string `json:"sqlite_path" yaml:"sqlite_path"`
+	Username   string `json:"user" yaml:"user"`
+	Password   string `json:"password" yaml:"password"`
+	Host       string `json:"host" yaml:"host"`
+	Port       int    `json:"port" yaml:"port"`
+	Database   string `json:"database" yaml:"database"`
+	Charset    string `json:"charset" yaml:"charset"`
 }
 
 // RedisConfig Redis configuration
@@ -181,9 +183,55 @@ func LoadConfig(path string) (*Config, error) {
 	return config, nil
 }
 
+const (
+	DefaultDatabaseDriver = "sqlite"
+	DefaultSQLitePath     = "data/mkauth.sqlite3"
+	DefaultMySQLPort      = 3306
+	DefaultMySQLCharset   = "utf8mb4"
+)
+
+func (dc *DatabaseConfig) EffectiveDriver() string {
+	driver := strings.ToLower(strings.TrimSpace(dc.Driver))
+	switch driver {
+	case "mysql", "sqlite":
+		return driver
+	}
+	if dc.HasMySQLConfig() {
+		return "mysql"
+	}
+	return DefaultDatabaseDriver
+}
+
+func (dc *DatabaseConfig) HasMySQLConfig() bool {
+	return strings.TrimSpace(dc.Username) != "" ||
+		strings.TrimSpace(dc.Host) != "" ||
+		strings.TrimSpace(dc.Database) != ""
+}
+
+func (dc *DatabaseConfig) SQLitePathOrDefault() string {
+	if path := strings.TrimSpace(dc.SQLitePath); path != "" {
+		return path
+	}
+	return DefaultSQLitePath
+}
+
+func (dc *DatabaseConfig) mysqlPort() int {
+	if dc.Port > 0 {
+		return dc.Port
+	}
+	return DefaultMySQLPort
+}
+
+func (dc *DatabaseConfig) mysqlCharset() string {
+	if charset := strings.TrimSpace(dc.Charset); charset != "" {
+		return charset
+	}
+	return DefaultMySQLCharset
+}
+
 // GetDSN Get database connection string
 func (dc *DatabaseConfig) GetDSN() string {
-	return dc.Username + ":" + dc.Password + "@tcp(" + dc.Host + ":" + fmt.Sprintf("%d", dc.Port) + ")/" + dc.Database + "?charset=" + dc.Charset + "&parseTime=True&loc=Local"
+	return dc.Username + ":" + dc.Password + "@tcp(" + dc.Host + ":" + fmt.Sprintf("%d", dc.mysqlPort()) + ")/" + dc.Database + "?charset=" + dc.mysqlCharset() + "&parseTime=True&loc=Local"
 }
 
 // GetRedisAddr Get Redis connection address

@@ -2,14 +2,14 @@ FROM golang:1.23-alpine3.20 AS builder
 # FROM kcserver-builder_image:latest as builder
 
 ENV GO111MODULE=on \
-    CGO_ENABLED=0 \
+    CGO_ENABLED=1 \
     GOOS=linux
     # GOARCH=amd64 \
     # GOPROXY=https://goproxy.cn,direct
 
 RUN set -ex \
     # && sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories \
-    && apk --update add tzdata \
+    && apk --update add tzdata build-base \
     && cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \
     && apk --no-cache add ca-certificates
 

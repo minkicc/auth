@@ -1,0 +1,71 @@
+services:
+  redis:
+    image: redis:7.0
+    container_name: mkauth-redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  minio:
+    image: quay.io/minio/minio
+    entrypoint: sh
+    command: -c "minio server /data --console-address ':9001' & sleep 5 && /usr/bin/minio-init.sh && tail -f /dev/null"
+    container_name: minio
+    restart: always
+    environment:
+      TZ: Asia/Shanghai
+      MINIO_ROOT_USER: kcserver
+      MINIO_ROOT_PASSWORD: minki1212
+      MINIO_REGION: zhuhai-1
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    volumes:
+      - minio_data:/data
+      - ./minio-init.sh:/usr/bin/minio-init.sh
+    ports:
+      - "9002:9000"
+      - "9003:9001"
+
+  mkauth-server:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: mkauth-server
+    restart: always
+    depends_on:
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    volumes:
+      - ./config.sqlite.yaml:/app/config/config.yaml
+      - ./oidc-private-key.pem:/app/config/oidc-private-key.pem:ro
+      - sqlite_data:/app/data
+    ports:
+      - "8080:80"
+      - "8081:81"
+
+  oidc-demo:
+    image: nginx:alpine
+    container_name: mkauth-oidc-demo
+    restart: always
+    volumes:
+      - ./oidc-demo:/usr/share/nginx/html:ro
+    ports:
+      - "3000:80"
+
+volumes:
+  redis_data:
+  minio_data:
+  sqlite_data:

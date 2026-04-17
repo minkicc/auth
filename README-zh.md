@@ -63,6 +63,7 @@ docker compose -f docker-compose.release.yml up -d
 - `quickstart/config.yaml` 还预置了一个 confidential client `demo-backend`，可直接配合 [client/example](client/example/README.md) 里的 Go 后端回调示例使用。
 - `quickstart/config.yaml` 里默认关闭了管理后台：`auth_admin.enabled: false`。
 - `quickstart/docker-compose.yml` 会直接构建当前仓库代码，因此 quickstart 与这条分支保持一致。
+- `quickstart/docker-compose.sqlite.yml` 也会直接构建当前仓库代码，但数据库改成了 SQLite，适合本地最小启动。
 - `quickstart/docker-compose.release.yml` 会直接拉取 `ghcr.io/minkicc/auth`，更适合给其他用户或部署环境使用。
 - 如果你希望别人不登录 GHCR 也能直接拉取镜像，需要把 GitHub 上发布出来的 container package 可见性改成 `public`。
 
@@ -156,6 +157,7 @@ git push origin v1.2.3
 对于“别人怎么用”这个问题，通常比起让外部用户本地 `docker build`，更好的方式是直接给他们预构建镜像。当前仓库已经同时支持两种模式：
 
 - 开发验证：`quickstart/docker-compose.yml`
+- 本地最小启动（SQLite）：`quickstart/docker-compose.sqlite.yml`
 - 发布使用：`quickstart/docker-compose.release.yml`
 
 ## 本地开发
@@ -200,6 +202,10 @@ nvm use
 
 ```yaml
 db:
+  # 可选：mysql / sqlite。不填时，如果下面这些 MySQL 字段也都没配，
+  # MKAuth 会默认使用 SQLite，并把数据写到 data/mkauth.sqlite3。
+  # driver: "sqlite"
+  # sqlite_path: "data/mkauth.sqlite3"
   user: "root"
   password: "password"
   host: "localhost"
@@ -212,6 +218,8 @@ redis:
   password: ""
   db: 0
 ```
+
+如果你没有配置 MySQL，MKAuth 现在会默认使用 SQLite 启动，并把数据写到 `data/mkauth.sqlite3`。你也可以显式设置 `db.driver: sqlite`，再通过 `db.sqlite_path` 自定义文件位置。
 
 ### 存储
 
