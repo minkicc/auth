@@ -2,40 +2,39 @@ FROM golang:1.23-alpine3.20 AS builder
 # FROM kcserver-builder_image:latest as builder
 
 ENV GO111MODULE=on \
-    CGO_ENABLED=1 \
+    CGO_ENABLED=0 \
     GOOS=linux
     # GOARCH=amd64 \
     # GOPROXY=https://goproxy.cn,direct
 
 RUN set -ex \
     # && sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories \
-    && apk --update add tzdata build-base \
+    && apk --update add tzdata \
     && cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \
     && apk --no-cache add ca-certificates
 
 WORKDIR /app
 COPY server .
-RUN go mod download && go mod tidy -v && go build -ldflags "-s -w" -o mkauth ./main.go
+RUN go mod download && go build -mod=readonly -ldflags "-s -w" -o mkauth ./main.go
 
 
 # Node.js 构建阶段
 FROM node:22-alpine AS web-builder
 
-# 配置 npm 使用公共镜像源，避免认证问题
-# RUN npm config set registry https://registry.npmjs.org/
+RUN npm config set registry https://registry.npmjs.org/
 
 WORKDIR /app
 
 # 构建 web 项目
 COPY web ./web/
 WORKDIR /app/web
-RUN npm i && npm run build
+RUN npm ci && npm run build
 
 # 构建 admin-web 项目
 WORKDIR /app
 COPY admin-web ./admin-web/
 WORKDIR /app/admin-web
-RUN npm i --verbose && npm run build
+RUN npm ci && npm run build
 
 FROM golang:1.23-alpine3.20
 WORKDIR /app

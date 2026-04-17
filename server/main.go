@@ -25,9 +25,9 @@ import (
 	"github.com/gin-contrib/static"
 	"github.com/gin-gonic/contrib/gzip"
 	"github.com/gin-gonic/gin"
+	"github.com/glebarez/sqlite"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"gorm.io/driver/mysql"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
 	"minki.cc/mkauth/server/admin"

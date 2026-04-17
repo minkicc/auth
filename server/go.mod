@@ -7,6 +7,7 @@ require (
 	github.com/gin-contrib/sessions v0.0.5
 	github.com/gin-contrib/static v1.1.5
 	github.com/gin-gonic/gin v1.10.0
+	github.com/glebarez/sqlite v1.11.0
 	github.com/go-redis/redis/v8 v8.11.5
 	github.com/golang-jwt/jwt/v5 v5.2.1
 	github.com/google/uuid v1.6.0
@@ -14,27 +15,29 @@ require (
 	golang.org/x/crypto v0.37.0
 	golang.org/x/oauth2 v0.24.0
 	gorm.io/driver/mysql v1.5.7
-	gorm.io/driver/sqlite v1.5.7
 	gorm.io/gorm v1.25.12
 )
 
-require (
-	github.com/alicebob/miniredis/v2 v2.37.0
-)
+require github.com/alicebob/miniredis/v2 v2.37.0
 
 require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
+	github.com/glebarez/go-sqlite v1.21.2 // indirect
 	github.com/go-ini/ini v1.67.0 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/klauspost/compress v1.18.0 // indirect
-	github.com/mattn/go-sqlite3 v2.0.3+incompatible // indirect
 	github.com/minio/crc64nvme v1.0.1 // indirect
 	github.com/minio/md5-simd v1.1.2 // indirect
 	github.com/opentracing/opentracing-go v1.2.1-0.20220228012449-10b1cf09e00b // indirect
+	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/rs/xid v1.6.0 // indirect
 	github.com/yuin/gopher-lua v1.1.1 // indirect
 	golang.org/x/time v0.11.0 // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
+	modernc.org/libc v1.22.5 // indirect
+	modernc.org/mathutil v1.5.0 // indirect
+	modernc.org/memory v1.5.0 // indirect
+	modernc.org/sqlite v1.23.1 // indirect
 )
 
 require (
