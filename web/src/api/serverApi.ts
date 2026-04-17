@@ -8,6 +8,7 @@ import axios from 'axios'
 // API响应类型定义
 interface AuthResponse {
     user_id: string
+    username?: string
     nickname?: string
     avatar?: string
     authenticated?: boolean
@@ -18,10 +19,12 @@ interface AuthResponse {
 interface NestedAuthResponse {
     user?: {
         user_id: string
+        username?: string
         nickname?: string
         avatar?: string
     }
     user_id?: string
+    username?: string
     nickname?: string
     avatar?: string
 }
@@ -160,6 +163,7 @@ class ServerApi {
         if ('user' in response && response.user) {
             return {
                 user_id: response.user.user_id,
+                username: response.user.username || '',
                 nickname: response.user.nickname || '',
                 avatar: response.user.avatar || '',
             }
@@ -167,6 +171,7 @@ class ServerApi {
 
         return {
             user_id: response.user_id || '',
+            username: response.username || '',
             nickname: response.nickname || '',
             avatar: response.avatar || '',
         }

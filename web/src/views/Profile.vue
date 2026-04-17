@@ -34,6 +34,10 @@
           <span class="field-label">{{ $t('profile.userId') }}</span>
           <strong>{{ user.user_id }}</strong>
         </div>
+        <div v-if="user.username" class="profile-field">
+          <span class="field-label">{{ $t('profile.username') }}</span>
+          <strong>{{ user.username }}</strong>
+        </div>
         <div class="profile-field">
           <span class="field-label">{{ $t('profile.nickname') }}</span>
           <strong>{{ user.nickname || '-' }}</strong>
@@ -64,6 +68,7 @@ import { context } from '@/context'
 
 interface ProfileUser {
   user_id: string
+  username?: string
   nickname?: string
   avatar?: string
 }

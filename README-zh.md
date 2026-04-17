@@ -286,6 +286,8 @@ oidc:
 - `/oauth2/userinfo`
 - `/oauth2/jwks`
 
+OIDC 的 `sub` 使用 Auth 稳定的内部用户 ID，而不是登录用户名。新用户 ID 类似 `usr_8m3kq7p2x9zc4vna`；普通账号的用户名会在可用时单独通过 `preferred_username` / `username` 返回。
+
 ### 可信业务后端配置
 
 `auth_trusted_clients` 在这条分支里只用于旧的管理型 `/api` 接口，例如按用户 ID 查询资料或批量查询用户，不再参与登录回调换 token：
@@ -370,7 +372,8 @@ curl -X POST http://localhost:8080/api/account/login \
 ```json
 {
   "authenticated": true,
-  "user_id": "demo",
+  "user_id": "usr_8m3kq7p2x9zc4vna",
+  "username": "demo",
   "nickname": "demo",
   "avatar": "",
   "expires_at": "2026-04-23T10:00:00Z"
@@ -395,6 +398,8 @@ Auth 现在会在重复校验、登录校验和限流前，对用户标识做统
 - 账号 `username`：先去首尾空格，长度要求 `3-64`，允许字符为字母、数字、`.`、`_`、`@`、`-`，并且首尾必须是字母或数字
 - 邮箱：在注册、登录、重发验证、找回密码前都会先去空格并转成小写
 - 手机号：会去掉空格、`-`、`.`、`(`、`)` 这些分隔符，允许保留一个前导 `+`，最终规范化后的数字长度必须是 `7-15`
+
+`user_id` 不再是登录标识，而是 `usr_` 加 16 位易读随机字符组成的内部 ID，并作为 OIDC subject 使用。账号密码登录时提交的 `username` 会保存在独立账号映射表里，`/api` 响应会单独返回 `username`。
 
 发送邮件和短信的流程会按“规范化后的标识 + 客户端 IP”做限流。覆盖范围包括邮箱注册、重发验证、发起找回密码，以及手机号预注册、重发验证、发送登录验证码、发起找回密码。
 

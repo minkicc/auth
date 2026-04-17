@@ -210,6 +210,7 @@ export default {
     loading: '正在加载用户信息...',
     loadFailed: '加载用户信息失败',
     userId: '用户 ID',
+    username: '用户名',
     nickname: '昵称',
     avatar: '头像',
     sessionExpiresAt: '会话过期时间',

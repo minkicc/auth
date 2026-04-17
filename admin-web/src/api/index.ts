@@ -83,6 +83,7 @@ export interface StatsData {
 
 export interface User {
   user_id: string
+  username?: string
   status: string
   nickname: string
   avatar: string

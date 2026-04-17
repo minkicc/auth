@@ -32,6 +32,9 @@ func (h *AuthHandler) completeBrowserLogin(c *gin.Context, user *auth.User, mess
 		"avatar":        user.Avatar,
 		"expires_at":    session.ExpiresAt,
 	}
+	if user.Username != "" {
+		response["username"] = user.Username
+	}
 	if message != "" {
 		response["message"] = message
 	}

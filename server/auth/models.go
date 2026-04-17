@@ -46,8 +46,9 @@ type Session struct {
 }
 
 // User User Model
-type User struct { // Automatically generated ID
-	UserID        string     `json:"user_id" gorm:"primarykey"` // Login identifier, for normal accounts this is the login account, for email accounts it's automatically generated
+type User struct {
+	UserID        string     `json:"user_id" gorm:"primarykey;size:32"` // Stable internal user ID, never a login identifier
+	Username      string     `json:"username,omitempty" gorm:"-"`       // Optional regular-account login name
 	Password      string     `json:"-" gorm:"not null"`
 	TokenVersion  int        `json:"-" gorm:"not null;default:1"`
 	Status        UserStatus `json:"status" gorm:"not null;default:'active'"`
@@ -58,6 +59,14 @@ type User struct { // Automatically generated ID
 	LastAttempt   *time.Time `json:"last_attempt"`
 	CreatedAt     time.Time  `json:"created_at"`
 	UpdatedAt     time.Time  `json:"updated_at"`
+}
+
+// AccountUser maps a regular username/password login name to the internal user ID.
+type AccountUser struct {
+	Username  string    `json:"username" gorm:"primarykey;size:64"`
+	UserID    string    `json:"user_id" gorm:"uniqueIndex;not null;size:32"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // Email User Model
