@@ -12,6 +12,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"minki.cc/mkauth/server/auth"
 	"minki.cc/mkauth/server/common"
 )
 
@@ -25,8 +26,8 @@ func (h *AuthHandler) WeixinLoginURL(c *gin.Context) {
 	// Generate random state
 	state := uuid.New().String()
 
-	// Generate unique client identifier
-	clientID := c.ClientIP() + "-" + c.Request.UserAgent()
+	// Generate an unpredictable state session identifier for callback validation
+	clientID := uuid.New().String()
 	stateKey := fmt.Sprintf("%s%s", common.RedisKeyWeixinState, clientID)
 
 	// Store state in Redis with a reasonable expiration time (e.g., 15 minutes)
@@ -37,7 +38,7 @@ func (h *AuthHandler) WeixinLoginURL(c *gin.Context) {
 	}
 
 	// Set cookie to store client identifier for subsequent callback
-	c.SetCookie("weixin_client_id", clientID, int(time.Minute*15/time.Second), "/", "", false, true)
+	setLaxCookie(c, "weixin_client_id", clientID, int(time.Minute*15/time.Second), "/", "", h.browserSessionCookieSecure(c), true)
 
 	// Get login URL
 	authURL := h.weixinLogin.GetAuthURL(state)
@@ -58,8 +59,8 @@ func (h *AuthHandler) WeixinLoginHandler(c *gin.Context) {
 	// Generate random state
 	state := uuid.New().String()
 
-	// Generate unique client identifier
-	clientID := c.ClientIP() + "-" + c.Request.UserAgent()
+	// Generate an unpredictable state session identifier for callback validation
+	clientID := uuid.New().String()
 	stateKey := fmt.Sprintf("%s%s", common.RedisKeyWeixinState, clientID)
 
 	// Store state in Redis with a reasonable expiration time (e.g., 15 minutes)
@@ -70,7 +71,7 @@ func (h *AuthHandler) WeixinLoginHandler(c *gin.Context) {
 	}
 
 	// Set cookie to store client identifier for subsequent callback
-	c.SetCookie("weixin_client_id", clientID, int(time.Minute*15/time.Second), "/", "", false, true)
+	setLaxCookie(c, "weixin_client_id", clientID, int(time.Minute*15/time.Second), "/", "", h.browserSessionCookieSecure(c), true)
 
 	// Redirect to WeChat login page
 	c.Redirect(http.StatusTemporaryRedirect, h.weixinLogin.GetAuthURL(state))
@@ -118,7 +119,7 @@ func (h *AuthHandler) WeixinCallback(c *gin.Context) {
 		h.logger.Printf("Failed to clear OAuth state from Redis: %v", err)
 		// Don't interrupt the flow, continue processing
 	}
-	c.SetCookie("weixin_client_id", "", -1, "/", "", false, true)
+	setLaxCookie(c, "weixin_client_id", "", -1, "/", "", h.browserSessionCookieSecure(c), true)
 
 	// Handle callback
 	code := c.Query("code")
@@ -128,35 +129,16 @@ func (h *AuthHandler) WeixinCallback(c *gin.Context) {
 	}
 
 	// Use WeChat login service to directly handle login or registration
-	user, _, err := h.weixinLogin.RegisterOrLoginWithWeixin(code)
+	user, err := h.weixinLogin.RegisterOrLoginWithWeixin(code)
 	if err != nil {
 		h.logger.Printf("WeChat login processing failed: %v", err)
+		if appErr, ok := err.(*auth.AppError); ok {
+			c.JSON(appErr.GetHTTPStatus(), gin.H{"error": appErr.Error()})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "WeChat login processing failed"})
 		return
 	}
 
-	session, err := h.createBrowserSession(c, user)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	// Return user and session information, or redirect to frontend application
-	if redirectURL := c.Query("redirect"); redirectURL != "" {
-		c.Redirect(http.StatusTemporaryRedirect, redirectURL)
-		return
-	}
-
-	if err := h.populateAvatarURL(user); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"authenticated": true,
-		"user_id":       user.UserID,
-		"nickname":      user.Nickname,
-		"avatar":        user.Avatar,
-		"expires_at":    session.ExpiresAt,
-	})
+	h.completeBrowserLogin(c, user, "")
 }

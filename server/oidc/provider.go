@@ -62,9 +62,10 @@ type authCode struct {
 }
 
 type AccessTokenClaims struct {
-	Scope     string `json:"scope"`
-	ClientID  string `json:"client_id"`
-	TokenType string `json:"token_type"`
+	Scope        string `json:"scope"`
+	ClientID     string `json:"client_id"`
+	TokenType    string `json:"token_type"`
+	TokenVersion int    `json:"token_version,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -302,7 +303,11 @@ func (p *Provider) userInfo(c *gin.Context) {
 	}
 
 	user, err := p.accountAuth.GetUserByID(claims.Subject)
-	if err != nil {
+	if err != nil || auth.EnsureUserCanAuthenticate(user) != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid_token"})
+		return
+	}
+	if auth.NormalizeTokenVersion(claims.TokenVersion) != auth.EffectiveUserTokenVersion(user) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid_token"})
 		return
 	}
@@ -344,7 +349,8 @@ func (p *Provider) logout(c *gin.Context) {
 		}
 		_ = auth.DeleteBrowserSession(p.redis, browserSessionID)
 	}
-	c.SetCookie(auth.OIDCSessionCookieName, "", -1, "/", "", true, true)
+	c.SetSameSite(http.SameSiteLaxMode)
+	c.SetCookie(auth.OIDCSessionCookieName, "", -1, "/", "", p.browserSessionCookieSecure(c), true)
 
 	if postLogoutRedirectURI != "" {
 		c.Redirect(http.StatusFound, postLogoutRedirectURI)
@@ -358,9 +364,10 @@ func (p *Provider) signAccessToken(c *gin.Context, user *auth.User, client confi
 	now := time.Now()
 	ttl := p.accessTokenTTL()
 	claims := AccessTokenClaims{
-		Scope:     scope,
-		ClientID:  client.ClientID,
-		TokenType: "access_token",
+		Scope:        scope,
+		ClientID:     client.ClientID,
+		TokenType:    "access_token",
+		TokenVersion: auth.EffectiveUserTokenVersion(user),
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:    p.issuer(c),
 			Subject:   user.UserID,
@@ -425,6 +432,7 @@ func (p *Provider) currentUser(c *gin.Context) (*auth.User, error) {
 	}
 	_, session, err := auth.ResolveBrowserSession(p.redis, p.sessionMgr, browserSessionID)
 	if err != nil || session == nil {
+		c.SetSameSite(http.SameSiteLaxMode)
 		c.SetCookie(auth.OIDCSessionCookieName, "", -1, "/", "", p.browserSessionCookieSecure(c), true)
 		return nil, errors.New("invalid browser session")
 	}
@@ -432,6 +440,7 @@ func (p *Provider) currentUser(c *gin.Context) (*auth.User, error) {
 	if maxAge < 1 {
 		maxAge = 1
 	}
+	c.SetSameSite(http.SameSiteLaxMode)
 	c.SetCookie(auth.OIDCSessionCookieName, browserSessionID, maxAge, "/", "", p.browserSessionCookieSecure(c), true)
 	return p.accountAuth.GetUserByID(session.UserID)
 }

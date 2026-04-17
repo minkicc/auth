@@ -13,16 +13,18 @@ package auth
 import (
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
-	"encoding/base64"
+	"crypto/rsa"
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
-	"io/ioutil"
-	"log"
 	"net/http"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
@@ -31,11 +33,11 @@ import (
 
 // GoogleUserInfo represents user information retrieved from Google
 type GoogleUserInfo struct {
-	ID    string `json:"id"`
-	Email string `json:"email"`
-	// VerifiedEmail bool   `json:"verified_email"`
-	Name    string `json:"name"`
-	Picture string `json:"picture"`
+	ID            string `json:"id"`
+	Email         string `json:"email"`
+	EmailVerified bool   `json:"email_verified"`
+	Name          string `json:"name"`
+	Picture       string `json:"picture"`
 }
 
 // GoogleOAuthConfig configuration options
@@ -55,6 +57,20 @@ type GoogleOAuth struct {
 	httpClient    *http.Client
 	db            *gorm.DB
 	avatarService *AvatarService // Added avatar service
+	certsURL      string
+	certsMu       sync.RWMutex
+	certs         map[string]*rsa.PublicKey
+	certsExpiry   time.Time
+}
+
+const googleCertsURL = "https://www.googleapis.com/oauth2/v1/certs"
+
+type googleIDTokenClaims struct {
+	Email         string `json:"email"`
+	EmailVerified bool   `json:"email_verified"`
+	Name          string `json:"name"`
+	Picture       string `json:"picture"`
+	jwt.RegisteredClaims
 }
 
 // NewGoogleOAuth creates a new Google OAuth handler
@@ -87,6 +103,7 @@ func NewGoogleOAuth(cfg GoogleOAuthConfig) (*GoogleOAuth, error) {
 		},
 		db:            cfg.DB,
 		avatarService: cfg.AvatarService,
+		certsURL:      googleCertsURL,
 	}, nil
 }
 
@@ -105,122 +122,167 @@ func (g *GoogleOAuth) AutoMigrate() error {
 	return nil
 }
 
-// GenerateState generates random state parameter
-func (g *GoogleOAuth) GenerateState() (string, error) {
-	b := make([]byte, 32)
-	if _, err := rand.Read(b); err != nil {
-		return "", fmt.Errorf("failed to generate state: %v", err)
+func (g *GoogleOAuth) VerifyIDToken(ctx context.Context, idToken string) (*GoogleUserInfo, error) {
+	if strings.TrimSpace(idToken) == "" {
+		return nil, fmt.Errorf("missing id token")
 	}
-	return base64.URLEncoding.EncodeToString(b), nil
+
+	claims := &googleIDTokenClaims{}
+	token, err := jwt.ParseWithClaims(idToken, claims, func(token *jwt.Token) (interface{}, error) {
+		if token.Method != jwt.SigningMethodRS256 {
+			return nil, fmt.Errorf("unexpected signing method")
+		}
+		kid, _ := token.Header["kid"].(string)
+		return g.googlePublicKey(ctx, kid)
+	},
+		jwt.WithValidMethods([]string{jwt.SigningMethodRS256.Alg()}),
+		jwt.WithAudience(g.config.ClientID),
+		jwt.WithIssuedAt(),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("invalid google id token: %w", err)
+	}
+	if !token.Valid {
+		return nil, fmt.Errorf("invalid google id token")
+	}
+	if !isGoogleIssuer(claims.Issuer) {
+		return nil, fmt.Errorf("invalid google token issuer")
+	}
+	if strings.TrimSpace(claims.Subject) == "" {
+		return nil, fmt.Errorf("missing google subject")
+	}
+
+	return &GoogleUserInfo{
+		ID:            claims.Subject,
+		Email:         claims.Email,
+		EmailVerified: claims.EmailVerified,
+		Name:          claims.Name,
+		Picture:       claims.Picture,
+	}, nil
 }
 
-// GetAuthURL gets Google authorization URL
-func (g *GoogleOAuth) GetAuthURL(state string) string {
-	// Add PKCE support
-	verifier := g.generateCodeVerifier()
-	challenge := g.generateCodeChallenge(verifier)
-
-	opts := []oauth2.AuthCodeOption{
-		oauth2.AccessTypeOffline,
-		oauth2.SetAuthURLParam("code_challenge", challenge),
-		oauth2.SetAuthURLParam("code_challenge_method", "S256"),
+func isGoogleIssuer(issuer string) bool {
+	switch issuer {
+	case "https://accounts.google.com", "accounts.google.com":
+		return true
+	default:
+		return false
 	}
-
-	return g.config.AuthCodeURL(state, opts...)
 }
 
-// HandleCallback handles OAuth callback
-func (g *GoogleOAuth) HandleCallback(ctx context.Context, code, state, expectedState string) (*GoogleUserInfo, error) {
-	if state == "" || state != expectedState {
-		return nil, fmt.Errorf("invalid state parameter")
-	}
-
-	token, err := g.config.Exchange(ctx, code)
-	if err != nil {
-		return nil, fmt.Errorf("code exchange failed: %w", err)
-	}
-
-	if !token.Valid() {
-		return nil, fmt.Errorf("received invalid token")
-	}
-
-	user, err := g.getUserInfo(ctx, token.AccessToken)
-	if err != nil {
-		return nil, fmt.Errorf("failed getting user info: %w", err)
-	}
-
-	return user, nil
+func canLinkGoogleEmail(email string, emailVerified bool) bool {
+	return strings.TrimSpace(email) != "" && emailVerified
 }
 
-// getUserInfo gets user information
-func (g *GoogleOAuth) getUserInfo(ctx context.Context, accessToken string) (*GoogleUserInfo, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET",
-		"https://www.googleapis.com/oauth2/v2/userinfo", nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+func (g *GoogleOAuth) googlePublicKey(ctx context.Context, kid string) (*rsa.PublicKey, error) {
+	if strings.TrimSpace(kid) == "" {
+		return nil, fmt.Errorf("missing google key id")
 	}
 
-	req.Header.Set("Authorization", "Bearer "+accessToken)
+	g.certsMu.RLock()
+	if len(g.certs) > 0 && time.Now().Before(g.certsExpiry) {
+		if key := g.certs[kid]; key != nil {
+			g.certsMu.RUnlock()
+			return key, nil
+		}
+	}
+	g.certsMu.RUnlock()
 
-	var retries int
-	for {
-		resp, err := g.httpClient.Do(req)
+	return g.refreshGoogleCerts(ctx, kid)
+}
+
+func (g *GoogleOAuth) refreshGoogleCerts(ctx context.Context, kid string) (*rsa.PublicKey, error) {
+	g.certsMu.Lock()
+	defer g.certsMu.Unlock()
+
+	if len(g.certs) > 0 && time.Now().Before(g.certsExpiry) {
+		if key := g.certs[kid]; key != nil {
+			return key, nil
+		}
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, g.certsURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create google cert request: %w", err)
+	}
+
+	resp, err := g.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch google certs: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("failed to fetch google certs: status=%d", resp.StatusCode)
+	}
+
+	var certs map[string]string
+	if err := json.NewDecoder(resp.Body).Decode(&certs); err != nil {
+		return nil, fmt.Errorf("failed to decode google certs: %w", err)
+	}
+
+	parsedCerts := make(map[string]*rsa.PublicKey, len(certs))
+	for keyID, rawCert := range certs {
+		publicKey, err := parseGoogleRSAPublicKey(rawCert)
 		if err != nil {
-			if retries < 3 {
-				retries++
-				time.Sleep(time.Second * time.Duration(retries))
-				continue
-			}
-			return nil, fmt.Errorf("failed getting user info after %d retries: %w", retries, err)
+			return nil, fmt.Errorf("failed to parse google cert %s: %w", keyID, err)
 		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode != http.StatusOK {
-			body, _ := ioutil.ReadAll(resp.Body)
-			return nil, fmt.Errorf("failed getting user info: status=%d, body=%s",
-				resp.StatusCode, string(body))
-		}
-
-		var user GoogleUserInfo
-		if err := json.NewDecoder(resp.Body).Decode(&user); err != nil {
-			return nil, fmt.Errorf("failed parsing user info: %w", err)
-		}
-
-		return &user, nil
+		parsedCerts[keyID] = publicKey
 	}
+
+	g.certs = parsedCerts
+	g.certsExpiry = time.Now().Add(parseGoogleCertCacheTTL(resp.Header.Get("Cache-Control")))
+
+	if key := g.certs[kid]; key != nil {
+		return key, nil
+	}
+
+	return nil, fmt.Errorf("google signing key not found")
 }
 
-// RefreshToken refreshes access token
-func (g *GoogleOAuth) RefreshToken(ctx context.Context, refreshToken string) (*oauth2.Token, error) {
-	token := &oauth2.Token{
-		RefreshToken: refreshToken,
+func parseGoogleCertCacheTTL(cacheControl string) time.Duration {
+	const defaultTTL = time.Hour
+	for _, directive := range strings.Split(cacheControl, ",") {
+		directive = strings.TrimSpace(directive)
+		if !strings.HasPrefix(strings.ToLower(directive), "max-age=") {
+			continue
+		}
+		seconds, err := strconv.Atoi(strings.TrimSpace(strings.TrimPrefix(directive, "max-age=")))
+		if err != nil || seconds <= 0 {
+			return defaultTTL
+		}
+		return time.Duration(seconds) * time.Second
+	}
+	return defaultTTL
+}
+
+func parseGoogleRSAPublicKey(raw string) (*rsa.PublicKey, error) {
+	block, _ := pem.Decode([]byte(raw))
+	if block == nil {
+		return nil, fmt.Errorf("invalid pem data")
 	}
 
-	newToken, err := g.config.TokenSource(ctx, token).Token()
+	if block.Type == "CERTIFICATE" {
+		cert, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			return nil, err
+		}
+		publicKey, ok := cert.PublicKey.(*rsa.PublicKey)
+		if !ok {
+			return nil, fmt.Errorf("certificate does not contain rsa public key")
+		}
+		return publicKey, nil
+	}
+
+	publicKey, err := jwt.ParseRSAPublicKeyFromPEM([]byte(raw))
 	if err != nil {
-		return nil, fmt.Errorf("failed to refresh token: %w", err)
+		return nil, err
 	}
-
-	return newToken, nil
+	return publicKey, nil
 }
 
-// PKCE helper functions
-func (g *GoogleOAuth) generateCodeVerifier() string {
-	b := make([]byte, 32)
-	rand.Read(b)
-	return base64.RawURLEncoding.EncodeToString(b)
-}
-
-// Generate code challenge using SHA256
-func (g *GoogleOAuth) generateCodeChallenge(verifier string) string {
-	// Use SHA256 to generate code challenge
-	h := sha256.New()
-	h.Write([]byte(verifier))
-	return base64.RawURLEncoding.EncodeToString(h.Sum(nil))
-}
-
-// GetUserByGoogleID gets a user by Google ID
-func (g *GoogleOAuth) GetUserByGoogleID(googleID, email string) (*User, error) {
+// GetUserByGoogleID gets a user by Google ID or, when safe, a verified email match.
+func (g *GoogleOAuth) GetUserByGoogleID(googleID, email string, emailVerified bool) (*User, error) {
 	if g.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -233,10 +295,16 @@ func (g *GoogleOAuth) GetUserByGoogleID(googleID, email string) (*User, error) {
 	case nil:
 		userID = googleUser.UserID
 	case gorm.ErrRecordNotFound:
+		if !canLinkGoogleEmail(email, emailVerified) {
+			return nil, nil
+		}
 		var googleUserWithSameEmail EmailUser
 		err = g.db.Where("email = ?", email).First(&googleUserWithSameEmail).Error
 		if err != nil {
-			return nil, err // Not found, return nil to let subsequent flow handle
+			if err == gorm.ErrRecordNotFound {
+				return nil, nil
+			}
+			return nil, err
 		}
 		userID = googleUserWithSameEmail.UserID
 	default:
@@ -253,49 +321,6 @@ func (g *GoogleOAuth) GetUserByGoogleID(googleID, email string) (*User, error) {
 	}
 
 	return &user, nil
-}
-
-// RegisterOrLoginWithGoogle registers or logs in a user with Google
-func (g *GoogleOAuth) RegisterOrLoginWithGoogle(ctx context.Context, code, state, expectedState string) (*User, error) {
-	if g.db == nil {
-		return nil, fmt.Errorf("database not initialized")
-	}
-
-	// 1. Handle Google callback, get user information
-	googleUserInfo, err := g.HandleCallback(ctx, code, state, expectedState)
-	if err != nil {
-		return nil, fmt.Errorf("failed to process Google callback: %w", err)
-	}
-
-	// 2. Check if the Google user already exists
-	user, err := g.GetUserByGoogleID(googleUserInfo.ID, googleUserInfo.Email)
-	if err != nil {
-		return nil, err
-	}
-
-	// 3. If user does not exist, create a new user
-	if user == nil {
-		user, err = g.CreateUserFromGoogle(googleUserInfo)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create Google user: %w", err)
-		}
-	} else {
-		// 4. If user already exists, update user information
-		if err := g.UpdateGoogleUserInfo(user.UserID, googleUserInfo); err != nil {
-			log.Printf("Failed to update Google user information: %v", err)
-			// Does not affect login process, just log the error
-		}
-	}
-
-	// 5. Update last login time
-	now := time.Now()
-	user.LastLogin = &now
-	if err := g.db.Save(user).Error; err != nil {
-		log.Printf("Failed to update user last login time: %v", err)
-		// Does not affect login process, just log the error
-	}
-
-	return user, nil
 }
 
 // CreateUserFromGoogle creates a user from Google information
@@ -355,13 +380,14 @@ func (g *GoogleOAuth) CreateUserFromGoogle(googleInfo *GoogleUserInfo) (*User, e
 	// Create basic user record
 	now := time.Now()
 	user := &User{
-		UserID:    userID,
-		Password:  string(hashedPassword),
-		Status:    UserStatusActive,
-		Nickname:  nickname,
-		Avatar:    avatarURL,
-		CreatedAt: now,
-		UpdatedAt: now,
+		UserID:       userID,
+		Password:     string(hashedPassword),
+		TokenVersion: DefaultTokenVersion,
+		Status:       UserStatusActive,
+		Nickname:     nickname,
+		Avatar:       avatarURL,
+		CreatedAt:    now,
+		UpdatedAt:    now,
 	}
 
 	if err := tx.Create(user).Error; err != nil {
@@ -371,13 +397,14 @@ func (g *GoogleOAuth) CreateUserFromGoogle(googleInfo *GoogleUserInfo) (*User, e
 
 	// Create Google user association record
 	googleUser := &GoogleUser{
-		UserID:    userID,
-		GoogleID:  googleInfo.ID,
-		Email:     googleInfo.Email,
-		Name:      googleInfo.Name,
-		Picture:   avatarURL,
-		CreatedAt: now,
-		UpdatedAt: now,
+		UserID:        userID,
+		GoogleID:      googleInfo.ID,
+		Email:         googleInfo.Email,
+		VerifiedEmail: googleInfo.EmailVerified,
+		Name:          googleInfo.Name,
+		Picture:       avatarURL,
+		CreatedAt:     now,
+		UpdatedAt:     now,
 	}
 
 	if err := tx.Create(googleUser).Error; err != nil {
@@ -413,6 +440,7 @@ func (g *GoogleOAuth) UpdateGoogleUserInfo(userID string, googleInfo *GoogleUser
 
 	googleUser.Name = googleInfo.Name
 	googleUser.Email = googleInfo.Email
+	googleUser.VerifiedEmail = googleInfo.EmailVerified
 	googleUser.Picture = avatarURL
 	googleUser.UpdatedAt = time.Now()
 

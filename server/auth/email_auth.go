@@ -10,7 +10,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
@@ -112,38 +111,53 @@ func (a *EmailAuth) InitiatePasswordReset(email, title, content string) (string,
 }
 
 // CompletePasswordReset Complete password reset
-func (a *EmailAuth) CompletePasswordReset(token, newPassword string) error {
+func (a *EmailAuth) CompletePasswordReset(token, newPassword string) (string, error) {
 	// Get verification record from Redis
 	verification, err := a.redis.GetVerificationByToken(VerificationTypePassword, token)
 	if err != nil {
-		return ErrInvalidToken("Password reset token is invalid or expired")
+		return "", ErrInvalidToken("Password reset token is invalid or expired")
 	}
 
 	// Validate new password strength
 	if len(newPassword) < 8 {
-		return ErrWeakPassword("Password must be at least 8 characters")
+		return "", ErrWeakPassword("Password must be at least 8 characters")
 	}
 
 	// Encrypt new password
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
 	if err != nil {
-		return err
+		return "", err
+	}
+
+	var user User
+	if err := a.db.Where("user_id = ?", verification.UserID).First(&user).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return "", ErrInvalidToken("Invalid user ID")
+		}
+		return "", err
 	}
 
 	// Update password in User table
-	result := a.db.Model(&User{}).Where("user_id = ?", verification.UserID).
-		Update("password", string(hashedPassword))
+	result := a.db.Model(&user).Updates(map[string]interface{}{
+		"password":      string(hashedPassword),
+		"token_version": EffectiveUserTokenVersion(&user) + 1,
+		"updated_at":    time.Now(),
+	})
 
 	if result.Error != nil {
-		return result.Error
+		return "", result.Error
 	}
 
 	if result.RowsAffected == 0 {
-		return ErrInvalidToken("Invalid user ID")
+		return "", ErrInvalidToken("Invalid user ID")
 	}
 
 	// Delete token after use
-	return a.redis.DeleteVerification(VerificationTypePassword, verification.Identifier, token)
+	if err := a.redis.DeleteVerification(VerificationTypePassword, verification.Identifier, token); err != nil {
+		fmt.Printf("Failed to delete password reset verification: %v\n", err)
+	}
+
+	return verification.UserID, nil
 }
 
 // EmailPreregister Email pre-registration, sends verification email but doesn't create user
@@ -260,12 +274,13 @@ func (a *EmailAuth) RegisterEmailUser(email, password, nickname string) (*User, 
 	// Create basic user record
 	now := time.Now()
 	user := &User{
-		UserID:    userID,
-		Password:  password, // Already encrypted password
-		Status:    UserStatusActive,
-		Nickname:  nickname,
-		CreatedAt: now,
-		UpdatedAt: now,
+		UserID:       userID,
+		Password:     password, // Already encrypted password
+		TokenVersion: DefaultTokenVersion,
+		Status:       UserStatusActive,
+		Nickname:     nickname,
+		CreatedAt:    now,
+		UpdatedAt:    now,
 	}
 
 	if err := tx.Create(user).Error; err != nil {
@@ -300,7 +315,6 @@ func (a *EmailAuth) VerifyEmail(token string) (*User, error) {
 	// Get verification record from Redis
 	verification, err := a.redis.GetVerificationByToken(VerificationTypeEmail, token)
 	if err != nil {
-		log.Println("verify email error:", err)
 		return nil, ErrInvalidToken("Email verification token is invalid or expired")
 	}
 
@@ -380,6 +394,9 @@ func (a *EmailAuth) EmailLogin(email, password string) (*User, error) {
 	// Verify password
 	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password)); err != nil {
 		return nil, ErrInvalidPassword("Invalid email or password")
+	}
+	if err := EnsureUserCanAuthenticate(&user); err != nil {
+		return nil, err
 	}
 
 	// Update last login time

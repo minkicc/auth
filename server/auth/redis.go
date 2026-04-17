@@ -62,7 +62,7 @@ func (rs *RedisStore) Get(key string, dest interface{}) error {
 	data, err := rs.client.Get(rs.ctx, key).Bytes()
 	if err != nil {
 		if err == redis.Nil {
-			return nil
+			return redis.Nil
 		}
 		return fmt.Errorf("failed to get data: %w", err)
 	}

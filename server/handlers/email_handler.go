@@ -6,10 +6,11 @@
 package handlers
 
 import (
-	"log"
+	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"minki.cc/mkauth/server/auth"
 )
 
 // EmailLogin Email login
@@ -81,7 +82,6 @@ func (h *AuthHandler) EmailVerify(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Missing verification token"})
 		return
 	}
-	log.Println("email verify token:", token)
 	// Verify email and complete registration
 	user, err := h.emailAuth.VerifyEmail(token)
 	if err != nil {
@@ -107,8 +107,12 @@ func (h *AuthHandler) ResendEmailVerification(c *gin.Context) {
 
 	_, err := h.emailAuth.ResentEmailVerification(req.Email, req.Title, req.Content)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
+		var appErr *auth.AppError
+		if !errors.As(err, &appErr) || appErr.Code != auth.ErrCodeUserNotFound {
+			if h.logger != nil {
+				h.logger.Printf("Resend email verification failed for %s: %v", req.Email, err)
+			}
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Verification email has been resent, please check"})
@@ -130,12 +134,18 @@ func (h *AuthHandler) EmailPasswordReset(c *gin.Context) {
 	// Initiate password reset
 	_, err := h.emailAuth.InitiatePasswordReset(req.Email, req.Title, req.Content)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
+		var appErr *auth.AppError
+		if !errors.As(err, &appErr) || appErr.Code != auth.ErrCodeUserNotFound {
+			if h.logger != nil {
+				h.logger.Printf("Email password reset request failed for %s: %v", req.Email, err)
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to process password reset request"})
+			return
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"message": "Password reset email has been sent, please check",
+		"message": "If the email address exists, a password reset email has been sent",
 	})
 }
 
@@ -152,10 +162,16 @@ func (h *AuthHandler) CompleteEmailPasswordReset(c *gin.Context) {
 	}
 
 	// Complete password reset
-	if err := h.emailAuth.CompletePasswordReset(req.Token, req.NewPassword); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	userID, err := h.emailAuth.CompletePasswordReset(req.Token, req.NewPassword)
+	if err != nil {
+		if appErr, ok := err.(*auth.AppError); ok {
+			c.JSON(appErr.GetHTTPStatus(), gin.H{"error": appErr.Error()})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to reset password"})
 		return
 	}
+	h.revokeUserSessions(c, userID)
 
-	c.JSON(http.StatusOK, gin.H{"message": "Password reset successful"})
+	c.JSON(http.StatusOK, gin.H{"message": "Password reset successful, please sign in again"})
 }

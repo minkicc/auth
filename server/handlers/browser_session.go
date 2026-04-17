@@ -9,6 +9,11 @@ import (
 	"minki.cc/mkauth/server/common"
 )
 
+func setLaxCookie(c *gin.Context, name, value string, maxAge int, path, domain string, secure, httpOnly bool) {
+	c.SetSameSite(http.SameSiteLaxMode)
+	c.SetCookie(name, value, maxAge, path, domain, secure, httpOnly)
+}
+
 func (h *AuthHandler) setBrowserSession(c *gin.Context, session *auth.Session) error {
 	browserSessionID, err := auth.CreateBrowserSession(h.redisStore, session)
 	if err != nil {
@@ -23,14 +28,14 @@ func (h *AuthHandler) refreshBrowserSessionCookie(c *gin.Context, browserSession
 	if maxAge < 1 {
 		maxAge = 1
 	}
-	c.SetCookie(auth.OIDCSessionCookieName, browserSessionID, maxAge, "/", "", h.browserSessionCookieSecure(c), true)
+	setLaxCookie(c, auth.OIDCSessionCookieName, browserSessionID, maxAge, "/", "", h.browserSessionCookieSecure(c), true)
 }
 
 func (h *AuthHandler) clearBrowserSession(c *gin.Context) {
 	if browserSessionID, err := c.Cookie(auth.OIDCSessionCookieName); err == nil && browserSessionID != "" {
 		_ = auth.DeleteBrowserSession(h.redisStore, browserSessionID)
 	}
-	c.SetCookie(auth.OIDCSessionCookieName, "", -1, "/", "", h.browserSessionCookieSecure(c), true)
+	setLaxCookie(c, auth.OIDCSessionCookieName, "", -1, "/", "", h.browserSessionCookieSecure(c), true)
 }
 
 func (h *AuthHandler) browserSessionCookieSecure(c *gin.Context) bool {
@@ -57,7 +62,7 @@ func (h *AuthHandler) GetBrowserSession(c *gin.Context) {
 	}
 
 	user, err := h.accountAuth.GetUserByID(session.UserID)
-	if err != nil {
+	if err != nil || auth.EnsureUserCanAuthenticate(user) != nil {
 		h.clearBrowserSession(c)
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "browser session not found"})
 		return

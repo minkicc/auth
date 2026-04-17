@@ -41,12 +41,11 @@ func (c *WeixinConfig) Validate() error {
 
 // WeixinLoginResponse WeChat login response
 type WeixinLoginResponse struct {
-	AccessToken  string `json:"access_token"`
-	ExpiresIn    int    `json:"expires_in"`
-	RefreshToken string `json:"refresh_token"`
-	OpenID       string `json:"openid"`
-	Scope        string `json:"scope"`
-	UnionID      string `json:"unionid"`
+	AccessToken string `json:"access_token"`
+	ExpiresIn   int    `json:"expires_in"`
+	OpenID      string `json:"openid"`
+	Scope       string `json:"scope"`
+	UnionID     string `json:"unionid"`
 }
 
 // WeixinErrorResponse WeChat error response
@@ -109,20 +108,6 @@ func (w *WeixinLogin) HandleCallback(code string) (*WeixinLoginResponse, error) 
 	return doRequest[WeixinLoginResponse](url)
 }
 
-// RefreshToken Refresh access token
-func (w *WeixinLogin) RefreshToken(refreshToken string) (*WeixinLoginResponse, error) {
-	if refreshToken == "" {
-		return nil, errors.New("refresh token is required")
-	}
-
-	url := fmt.Sprintf(
-		"https://api.weixin.qq.com/sns/oauth2/refresh_token?appid=%s&grant_type=refresh_token&refresh_token=%s",
-		w.Config.AppID,
-		refreshToken,
-	)
-	return doRequest[WeixinLoginResponse](url)
-}
-
 // GetUserInfo Get user information
 func (w *WeixinLogin) GetUserInfo(accessToken, openID string) (*WeixinUserInfo, error) {
 	if accessToken == "" || openID == "" {
@@ -158,7 +143,7 @@ func (w *WeixinLogin) ValidateAccessToken(accessToken, openID string) error {
 
 // doRequest Execute HTTP request and handle response
 func doRequest[T any](url string) (*T, error) {
-	log.Printf("Requesting WeChat API: %s", url)
+	log.Printf("Requesting WeChat API")
 
 	resp, err := http.Get(url)
 	if err != nil {
@@ -218,33 +203,36 @@ func (w *WeixinLogin) GetUserByWeixinID(unionID string) (*User, error) {
 	return &user, nil
 }
 
-// RegisterOrLoginWithWeixin Register or login user via WeChat
-func (w *WeixinLogin) RegisterOrLoginWithWeixin(code string) (*User, *WeixinLoginResponse, error) {
+// RegisterOrLoginWithWeixin Register or login user via WeChat.
+func (w *WeixinLogin) RegisterOrLoginWithWeixin(code string) (*User, error) {
 	// 1. Handle WeChat callback, get access token and OpenID
 	loginResp, err := w.HandleCallback(code)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to process WeChat callback: %w", err)
+		return nil, fmt.Errorf("failed to process WeChat callback: %w", err)
 	}
 
 	// 2. Get WeChat user information
 	userInfo, err := w.GetUserInfo(loginResp.AccessToken, loginResp.OpenID)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get WeChat user information: %w", err)
+		return nil, fmt.Errorf("failed to get WeChat user information: %w", err)
 	}
 
 	// 3. Check if this WeChat user already exists
 	user, err := w.GetUserByWeixinID(userInfo.UnionID)
 	if err != nil && err != gorm.ErrRecordNotFound {
-		return nil, nil, err
+		return nil, err
 	}
 
 	// 4. If user doesn't exist, create a new user
 	if user == nil {
 		user, err = w.CreateUserFromWeixin(userInfo)
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to create WeChat user: %w", err)
+			return nil, fmt.Errorf("failed to create WeChat user: %w", err)
 		}
 	} else {
+		if err := EnsureUserCanAuthenticate(user); err != nil {
+			return nil, err
+		}
 		// 5. If user already exists, update user information
 		// if err := w.UpdateWeixinUserInfo(user.UserID, userInfo); err != nil {
 		// 	log.Printf("failed to update WeChat user information: %v", err)
@@ -261,7 +249,7 @@ func (w *WeixinLogin) RegisterOrLoginWithWeixin(code string) (*User, *WeixinLogi
 		}
 	}
 
-	return user, loginResp, nil
+	return user, nil
 }
 
 // CreateUserFromWeixin Create system user from WeChat user information
@@ -305,15 +293,14 @@ func (w *WeixinLogin) CreateUserFromWeixin(weixinInfo *WeixinUserInfo) (*User, e
 	now := time.Now()
 
 	user := &User{
-		UserID:   userID,
-		Password: string(hashedPassword),
-		Status:   UserStatusActive,
-
-		Nickname: weixinInfo.Nickname,
-		Avatar:   avatarURL,
-
-		CreatedAt: now,
-		UpdatedAt: now,
+		UserID:       userID,
+		Password:     string(hashedPassword),
+		TokenVersion: DefaultTokenVersion,
+		Status:       UserStatusActive,
+		Nickname:     weixinInfo.Nickname,
+		Avatar:       avatarURL,
+		CreatedAt:    now,
+		UpdatedAt:    now,
 	}
 
 	if err := tx.Create(user).Error; err != nil {

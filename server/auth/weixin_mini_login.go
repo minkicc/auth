@@ -106,6 +106,9 @@ func (w *WeixinMiniLogin) MiniProgramLogin(jsCode string) (*User, *MiniProgramSe
 			return nil, resp, fmt.Errorf("failed to create user: %w", err)
 		}
 	} else {
+		if err := EnsureUserCanAuthenticate(user); err != nil {
+			return nil, resp, err
+		}
 		// 更新最后登录时间
 		err := w.db.Model(&User{}).Where("user_id = ?", user.UserID).Updates(map[string]interface{}{
 			"last_login": time.Now(),
@@ -199,13 +202,14 @@ func (w *WeixinMiniLogin) CreateUserFromWeixin(weixinInfo *WeixinUserInfo) (*Use
 	}
 
 	user := &User{
-		UserID:    userID,
-		Password:  string(hashedPassword),
-		Status:    UserStatusActive,
-		Nickname:  nickname,
-		Avatar:    avatarURL,
-		CreatedAt: now,
-		UpdatedAt: now,
+		UserID:       userID,
+		Password:     string(hashedPassword),
+		TokenVersion: DefaultTokenVersion,
+		Status:       UserStatusActive,
+		Nickname:     nickname,
+		Avatar:       avatarURL,
+		CreatedAt:    now,
+		UpdatedAt:    now,
 	}
 
 	if err := tx.Create(user).Error; err != nil {

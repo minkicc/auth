@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -90,6 +91,41 @@ func onNotFound(webFilePath string) gin.HandlerFunc {
 
 }
 
+func collectAllowedOrigins(cfg *config.Config) []string {
+	if cfg == nil {
+		return nil
+	}
+
+	origins := map[string]struct{}{}
+	addOrigin := func(raw string) {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			return
+		}
+		parsed, err := url.Parse(raw)
+		if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+			return
+		}
+		origins[parsed.Scheme+"://"+parsed.Host] = struct{}{}
+	}
+
+	addOrigin(cfg.OIDC.Issuer)
+	addOrigin(cfg.Auth.Google.RedirectURL)
+	addOrigin(cfg.Auth.Weixin.RedirectURL)
+	for _, client := range cfg.OIDC.Clients {
+		for _, redirectURI := range client.RedirectURIs {
+			addOrigin(redirectURI)
+		}
+	}
+
+	allowedOrigins := make([]string, 0, len(origins))
+	for origin := range origins {
+		allowedOrigins = append(allowedOrigins, origin)
+	}
+	slices.Sort(allowedOrigins)
+	return allowedOrigins
+}
+
 func main() {
 	// Parse command line arguments
 	configPath := flag.String("config", defaultConfigFilePath, "Configuration file path")
@@ -147,7 +183,10 @@ func main() {
 
 	// Add CORS middleware
 	corsConfig := cors.DefaultConfig()
-	corsConfig.AllowOrigins = []string{"*"}
+	allowedOrigins := collectAllowedOrigins(cfg)
+	corsConfig.AllowOriginFunc = func(origin string) bool {
+		return slices.Contains(allowedOrigins, origin)
+	}
 	corsConfig.AllowMethods = []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"}
 	corsConfig.AllowHeaders = []string{"Origin", "Content-Type", "Accept", "Authorization"}
 	corsConfig.AllowCredentials = true

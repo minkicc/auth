@@ -9,6 +9,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"minki.cc/mkauth/server/auth"
 )
 
 // WeixinMiniLogin 处理微信小程序登录
@@ -29,6 +30,10 @@ func (h *AuthHandler) WeixinMiniLogin(c *gin.Context) {
 	user, _, err := h.weixinMiniLogin.MiniProgramLogin(code)
 	if err != nil {
 		h.logger.Printf("WeChat mini program login failed: %v", err)
+		if appErr, ok := err.(*auth.AppError); ok {
+			c.JSON(appErr.GetHTTPStatus(), gin.H{"error": appErr.Error()})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "WeChat mini program login failed"})
 		return
 	}

@@ -49,6 +49,7 @@ type Session struct {
 type User struct { // Automatically generated ID
 	UserID        string     `json:"user_id" gorm:"primarykey"` // Login identifier, for normal accounts this is the login account, for email accounts it's automatically generated
 	Password      string     `json:"-" gorm:"not null"`
+	TokenVersion  int        `json:"-" gorm:"not null;default:1"`
 	Status        UserStatus `json:"status" gorm:"not null;default:'active'"`
 	Nickname      string     `json:"nickname" gorm:"size:50"` // Nickname
 	Avatar        string     `json:"avatar" gorm:"size:255"`  // Avatar URL

@@ -6,43 +6,28 @@
 package handlers
 
 import (
-	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
-	"strconv"
-	"time"
 
 	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
 	"minki.cc/mkauth/server/auth"
 )
 
 // handleGoogleUser Process Google user, find or create user
-func (h *AuthHandler) handleGoogleUser(googleID, email, name, pictureURL string) (*auth.User, error) {
+func (h *AuthHandler) handleGoogleUser(googleUserInfo *auth.GoogleUserInfo) (*auth.User, error) {
 	if h.googleOAuth == nil {
 		return nil, fmt.Errorf("google OAuth is not enabled")
 	}
 
-	// Create a GoogleUserInfo object
-	googleUserInfo := &auth.GoogleUserInfo{
-		ID:      googleID,
-		Email:   email,
-		Name:    name,
-		Picture: pictureURL,
-	}
-
 	// Find existing user
-	user, err := h.googleOAuth.GetUserByGoogleID(googleID, email)
+	user, err := h.googleOAuth.GetUserByGoogleID(googleUserInfo.ID, googleUserInfo.Email, googleUserInfo.EmailVerified)
 	if err != nil {
-		// If user not found, create new user
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			user, err = h.googleOAuth.CreateUserFromGoogle(googleUserInfo)
-			if err != nil {
-				return nil, fmt.Errorf("failed to create Google user: %w", err)
-			}
-		} else {
-			return nil, err
+		return nil, err
+	}
+	if user == nil {
+		user, err = h.googleOAuth.CreateUserFromGoogle(googleUserInfo)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create Google user: %w", err)
 		}
 	} else {
 		// Update user information
@@ -66,78 +51,15 @@ func (h *AuthHandler) GoogleCredential(c *gin.Context) {
 		return
 	}
 
-	// 验证 Google ID token
-	// 使用 Google 的 TokenInfo API 验证 token
-	resp, err := http.Get(fmt.Sprintf("https://oauth2.googleapis.com/tokeninfo?id_token=%s", req.Credential))
+	googleUser, err := h.googleOAuth.VerifyIDToken(c.Request.Context(), req.Credential)
 	if err != nil {
 		h.logger.Printf("Failed to verify Google token: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify Google token"})
-		return
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		h.logger.Printf("Invalid Google token status: %d", resp.StatusCode)
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid Google token"})
 		return
 	}
 
-	var tokenInfo struct {
-		Sub           string `json:"sub"`
-		Email         string `json:"email"`
-		EmailVerified string `json:"email_verified"`
-		Name          string `json:"name"`
-		Picture       string `json:"picture"`
-		Audience      string `json:"aud"`
-		ExpiresAt     string `json:"exp"`
-		IssuedAt      string `json:"iat"`
-		Issuer        string `json:"iss"`
-	}
-
-	if err := json.NewDecoder(resp.Body).Decode(&tokenInfo); err != nil {
-		h.logger.Printf("Failed to decode token info: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to decode token info"})
-		return
-	}
-
-	// 验证 token 的受众（audience）是否匹配
-	if tokenInfo.Audience != h.googleOAuth.GetClientID() {
-		h.logger.Printf("Token audience mismatch: %s != %s", tokenInfo.Audience, h.googleOAuth.GetClientID())
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token audience"})
-		return
-	}
-
-	// 验证 token 的颁发者（issuer）是否匹配
-	if tokenInfo.Issuer != "https://accounts.google.com" && tokenInfo.Issuer != "accounts.google.com" {
-		h.logger.Printf("Invalid token issuer: %s", tokenInfo.Issuer)
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token issuer"})
-		return
-	}
-
-	// 验证 token 是否过期
-	exp, err := strconv.ParseInt(tokenInfo.ExpiresAt, 10, 64)
-	if err != nil {
-		h.logger.Printf("Invalid token expiration time: %v", err)
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token expiration time"})
-		return
-	}
-
-	if time.Now().Unix() > exp {
-		h.logger.Printf("Token expired")
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Token expired"})
-		return
-	}
-
-	// 创建 Google 用户信息
-	googleUser := &auth.GoogleUserInfo{
-		ID:      tokenInfo.Sub,
-		Email:   tokenInfo.Email,
-		Name:    tokenInfo.Name,
-		Picture: tokenInfo.Picture,
-	}
-
 	// 创建或查找用户
-	user, err := h.handleGoogleUser(googleUser.ID, googleUser.Email, googleUser.Name, googleUser.Picture)
+	user, err := h.handleGoogleUser(googleUser)
 	if err != nil {
 		h.logger.Printf("Failed to process Google user: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to process user information"})
