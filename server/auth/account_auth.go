@@ -140,6 +140,9 @@ func (a *AccountAuth) Login(userID string, password string) (*User, error) {
 	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password)); err != nil {
 		return nil, ErrInvalidPassword("Invalid account or password")
 	}
+	if err := EnsureUserCanAuthenticate(user); err != nil {
+		return nil, err
+	}
 
 	now := time.Now()
 	user.LastLogin = &now
@@ -216,8 +219,9 @@ func (a *AccountAuth) ChangePassword(userID string, oldPassword, newPassword str
 	}
 
 	return a.db.Model(user).Updates(map[string]interface{}{
-		"password":   string(hashedPassword),
-		"updated_at": time.Now(),
+		"password":      string(hashedPassword),
+		"token_version": EffectiveUserTokenVersion(user) + 1,
+		"updated_at":    time.Now(),
 	}).Error
 }
 
@@ -244,9 +248,10 @@ func (a *AccountAuth) Register(userID string, password string, nickname string) 
 
 	now := time.Now()
 	user := &User{
-		UserID:   userID,
-		Password: string(hashedPassword),
-		Status:   UserStatusActive,
+		UserID:       userID,
+		Password:     string(hashedPassword),
+		TokenVersion: DefaultTokenVersion,
+		Status:       UserStatusActive,
 		// LastAttempt: now,
 		CreatedAt: now,
 		UpdatedAt: now,

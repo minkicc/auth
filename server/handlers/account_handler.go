@@ -157,7 +157,7 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 func (h *AuthHandler) ResetPassword(c *gin.Context) {
 	var req struct {
 		OldPassword string `json:"old_password" binding:"required"`
-		NewPassword string `json:"new_password" binding:"required,min=6,max=32"`
+		NewPassword string `json:"new_password" binding:"required,min=8,max=32"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -171,12 +171,18 @@ func (h *AuthHandler) ResetPassword(c *gin.Context) {
 		return
 	}
 
-	if err := h.accountAuth.ChangePassword(userID.(string), req.OldPassword, req.NewPassword); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	userIDStr := userID.(string)
+	if err := h.accountAuth.ChangePassword(userIDStr, req.OldPassword, req.NewPassword); err != nil {
+		if appErr, ok := err.(*auth.AppError); ok {
+			c.JSON(appErr.GetHTTPStatus(), gin.H{"error": appErr.Error()})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to change password"})
 		return
 	}
+	h.revokeUserSessions(c, userIDStr)
 
-	c.JSON(http.StatusOK, gin.H{"message": "Password changed successfully"})
+	c.JSON(http.StatusOK, gin.H{"message": "Password changed successfully, please sign in again"})
 
 }
 

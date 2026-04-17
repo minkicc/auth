@@ -36,6 +36,13 @@ type AuthHandler struct {
 	logger          *log.Logger
 }
 
+func (h *AuthHandler) publicBaseURL() string {
+	if h == nil || h.config == nil {
+		return ""
+	}
+	return h.config.OIDC.Issuer
+}
+
 // NewAuthHandler Create new authentication handler
 func NewAuthHandler(
 	useAccountAuth bool,
@@ -79,9 +86,9 @@ func (h *AuthHandler) RegisterRoutes(authGroup *gin.RouterGroup, cfg *config.Con
 	if h.useAccountAuth {
 		authGroup.POST("/account/register", h.Register)
 		authGroup.POST("/account/login", h.Login)
-		authGroup.POST("/account/password/reset", h.AuthRequired(), h.ResetPassword)
+		authGroup.POST("/account/password/reset", h.AuthRequired(), h.RequireSameOriginForBrowserSession(), h.ResetPassword)
 	}
-	authGroup.POST("/logout", h.AuthRequired(), h.Logout)
+	authGroup.POST("/logout", h.AuthRequired(), h.RequireSameOriginForBrowserSession(), h.Logout)
 	authGroup.GET("/browser-session", h.GetBrowserSession)
 
 	trustedClient := middleware.TrustedClient(cfg)
@@ -138,16 +145,16 @@ func (h *AuthHandler) RegisterRoutes(authGroup *gin.RouterGroup, cfg *config.Con
 	authGroup.GET("/user", h.AuthRequired(), h.GetUserInfo)
 	authGroup.GET("/user/:id", h.AuthRequired(), trustedClient, h.GetUserInfoById)
 	authGroup.POST("/users", h.AuthRequired(), trustedClient, h.GetUsersInfo)
-	authGroup.PUT("/user", h.AuthRequired(), h.UpdateUserInfo)
+	authGroup.PUT("/user", h.AuthRequired(), h.RequireSameOriginForBrowserSession(), h.UpdateUserInfo)
 
 	// Avatar related routes
-	authGroup.POST("/avatar/upload", h.AuthRequired(), h.avatarHandler.UploadAvatar)
-	authGroup.DELETE("/avatar", h.AuthRequired(), h.avatarHandler.DeleteAvatar)
+	authGroup.POST("/avatar/upload", h.AuthRequired(), h.RequireSameOriginForBrowserSession(), h.avatarHandler.UploadAvatar)
+	authGroup.DELETE("/avatar", h.AuthRequired(), h.RequireSameOriginForBrowserSession(), h.avatarHandler.DeleteAvatar)
 
 	// User session information
 	authGroup.GET("/sessions", h.AuthRequired(), h.GetUserSessions)
-	authGroup.DELETE("/sessions/:session_id", h.AuthRequired(), h.TerminateUserSession)
-	authGroup.DELETE("/sessions", h.AuthRequired(), h.TerminateAllUserSessions)
+	authGroup.DELETE("/sessions/:session_id", h.AuthRequired(), h.RequireSameOriginForBrowserSession(), h.TerminateUserSession)
+	authGroup.DELETE("/sessions", h.AuthRequired(), h.RequireSameOriginForBrowserSession(), h.TerminateAllUserSessions)
 }
 
 // GetSupportedProviders Get supported login methods

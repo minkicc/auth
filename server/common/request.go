@@ -2,6 +2,7 @@ package common
 
 import (
 	"net/http"
+	"net/url"
 	"strings"
 )
 
@@ -22,6 +23,34 @@ func IsSecureRequest(r *http.Request, configuredBaseURL string) bool {
 		return true
 	}
 	return r.TLS != nil
+}
+
+func RequestOrigin(r *http.Request, configuredBaseURL string) string {
+	configuredBaseURL = strings.TrimSpace(configuredBaseURL)
+	if configuredBaseURL != "" {
+		if parsed, err := url.Parse(configuredBaseURL); err == nil && parsed.Scheme != "" && parsed.Host != "" {
+			return parsed.Scheme + "://" + parsed.Host
+		}
+	}
+
+	if r == nil {
+		return ""
+	}
+
+	scheme := "http"
+	if IsSecureRequest(r, configuredBaseURL) {
+		scheme = "https"
+	}
+
+	host := firstForwardedValue(r.Header.Get("X-Forwarded-Host"))
+	if host == "" {
+		host = strings.TrimSpace(r.Host)
+	}
+	if host == "" {
+		return ""
+	}
+
+	return scheme + "://" + host
 }
 
 func firstForwardedValue(raw string) string {

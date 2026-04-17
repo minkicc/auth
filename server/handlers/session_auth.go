@@ -12,6 +12,10 @@ import (
 func (h *AuthHandler) completeBrowserLogin(c *gin.Context, user *auth.User, message string) {
 	session, err := h.createBrowserSession(c, user)
 	if err != nil {
+		if appErr, ok := err.(*auth.AppError); ok {
+			c.JSON(appErr.GetHTTPStatus(), gin.H{"error": appErr.Error()})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -36,6 +40,10 @@ func (h *AuthHandler) completeBrowserLogin(c *gin.Context, user *auth.User, mess
 }
 
 func (h *AuthHandler) createBrowserSession(c *gin.Context, user *auth.User) (*auth.Session, error) {
+	if err := auth.EnsureUserCanAuthenticate(user); err != nil {
+		return nil, err
+	}
+
 	session, err := h.sessionMgr.CreateUserSession(user.UserID, c.ClientIP(), c.Request.UserAgent(), auth.SessionExpiration)
 	if err != nil {
 		return nil, fmt.Errorf("Failed to create session")
@@ -46,6 +54,19 @@ func (h *AuthHandler) createBrowserSession(c *gin.Context, user *auth.User) (*au
 	}
 
 	return session, nil
+}
+
+func (h *AuthHandler) revokeUserSessions(c *gin.Context, userID string) {
+	if userID == "" {
+		h.clearBrowserSession(c)
+		return
+	}
+	if h.sessionMgr != nil {
+		if _, err := h.sessionMgr.DeleteUserSessions(userID); err != nil && h.logger != nil {
+			h.logger.Printf("Failed to revoke sessions for user %s: %v", userID, err)
+		}
+	}
+	h.clearBrowserSession(c)
 }
 
 func (h *AuthHandler) populateAvatarURL(user *auth.User) error {
@@ -74,7 +95,7 @@ func (h *AuthHandler) authenticateBrowserSession(c *gin.Context) bool {
 	}
 
 	user, err := h.accountAuth.GetUserByID(session.UserID)
-	if err != nil || user.Status != auth.UserStatusActive {
+	if err != nil || auth.EnsureUserCanAuthenticate(user) != nil {
 		h.clearBrowserSession(c)
 		return false
 	}
@@ -102,7 +123,10 @@ func (h *AuthHandler) authenticateOIDCAccessToken(c *gin.Context) error {
 	}
 
 	user, err := h.accountAuth.GetUserByID(claims.Subject)
-	if err != nil || user.Status != auth.UserStatusActive {
+	if err != nil || auth.EnsureUserCanAuthenticate(user) != nil {
+		return fmt.Errorf("invalid_token")
+	}
+	if auth.NormalizeTokenVersion(claims.TokenVersion) != auth.EffectiveUserTokenVersion(user) {
 		return fmt.Errorf("invalid_token")
 	}
 

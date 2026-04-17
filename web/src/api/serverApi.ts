@@ -117,6 +117,25 @@ class ServerApi {
         return new URL(normalizedPath, this.appBaseURL()).toString()
     }
 
+    private sanitizeRedirectUri(redirectUri?: string | null): string {
+        const rawRedirectUri = typeof redirectUri === 'string' ? redirectUri.trim() : ''
+        if (!rawRedirectUri) {
+            return ''
+        }
+
+        try {
+            const url = new URL(rawRedirectUri, window.location.origin)
+            const normalizedPath = this.normalizePath(url.pathname)
+            const isAuthorizePath = normalizedPath === '/oauth2/authorize' || normalizedPath.endsWith('/oauth2/authorize')
+            if (url.origin !== window.location.origin || !isAuthorizePath) {
+                return ''
+            }
+            return url.toString()
+        } catch {
+            return ''
+        }
+    }
+
     private routePath(path: string): string {
         return this.normalizePath(new URL(path.replace(/^\/+/, ''), this.appBaseURL()).pathname)
     }
@@ -134,13 +153,7 @@ class ServerApi {
         if (!this.redirectUri) {
             return false
         }
-
-        try {
-            const url = new URL(this.redirectUri, window.location.origin)
-            return url.pathname === '/oauth2/authorize' || url.pathname.endsWith('/oauth2/authorize')
-        } catch {
-            return false
-        }
+        return this.redirectUri === this.sanitizeRedirectUri(this.redirectUri)
     }
 
     private normalizeAuthResponse(response: AuthResponse | NestedAuthResponse): AuthResponse {
@@ -168,16 +181,26 @@ class ServerApi {
 
     updateAuthData(clientId: string, redirectUri?: string) {
         serverApi.clientId = clientId
-        if (redirectUri) {
-            serverApi.redirectUri = redirectUri
+        if (redirectUri !== undefined) {
+            const sanitizedRedirectUri = this.sanitizeRedirectUri(redirectUri)
+            serverApi.redirectUri = sanitizedRedirectUri
             if (clientId) {
-                sessionStorage.setItem(this.redirectStorageKey(clientId), redirectUri)
+                if (sanitizedRedirectUri) {
+                    sessionStorage.setItem(this.redirectStorageKey(clientId), sanitizedRedirectUri)
+                } else {
+                    sessionStorage.removeItem(this.redirectStorageKey(clientId))
+                }
             }
             return
         }
 
         if (clientId) {
-            serverApi.redirectUri = sessionStorage.getItem(this.redirectStorageKey(clientId)) || ''
+            const storedRedirectUri = sessionStorage.getItem(this.redirectStorageKey(clientId)) || ''
+            const sanitizedRedirectUri = this.sanitizeRedirectUri(storedRedirectUri)
+            serverApi.redirectUri = sanitizedRedirectUri
+            if (!sanitizedRedirectUri) {
+                sessionStorage.removeItem(this.redirectStorageKey(clientId))
+            }
             return
         }
 
@@ -185,7 +208,7 @@ class ServerApi {
     }
 
     hasBusinessConnection(): boolean {
-        return !!this.redirectUri.trim()
+        return this.isOIDCFlow()
     }
 
     getDefaultAuthenticatedURL(): string {
@@ -261,7 +284,7 @@ class ServerApi {
 
     // 当前已经登陆，直接回调
     async handleLoginRedirect(): Promise<void> {
-        window.location.href = this.redirectUri || this.getDefaultAuthenticatedURL()
+        window.location.href = this.isOIDCFlow() ? this.redirectUri : this.getDefaultAuthenticatedURL()
     }
 
     // 手机相关

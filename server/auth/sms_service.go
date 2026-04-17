@@ -34,8 +34,8 @@ func NewSMSService(config SMSConfig) SMSService {
 // Send verification code SMS
 func (s *DefaultSMSService) SendVerificationSMS(phone, code string) error {
 	// In a real project, this should call the SMS API to send a message
-	// Example implementation, only logs
-	log.Printf("Sending verification code SMS to %s, code: %s", phone, code)
+	// Example implementation, only logs metadata
+	log.Printf("Sending verification code SMS to %s", phone)
 
 	// Can be integrated with different SMS providers
 	switch s.config.Provider {
@@ -46,16 +46,16 @@ func (s *DefaultSMSService) SendVerificationSMS(phone, code string) error {
 		// Call Tencent Cloud SMS API
 		return s.sendTencentSMS(phone, code, "Verification Code")
 	default:
-		// Default to log
-		log.Printf("[SMS Service] Verification SMS: Phone=%s, Code=%s", phone, code)
+		// Default to log metadata only
+		log.Printf("[SMS Service] Verification SMS: Phone=%s", phone)
 		return nil
 	}
 }
 
 // Send password reset SMS
 func (s *DefaultSMSService) SendPasswordResetSMS(phone, code string) error {
-	// Example implementation, only logs
-	log.Printf("Sending password reset SMS to %s, code: %s", phone, code)
+	// Example implementation, only logs metadata
+	log.Printf("Sending password reset SMS to %s", phone)
 
 	switch s.config.Provider {
 	case "aliyun":
@@ -65,8 +65,8 @@ func (s *DefaultSMSService) SendPasswordResetSMS(phone, code string) error {
 		// Call Tencent Cloud SMS API
 		return s.sendTencentSMS(phone, code, "Password Reset")
 	default:
-		// Default to log
-		log.Printf("[SMS Service] Password reset SMS: Phone=%s, Code=%s", phone, code)
+		// Default to log metadata only
+		log.Printf("[SMS Service] Password reset SMS: Phone=%s", phone)
 		return nil
 	}
 }
@@ -94,7 +94,7 @@ func (s *DefaultSMSService) SendLoginNotificationSMS(phone, ip string) error {
 func (s *DefaultSMSService) sendAliyunSMS(phone, content, smsType string) error {
 	// In a real project, this should integrate the Aliyun SMS SDK
 	// This is just a placeholder example
-	log.Printf("[Aliyun SMS] Sending %s SMS to %s: %s", smsType, phone, content)
+	log.Printf("[Aliyun SMS] Sending %s SMS to %s", smsType, phone)
 
 	// Actual implementation code example:
 	/*
@@ -127,7 +127,7 @@ func (s *DefaultSMSService) sendAliyunSMS(phone, content, smsType string) error 
 func (s *DefaultSMSService) sendTencentSMS(phone, content, smsType string) error {
 	// In a real project, this should integrate the Tencent Cloud SMS SDK
 	// This is just a placeholder example
-	log.Printf("[Tencent Cloud SMS] Sending %s SMS to %s: %s", smsType, phone, content)
+	log.Printf("[Tencent Cloud SMS] Sending %s SMS to %s", smsType, phone)
 
 	// Actual implementation code example:
 	/*

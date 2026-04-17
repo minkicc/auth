@@ -35,3 +35,31 @@ func TestIsSecureRequest(t *testing.T) {
 		}
 	})
 }
+
+func TestRequestOrigin(t *testing.T) {
+	t.Run("configured base url wins", func(t *testing.T) {
+		req := &http.Request{Header: make(http.Header), Host: "internal.example"}
+		got := RequestOrigin(req, "https://auth.example.com/path")
+		if got != "https://auth.example.com" {
+			t.Fatalf("expected configured origin, got %q", got)
+		}
+	})
+
+	t.Run("forwarded host and https are respected", func(t *testing.T) {
+		req := &http.Request{Header: make(http.Header), Host: "internal.example"}
+		req.Header.Set("X-Forwarded-Host", "auth.example.com")
+		req.Header.Set("X-Forwarded-Proto", "https")
+		got := RequestOrigin(req, "")
+		if got != "https://auth.example.com" {
+			t.Fatalf("expected forwarded origin, got %q", got)
+		}
+	})
+
+	t.Run("falls back to request host", func(t *testing.T) {
+		req := &http.Request{Header: make(http.Header), Host: "localhost:5180"}
+		got := RequestOrigin(req, "")
+		if got != "http://localhost:5180" {
+			t.Fatalf("expected request host origin, got %q", got)
+		}
+	})
+}

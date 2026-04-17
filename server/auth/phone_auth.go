@@ -31,8 +31,9 @@ type SMSService interface {
 
 // Verification types
 const (
-	VerificationTypePhone      VerificationType = "phone"       // New: Phone verification type
-	VerificationTypePhoneReset VerificationType = "phone_reset" // Phone password reset
+	VerificationTypePhoneRegister VerificationType = "phone_register"
+	VerificationTypePhoneLogin    VerificationType = "phone_login"
+	VerificationTypePhoneReset    VerificationType = "phone_reset"
 )
 
 // Pre-registration information, stored in Redis
@@ -119,38 +120,56 @@ func (a *PhoneAuth) InitiatePasswordReset(phone string) (string, error) {
 }
 
 // CompletePasswordReset Complete password reset
-func (a *PhoneAuth) CompletePasswordReset(code, phone, newPassword string) error {
+func (a *PhoneAuth) CompletePasswordReset(code, phone, newPassword string) (string, error) {
 	// Get verification record from Redis
 	verification, err := a.redis.GetVerification(VerificationTypePhoneReset, phone)
 	if err != nil {
-		return ErrInvalidToken("Invalid or expired verification code")
+		return "", ErrInvalidToken("Invalid or expired verification code")
+	}
+	if verification.Token != code {
+		return "", ErrInvalidToken("Invalid or expired verification code")
 	}
 
 	// Validate new password strength
 	if len(newPassword) < 8 {
-		return ErrWeakPassword("Password must be at least 8 characters")
+		return "", ErrWeakPassword("Password must be at least 8 characters")
 	}
 
 	// Encrypt new password
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
 	if err != nil {
-		return err
+		return "", err
+	}
+
+	var user User
+	if err := a.db.Where("user_id = ?", verification.UserID).First(&user).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return "", ErrInvalidToken("Invalid user ID")
+		}
+		return "", err
 	}
 
 	// Update password in User table
-	result := a.db.Model(&User{}).Where("user_id = ?", verification.UserID).
-		Update("password", string(hashedPassword))
+	result := a.db.Model(&user).Updates(map[string]interface{}{
+		"password":      string(hashedPassword),
+		"token_version": EffectiveUserTokenVersion(&user) + 1,
+		"updated_at":    time.Now(),
+	})
 
 	if result.Error != nil {
-		return result.Error
+		return "", result.Error
 	}
 
 	if result.RowsAffected == 0 {
-		return ErrInvalidToken("Invalid user ID")
+		return "", ErrInvalidToken("Invalid user ID")
 	}
 
 	// Delete verification code after use
-	return a.redis.DeleteVerification(VerificationTypePhoneReset, phone, code)
+	if err := a.redis.DeleteVerification(VerificationTypePhoneReset, phone, verification.Token); err != nil {
+		fmt.Printf("Failed to delete phone password reset verification: %v\n", err)
+	}
+
+	return verification.UserID, nil
 }
 
 // SendVerificationSMS Send verification SMS
@@ -180,10 +199,12 @@ func (a *PhoneAuth) CompletePasswordReset(code, phone, newPassword string) error
 // }
 
 // VerifyPhone Verify phone number
-func (a *PhoneAuth) VerifyPhone(code string) error {
-	// Get verification record from Redis
-	verification, err := a.redis.GetVerificationByToken(VerificationTypePhone, code)
+func (a *PhoneAuth) VerifyPhone(phone, code string) error {
+	verification, err := a.redis.GetVerification(VerificationTypePhoneRegister, phone)
 	if err != nil {
+		return ErrInvalidToken("Invalid or expired verification code")
+	}
+	if verification.Token != code || verification.UserID == "" {
 		return ErrInvalidToken("Invalid or expired verification code")
 	}
 
@@ -200,7 +221,7 @@ func (a *PhoneAuth) VerifyPhone(code string) error {
 	}
 
 	// Delete verification code after use
-	return a.redis.DeleteVerification(VerificationTypePhone, verification.Identifier, code)
+	return a.redis.DeleteVerification(VerificationTypePhoneRegister, verification.Identifier, code)
 }
 
 // Login Login with phone number and password
@@ -235,6 +256,9 @@ func (a *PhoneAuth) PhoneLogin(phone, password string) (*User, error) {
 	// Verify password
 	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password)); err != nil {
 		return nil, ErrInvalidCredentials("Invalid phone number or password")
+	}
+	if err := EnsureUserCanAuthenticate(&user); err != nil {
+		return nil, err
 	}
 
 	// Update last login time
@@ -324,7 +348,7 @@ func (a *PhoneAuth) PhonePreregister(phone, password, nickname string) (string, 
 	}
 
 	// Associate verification code with phone number
-	if err := a.redis.StoreVerification(VerificationTypePhone, phone, code, "", a.verificationExpiry); err != nil {
+	if err := a.redis.StoreVerification(VerificationTypePhoneRegister, phone, code, "", a.verificationExpiry); err != nil {
 		return "", fmt.Errorf("failed to store phone verification information: %w", err)
 	}
 
@@ -339,9 +363,14 @@ func (a *PhoneAuth) PhonePreregister(phone, password, nickname string) (string, 
 // ResendPhoneVerification Resend phone verification code
 func (a *PhoneAuth) ResendPhoneVerification(phone string) (string, error) {
 	// Get previous verification record from Redis
-	verification, err := a.redis.GetVerification(VerificationTypePhone, phone)
+	verification, err := a.redis.GetVerification(VerificationTypePhoneRegister, phone)
 	if err != nil {
 		return "", err
+	}
+	oldPreregKey := fmt.Sprintf("%s%s:%s", RedisPrefixPhonePreregister, phone, verification.Token)
+	var preregInfo PhonePreregisterInfo
+	if err := a.redis.Get(oldPreregKey, &preregInfo); err != nil {
+		return "", fmt.Errorf("failed to get pre-registration information: %w", err)
 	}
 
 	// Generate new verification code
@@ -351,8 +380,15 @@ func (a *PhoneAuth) ResendPhoneVerification(phone string) (string, error) {
 	}
 
 	// Update verification record
-	if err := a.redis.UpdateVerification(VerificationTypePhone, phone, verification.Token, code, a.verificationExpiry); err != nil {
+	if err := a.redis.UpdateVerification(VerificationTypePhoneRegister, phone, verification.Token, code, a.verificationExpiry); err != nil {
 		return "", fmt.Errorf("failed to update phone verification information: %w", err)
+	}
+	newPreregKey := fmt.Sprintf("%s%s:%s", RedisPrefixPhonePreregister, phone, code)
+	if err := a.redis.Set(newPreregKey, &preregInfo, a.verificationExpiry); err != nil {
+		return "", fmt.Errorf("failed to store pre-registration information: %w", err)
+	}
+	if err := a.redis.Delete(oldPreregKey); err != nil {
+		return "", fmt.Errorf("failed to delete old pre-registration information: %w", err)
 	}
 
 	// Send verification SMS
@@ -366,7 +402,7 @@ func (a *PhoneAuth) ResendPhoneVerification(phone string) (string, error) {
 // VerifyPhoneAndRegister Verify phone number and complete registration
 func (a *PhoneAuth) VerifyPhoneAndRegister(phone, code string) (*User, error) {
 	// Get verification record from Redis
-	verification, err := a.redis.GetVerification(VerificationTypePhone, phone)
+	verification, err := a.redis.GetVerification(VerificationTypePhoneRegister, phone)
 	if err != nil {
 		return nil, ErrInvalidToken("Invalid or expired verification code")
 	}
@@ -405,13 +441,13 @@ func (a *PhoneAuth) VerifyPhoneAndRegister(phone, code string) (*User, error) {
 	// Create User record
 	now := time.Now()
 	user := &User{
-		UserID:   userID,
-		Password: preregInfo.Password, // Already encrypted password
-		Status:   UserStatusActive,
-
-		Nickname:  preregInfo.Nickname,
-		CreatedAt: now,
-		UpdatedAt: now,
+		UserID:       userID,
+		Password:     preregInfo.Password, // Already encrypted password
+		TokenVersion: DefaultTokenVersion,
+		Status:       UserStatusActive,
+		Nickname:     preregInfo.Nickname,
+		CreatedAt:    now,
+		UpdatedAt:    now,
 	}
 
 	if err := tx.Create(user).Error; err != nil {
@@ -439,7 +475,7 @@ func (a *PhoneAuth) VerifyPhoneAndRegister(phone, code string) (*User, error) {
 	}
 
 	// Delete verification code after use
-	if err := a.redis.DeleteVerification(VerificationTypePhone, phone, code); err != nil {
+	if err := a.redis.DeleteVerification(VerificationTypePhoneRegister, phone, verification.Token); err != nil {
 		// Just log error, does not affect registration process
 		fmt.Printf("Failed to delete verification code: %v\n", err)
 	}
@@ -456,9 +492,12 @@ func (a *PhoneAuth) VerifyPhoneAndRegister(phone, code string) (*User, error) {
 // PhoneCodeLogin Phone verification code login (no password required)
 func (a *PhoneAuth) PhoneCodeLogin(phone, code string) (*User, error) {
 	// Get verification record from Redis
-	_, err := a.redis.GetVerificationByToken(VerificationTypePhone, code)
+	verification, err := a.redis.GetVerification(VerificationTypePhoneLogin, phone)
 	if err != nil {
 		return nil, err
+	}
+	if verification.Token != code {
+		return nil, ErrInvalidToken("Invalid or expired verification code")
 	}
 
 	// Find phone user record
@@ -469,10 +508,16 @@ func (a *PhoneAuth) PhoneCodeLogin(phone, code string) (*User, error) {
 		}
 		return nil, err
 	}
+	if verification.UserID != "" && verification.UserID != phoneUser.UserID {
+		return nil, ErrInvalidToken("Invalid or expired verification code")
+	}
 
 	// Get User record by userID
 	var user User
 	if err := a.db.First(&user, "user_id = ?", phoneUser.UserID).Error; err != nil {
+		return nil, err
+	}
+	if err := EnsureUserCanAuthenticate(&user); err != nil {
 		return nil, err
 	}
 
@@ -492,7 +537,7 @@ func (a *PhoneAuth) PhoneCodeLogin(phone, code string) (*User, error) {
 	}
 
 	// Delete verification code after use
-	_ = a.redis.DeleteVerification(VerificationTypePhone, phone, code)
+	_ = a.redis.DeleteVerification(VerificationTypePhoneLogin, phone, verification.Token)
 
 	return &user, nil
 }
@@ -515,7 +560,7 @@ func (a *PhoneAuth) SendLoginSMS(phone string) (string, error) {
 	}
 
 	// Store verification record in Redis and set expiration time (5 minutes)
-	if err := a.redis.StoreVerification(VerificationTypePhone, phone, code, phoneUser.UserID, time.Minute*5); err != nil {
+	if err := a.redis.StoreVerification(VerificationTypePhoneLogin, phone, code, phoneUser.UserID, time.Minute*5); err != nil {
 		return "", err
 	}
 
