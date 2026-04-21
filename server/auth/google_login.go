@@ -115,6 +115,7 @@ func (g *GoogleOAuth) AutoMigrate() error {
 
 	if err := g.db.AutoMigrate(
 		&User{},
+		&EmailUser{},
 		&GoogleUser{},
 	); err != nil {
 		return err
