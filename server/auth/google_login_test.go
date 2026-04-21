@@ -9,6 +9,9 @@ import (
 	"math/big"
 	"testing"
 	"time"
+
+	"github.com/glebarez/sqlite"
+	"gorm.io/gorm"
 )
 
 func TestParseGoogleCertCacheTTL(t *testing.T) {
@@ -91,5 +94,37 @@ func TestCanLinkGoogleEmail(t *testing.T) {
 	}
 	if canLinkGoogleEmail("", true) {
 		t.Fatalf("expected empty email to be rejected for account linking")
+	}
+}
+
+func TestGoogleOAuthAutoMigrateCreatesEmailUsersTable(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file:google-auto-migrate?mode=memory&cache=shared"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("failed to open sqlite database: %v", err)
+	}
+
+	googleOAuth, err := NewGoogleOAuth(GoogleOAuthConfig{
+		ClientID:      "test-google-client-id",
+		ClientSecret:  "test-google-client-secret",
+		RedirectURL:   "https://auth.example.com/api/google/callback",
+		DB:            db,
+		AvatarService: &AvatarService{},
+	})
+	if err != nil {
+		t.Fatalf("failed to create google oauth: %v", err)
+	}
+
+	if err := googleOAuth.AutoMigrate(); err != nil {
+		t.Fatalf("auto migrate failed: %v", err)
+	}
+
+	if !db.Migrator().HasTable(&EmailUser{}) {
+		t.Fatalf("expected google auto-migrate to create email_users table")
+	}
+	if !db.Migrator().HasTable(&GoogleUser{}) {
+		t.Fatalf("expected google auto-migrate to create google_users table")
+	}
+	if !db.Migrator().HasTable(&User{}) {
+		t.Fatalf("expected google auto-migrate to create users table")
 	}
 }
