@@ -204,6 +204,11 @@ func (r *Runtime) installArchiveLocked(filename string, content []byte, replace 
 			if previous.InstalledAt != "" {
 				state.InstalledAt = previous.InstalledAt
 			}
+			if previous.Enabled != nil {
+				enabled := *previous.Enabled
+				state.Enabled = &enabled
+			}
+			state.Config = filterPluginConfig(manifest, previous.Config)
 		}
 	}
 	if err := SaveState(tempDir, state); err != nil {
