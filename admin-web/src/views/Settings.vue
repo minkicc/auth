@@ -107,6 +107,13 @@
               {{ row.version || '-' }}
             </template>
           </el-table-column>
+          <el-table-column label="安装状态" width="130">
+            <template #default="{ row }">
+              <el-tag :type="catalogStatusTagType(row)" effect="plain">
+                {{ catalogStatusLabel(row) }}
+              </el-tag>
+            </template>
+          </el-table-column>
           <el-table-column label="签名要求" width="100">
             <template #default="{ row }">
               <el-tag :type="row.signature_required ? 'success' : 'info'" effect="plain">
@@ -132,7 +139,7 @@
                 :loading="actionLoadingId === `catalog:${row.catalog_id}:${row.id}`"
                 @click="installFromURL(row)"
               >
-                安装
+                {{ catalogActionLabel(row) }}
               </el-button>
             </template>
           </el-table-column>
@@ -437,6 +444,28 @@ const formatHash = (hash?: string) => {
   return `${hash.slice(0, 12)}...${hash.slice(-8)}`
 }
 
+const catalogStatusLabel = (plugin: CatalogPluginInfo) => {
+  if (plugin.update_available) {
+    return plugin.installed_version ? `可更新 ${plugin.installed_version}→${plugin.version || '?'}` : '可更新'
+  }
+  if (plugin.installed) {
+    return plugin.installed_version ? `已安装 ${plugin.installed_version}` : '已安装'
+  }
+  return '未安装'
+}
+
+const catalogStatusTagType = (plugin: CatalogPluginInfo) => {
+  if (plugin.update_available) return 'warning'
+  if (plugin.installed) return 'success'
+  return 'info'
+}
+
+const catalogActionLabel = (plugin: CatalogPluginInfo) => {
+  if (plugin.update_available) return '更新'
+  if (plugin.installed) return '重装'
+  return '安装'
+}
+
 const configPlaceholder = (field: PluginConfigField) => {
   if (field.sensitive && configConfigured.value[field.key]) return '已配置；留空则保持不变'
   return field.description || field.default || field.key
@@ -451,7 +480,8 @@ const formatAuditAction = (action: string) => {
     enable: '启用',
     disable: '禁用',
     uninstall: '卸载',
-    restore: '恢复'
+    restore: '恢复',
+    configure: '配置'
   }
   return labels[action] || action || '-'
 }
@@ -543,7 +573,7 @@ const installFromURL = async (catalogPlugin?: CatalogPluginInfo) => {
       response = await serverApi.installPluginFromCatalog({
         catalog_id: catalogPlugin.catalog_id,
         plugin_id: catalogPlugin.id,
-        replace: replaceOnInstall.value
+        replace: catalogPlugin.installed || replaceOnInstall.value
       })
     } else {
       const url = remoteInstallURL.value.trim()

@@ -295,6 +295,8 @@ If you want signed packages, add `trusted_signers` and set `require_signature: t
 
 Plugin install, enable, disable, replace, and uninstall operations are written to `mkauth-plugin.audit.jsonl` in the plugin directory. Replace/uninstall operations also create rollback snapshots under `.mkauth-plugin-backups`, and restore validates the backup against the current signature, permission, and host policies before activation.
 
+Catalog responses are annotated with local installation state, including the installed version, installed package SHA-256, and whether the catalog entry appears updateable. The admin console uses this to show install, update, or reinstall actions directly from the catalog table.
+
 You can generate keys and sign manifests with the bundled helper under [tools](tools/README.md):
 
 ```bash

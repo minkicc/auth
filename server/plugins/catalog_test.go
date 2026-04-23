@@ -130,3 +130,50 @@ plugins:
 		t.Fatalf("expected one catalog entry, got %#v", entries)
 	}
 }
+
+func TestAnnotateCatalogEntriesMarksInstalledAndUpdateAvailable(t *testing.T) {
+	registry, err := NewRegistry(config.PluginsConfig{})
+	if err != nil {
+		t.Fatalf("failed to create registry: %v", err)
+	}
+	registry.Register(Summary{
+		ID:            "claims-http",
+		Name:          "Claims HTTP Action",
+		Version:       "0.1.0",
+		Source:        PluginSourceLocal,
+		PackageSHA256: "old-sha",
+		Enabled:       true,
+	})
+
+	entries := annotateCatalogEntries([]CatalogEntry{{
+		CatalogID:     "official",
+		ID:            "claims-http",
+		Name:          "Claims HTTP Action",
+		Version:       "0.2.0",
+		PackageSHA256: "new-sha",
+	}}, registry)
+
+	if len(entries) != 1 {
+		t.Fatalf("expected one entry, got %#v", entries)
+	}
+	entry := entries[0]
+	if !entry.Installed || entry.InstalledVersion != "0.1.0" || entry.InstalledSource != PluginSourceLocal {
+		t.Fatalf("expected installed metadata, got %#v", entry)
+	}
+	if !entry.UpdateAvailable || entry.UpdateReason != "newer_version" {
+		t.Fatalf("expected newer version update metadata, got %#v", entry)
+	}
+}
+
+func TestCatalogUpdateStatusUsesChecksumForSameVersion(t *testing.T) {
+	available, reason := catalogUpdateStatus(CatalogEntry{
+		Version:       "1.0.0",
+		PackageSHA256: "new-sha",
+	}, Summary{
+		Version:       "1.0.0",
+		PackageSHA256: "old-sha",
+	})
+	if !available || reason != "package_changed" {
+		t.Fatalf("expected package checksum update, got available=%t reason=%q", available, reason)
+	}
+}
