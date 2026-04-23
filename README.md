@@ -287,6 +287,8 @@ Remote plugin downloads and plugin HTTP Actions also reject loopback, private, l
 
 For local packages, zip a directory that contains `mkauth-plugin.yaml` and install it from the admin plugin page. A local `flow_action` plugin can carry its own runtime `http_action` block in the manifest, so it does not require an extra main-config entry.
 
+The admin console previews uploaded ZIP packages before installation. The preview shows the parsed manifest, package SHA-256, signature status, requested permissions, whether the plugin will replace an existing install, and which saved config keys will be preserved or dropped.
+
 Local manifests must declare their runtime permissions. HTTP actions need `network:http_action`, and every hook event needs its matching `hook:<event>` permission, for example `hook:before_token_issue`. If `plugins.allowed_permissions` is not empty, MKAuth rejects plugins that request permissions outside that allowlist.
 
 Local manifests can also declare `config_schema`. The admin console reads that schema, stores values in `mkauth-plugin.state.yaml`, and reloads the runtime after saving. For local HTTP Action plugins, saved config can override `url`, `secret`, `secret_env`, `timeout_ms`, and `fail_open`.
@@ -312,6 +314,7 @@ Useful endpoints:
 - Admin plugin audit: `GET /admin-api/plugins/audit`
 - Admin plugin backups: `GET /admin-api/plugins/backups`
 - Admin plugin config: `GET /admin-api/plugins/:id/config`
+- Admin plugin preview: `POST /admin-api/plugins/preview`
 - Admin plugin install: `POST /admin-api/plugins/install`
 - Admin plugin catalog: `GET /admin-api/plugins/catalog`
 - Admin plugin install from catalog: `POST /admin-api/plugins/install-catalog`

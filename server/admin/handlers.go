@@ -288,6 +288,25 @@ func (s *AdminServer) handleUpdatePluginConfig(c *gin.Context) {
 	})
 }
 
+func (s *AdminServer) handlePreviewPlugin(c *gin.Context) {
+	if s.plugins == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Plugin runtime is not enabled"})
+		return
+	}
+	replace := strings.EqualFold(strings.TrimSpace(c.PostForm("replace")), "true")
+	filename, content, err := readPluginPackageUpload(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	preview, err := s.plugins.PreviewZip(filename, content, replace)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"preview": preview})
+}
+
 func (s *AdminServer) handleInstallPlugin(c *gin.Context) {
 	if s.plugins == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Plugin runtime is not enabled"})
@@ -295,33 +314,13 @@ func (s *AdminServer) handleInstallPlugin(c *gin.Context) {
 	}
 
 	replace := strings.EqualFold(strings.TrimSpace(c.PostForm("replace")), "true")
-	upload, err := c.FormFile("package")
+	filename, content, err := readPluginPackageUpload(c)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Plugin package is required"})
-		return
-	}
-	if !strings.HasSuffix(strings.ToLower(strings.TrimSpace(upload.Filename)), ".zip") {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Plugin package must be a .zip file"})
-		return
-	}
-	file, err := upload.Open()
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to open plugin package"})
-		return
-	}
-	defer file.Close()
-
-	content, err := io.ReadAll(io.LimitReader(file, maxPluginPackageSize+1))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to read plugin package"})
-		return
-	}
-	if len(content) > maxPluginPackageSize {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Plugin package is too large"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	summary, err := s.plugins.InstallZipWithActor(upload.Filename, content, replace, pluginAuditActor(c))
+	summary, err := s.plugins.InstallZipWithActor(filename, content, replace, pluginAuditActor(c))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -330,6 +329,30 @@ func (s *AdminServer) handleInstallPlugin(c *gin.Context) {
 		"message": "Plugin installed successfully",
 		"plugin":  summary,
 	})
+}
+
+func readPluginPackageUpload(c *gin.Context) (string, []byte, error) {
+	upload, err := c.FormFile("package")
+	if err != nil {
+		return "", nil, fmt.Errorf("Plugin package is required")
+	}
+	if !strings.HasSuffix(strings.ToLower(strings.TrimSpace(upload.Filename)), ".zip") {
+		return "", nil, fmt.Errorf("Plugin package must be a .zip file")
+	}
+	file, err := upload.Open()
+	if err != nil {
+		return "", nil, fmt.Errorf("Failed to open plugin package")
+	}
+	defer file.Close()
+
+	content, err := io.ReadAll(io.LimitReader(file, maxPluginPackageSize+1))
+	if err != nil {
+		return "", nil, fmt.Errorf("Failed to read plugin package")
+	}
+	if len(content) > maxPluginPackageSize {
+		return "", nil, fmt.Errorf("Plugin package is too large")
+	}
+	return upload.Filename, content, nil
 }
 
 func (s *AdminServer) handleInstallPluginFromCatalog(c *gin.Context) {

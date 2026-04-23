@@ -43,7 +43,7 @@
             accept=".zip,application/zip"
             @change="handleFileChange"
           />
-          <el-button type="primary" @click="triggerFileSelect">上传 ZIP 安装</el-button>
+          <el-button type="primary" :loading="actionLoadingId === 'preview:upload'" @click="triggerFileSelect">上传 ZIP 安装</el-button>
         </div>
       </div>
 
@@ -335,6 +335,79 @@
     </el-card>
 
     <el-dialog
+      v-model="installPreviewDialogVisible"
+      title="确认安装插件"
+      width="680px"
+      @closed="clearInstallPreview"
+    >
+      <template v-if="installPreview">
+        <el-alert
+          class="plugin-alert"
+          :title="installPreview.exists ? '检测到同 ID 插件，确认后会覆盖安装并创建回滚快照。' : '预检通过，确认后将安装该插件。'"
+          :type="installPreview.exists ? 'warning' : 'success'"
+          :closable="false"
+          show-icon
+        />
+        <el-descriptions :column="2" border>
+          <el-descriptions-item label="名称">{{ installPreview.name || installPreview.id }}</el-descriptions-item>
+          <el-descriptions-item label="ID">{{ installPreview.id }}</el-descriptions-item>
+          <el-descriptions-item label="版本">{{ installPreview.version || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="类型">{{ installPreview.type }}</el-descriptions-item>
+          <el-descriptions-item label="安装方式">
+            <el-tag :type="installPreview.effective_replace ? 'warning' : 'success'" effect="plain">
+              {{ installPreview.effective_replace ? '覆盖安装' : '新增安装' }}
+            </el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item label="安装后状态">
+            {{ installPreview.enabled_after_install ? '启用' : '禁用' }}
+          </el-descriptions-item>
+          <el-descriptions-item label="签名状态">
+            <el-tag :type="installPreview.signature_verified ? 'success' : 'warning'" effect="plain">
+              {{ installPreview.signature_verified ? `已验签${installPreview.signer_key_id ? `:${installPreview.signer_key_id}` : ''}` : '未签名' }}
+            </el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item label="包指纹">
+            <span class="hash">{{ formatHash(installPreview.package_sha256) }}</span>
+          </el-descriptions-item>
+          <el-descriptions-item v-if="installPreview.existing" label="当前版本">
+            {{ installPreview.existing.version || '-' }}
+          </el-descriptions-item>
+          <el-descriptions-item v-if="installPreview.existing" label="当前指纹">
+            <span class="hash">{{ formatHash(installPreview.existing_package_sha256) }}</span>
+          </el-descriptions-item>
+        </el-descriptions>
+
+        <div class="preview-block">
+          <strong>权限</strong>
+          <p class="events">{{ formatPermissions(installPreview.permissions) }}</p>
+        </div>
+        <div class="preview-block">
+          <strong>事件</strong>
+          <p class="events">{{ formatEvents(installPreview.events) }}</p>
+        </div>
+        <div v-if="installPreview.preserved_config_keys?.length || installPreview.dropped_config_keys?.length" class="preview-block">
+          <strong>配置继承</strong>
+          <p v-if="installPreview.preserved_config_keys?.length" class="events">
+            保留：{{ installPreview.preserved_config_keys.join(', ') }}
+          </p>
+          <p v-if="installPreview.dropped_config_keys?.length" class="events danger-text">
+            丢弃：{{ installPreview.dropped_config_keys.join(', ') }}
+          </p>
+        </div>
+        <div v-if="installPreview.warnings?.length" class="preview-block">
+          <strong>提示</strong>
+          <p v-for="warning in installPreview.warnings" :key="warning" class="events warning-text">{{ warning }}</p>
+        </div>
+      </template>
+      <template #footer>
+        <el-button @click="installPreviewDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="installLoading" @click="confirmInstallPreview">
+          {{ installPreview?.effective_replace ? '确认覆盖安装' : '确认安装' }}
+        </el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog
       v-model="configDialogVisible"
       :title="`配置插件 ${activeConfigPlugin?.name || activeConfigPlugin?.id || ''}`"
       width="560px"
@@ -388,7 +461,7 @@
 import { onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import { ElMessageBox } from 'element-plus/es/components/message-box/index'
-import { serverApi, type CatalogPluginInfo, type PluginAuditEntry, type PluginBackupInfo, type PluginConfigField, type PluginInfo } from '@/api'
+import { serverApi, type CatalogPluginInfo, type PluginAuditEntry, type PluginBackupInfo, type PluginConfigField, type PluginInfo, type PluginInstallPreview } from '@/api'
 
 const loading = ref(false)
 const actionLoadingId = ref('')
@@ -400,6 +473,10 @@ const backupEntries = ref<PluginBackupInfo[]>([])
 const catalogLoadError = ref('')
 const remoteInstallURL = ref('')
 const fileInput = ref<HTMLInputElement | null>(null)
+const selectedInstallFile = ref<File | null>(null)
+const installPreviewDialogVisible = ref(false)
+const installLoading = ref(false)
+const installPreview = ref<PluginInstallPreview | null>(null)
 const configDialogVisible = ref(false)
 const configLoading = ref(false)
 const activeConfigPlugin = ref<PluginInfo | null>(null)
@@ -552,17 +629,41 @@ const handleFileChange = async (event: Event) => {
   const file = input.files?.[0]
   if (!file) return
 
-  loading.value = true
+  actionLoadingId.value = 'preview:upload'
   try {
-    const response = await serverApi.installPlugin(file, replaceOnInstall.value)
+    const response = await serverApi.previewPlugin(file, replaceOnInstall.value)
+    selectedInstallFile.value = file
+    installPreview.value = response.preview
+    installPreviewDialogVisible.value = true
+  } catch (error: any) {
+    ElMessage.error(error?.response?.data?.error || '插件预检失败')
+  } finally {
+    input.value = ''
+    actionLoadingId.value = ''
+  }
+}
+
+const confirmInstallPreview = async () => {
+  if (!selectedInstallFile.value || !installPreview.value) return
+  installLoading.value = true
+  try {
+    const response = await serverApi.installPlugin(selectedInstallFile.value, installPreview.value.effective_replace || replaceOnInstall.value)
     ElMessage.success(response.message || '插件安装成功')
+    installPreviewDialogVisible.value = false
+    selectedInstallFile.value = null
+    installPreview.value = null
     await loadPlugins()
   } catch (error: any) {
     ElMessage.error(error?.response?.data?.error || '插件安装失败')
   } finally {
-    input.value = ''
-    loading.value = false
+    installLoading.value = false
   }
+}
+
+const clearInstallPreview = () => {
+  if (installLoading.value) return
+  selectedInstallFile.value = null
+  installPreview.value = null
 }
 
 const installFromURL = async (catalogPlugin?: CatalogPluginInfo) => {
@@ -800,6 +901,31 @@ onMounted(() => {
     display: flex;
     align-items: center;
     gap: 12px;
+  }
+
+  .preview-block {
+    margin-top: 14px;
+    padding: 12px 14px;
+    border-radius: 12px;
+    background: #f8fafc;
+
+    strong {
+      display: block;
+      margin-bottom: 6px;
+      color: #0f172a;
+    }
+
+    p {
+      margin: 4px 0;
+    }
+  }
+
+  .warning-text {
+    color: #b45309;
+  }
+
+  .danger-text {
+    color: #b91c1c;
   }
 
   .config-control {

@@ -293,6 +293,8 @@ plugins:
 
 对于本地插件，把包含 `mkauth-plugin.yaml` 的目录打成 ZIP，然后在后台插件页上传即可。`flow_action` 类型的本地插件可以在 manifest 里直接携带自己的 `http_action` 运行配置，因此不需要再额外修改主配置文件。
 
+后台会在上传 ZIP 安装前先做预检，展示解析出的 manifest、包 SHA-256、签名状态、申请权限、是否覆盖现有插件，以及哪些已保存配置会被保留或丢弃。
+
 本地插件 manifest 必须声明运行权限。HTTP Action 需要 `network:http_action`，每个 hook 事件都要声明对应的 `hook:<event>` 权限，例如 `hook:before_token_issue`。如果 `plugins.allowed_permissions` 非空，MKAuth 会拒绝申请了 allowlist 之外权限的插件。
 
 本地插件 manifest 还可以声明 `config_schema`。后台会按 schema 生成配置表单，把配置写入 `mkauth-plugin.state.yaml`，保存后自动重载运行时。对于本地 HTTP Action 插件，保存配置可覆盖 `url`、`secret`、`secret_env`、`timeout_ms` 和 `fail_open`。
@@ -318,6 +320,7 @@ go run ./pluginsign sign -manifest ../examples/plugins/http-claims-action/mkauth
 - 后台插件审计：`GET /admin-api/plugins/audit`
 - 后台插件备份：`GET /admin-api/plugins/backups`
 - 后台插件配置：`GET /admin-api/plugins/:id/config`
+- 后台插件预检：`POST /admin-api/plugins/preview`
 - 后台安装插件：`POST /admin-api/plugins/install`
 - 后台插件目录：`GET /admin-api/plugins/catalog`
 - 后台按目录安装：`POST /admin-api/plugins/install-catalog`

@@ -181,6 +181,32 @@ export interface PluginConfigView {
   configured: Record<string, boolean>
 }
 
+export interface PluginInstallPreview {
+  id: string
+  name: string
+  version?: string
+  type: string
+  entry?: string
+  description?: string
+  events?: string[]
+  permissions?: string[]
+  config_schema?: PluginConfigField[]
+  package_sha256: string
+  signature_verified: boolean
+  signer_key_id?: string
+  exists: boolean
+  existing?: PluginInfo
+  requires_replace?: boolean
+  will_backup?: boolean
+  enabled_after_install: boolean
+  preserved_config_keys?: string[]
+  dropped_config_keys?: string[]
+  warnings?: string[]
+  requested_replace: boolean
+  effective_replace: boolean
+  existing_package_sha256?: string
+}
+
 export interface CatalogPluginInfo {
   catalog_id: string
   catalog_name?: string
@@ -324,6 +350,18 @@ class ServerApi {
   // 更新插件配置
   updatePluginConfig(id: string, config: Record<string, string>): Promise<{ message: string, config: PluginConfigView }> {
     return api.patch(`/plugins/${id}/config`, { config }).then(res => res.data)
+  }
+
+  // 预览上传插件
+  previewPlugin(file: File, replace = false): Promise<{ preview: PluginInstallPreview }> {
+    const form = new FormData()
+    form.append('package', file)
+    form.append('replace', String(replace))
+    return api.post('/plugins/preview', form, {
+      headers: {
+        'Content-Type': 'multipart/form-data'
+      }
+    }).then(res => res.data)
   }
 
   // 上传安装插件
