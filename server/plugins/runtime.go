@@ -97,12 +97,51 @@ func (r *Runtime) Reload() error {
 }
 
 func (r *Runtime) InstallZip(filename string, content []byte, replace bool) (Summary, error) {
+	return r.InstallZipWithActor(filename, content, replace, AuditActor{})
+}
+
+func (r *Runtime) InstallZipWithActor(filename string, content []byte, replace bool, actor AuditActor) (summary Summary, err error) {
 	if r == nil {
 		return Summary{}, fmt.Errorf("plugin runtime is not initialized")
 	}
+	source := "upload:" + strings.TrimSpace(filename)
+	action := "install_upload"
+	if replace {
+		action = "replace_upload"
+	}
+	manifest, _, _, parseErr := parsePluginArchive(content)
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.installArchiveLocked(filename, content, replace, "upload:"+strings.TrimSpace(filename))
+	previousDetails := map[string]string(nil)
+	if replace && parseErr == nil {
+		if previous, ok := r.registry.Get(manifest.ID); ok {
+			previousDetails = auditPreviousSummaryDetails(previous)
+		}
+	}
+	defer func() {
+		pluginID, pluginName, version := summary.ID, summary.Name, summary.Version
+		if pluginID == "" && parseErr == nil {
+			pluginID = manifest.ID
+			pluginName = manifest.Name
+			version = manifest.Version
+		}
+		r.appendAuditLocked(AuditEvent{
+			Action:     action,
+			PluginID:   pluginID,
+			PluginName: pluginName,
+			Version:    version,
+			Source:     source,
+			Actor:      actor,
+			Success:    err == nil,
+			Error:      auditError(err),
+			Details: mergeAuditDetails(auditSummaryDetails(summary), previousDetails, map[string]string{
+				"filename": strings.TrimSpace(filename),
+				"replace":  fmt.Sprintf("%t", replace),
+			}),
+		})
+	}()
+	return r.installArchiveLocked(filename, content, replace, source)
 }
 
 func (r *Runtime) installArchiveLocked(filename string, content []byte, replace bool, source string) (Summary, error) {
@@ -185,11 +224,33 @@ func (r *Runtime) installArchiveLocked(filename string, content []byte, replace 
 }
 
 func (r *Runtime) SetEnabled(id string, enabled bool) (Summary, error) {
+	return r.SetEnabledWithActor(id, enabled, AuditActor{})
+}
+
+func (r *Runtime) SetEnabledWithActor(id string, enabled bool, actor AuditActor) (summary Summary, err error) {
 	if r == nil {
 		return Summary{}, fmt.Errorf("plugin runtime is not initialized")
 	}
+	action := "disable"
+	if enabled {
+		action = "enable"
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	defer func() {
+		r.appendAuditLocked(AuditEvent{
+			Action:     action,
+			PluginID:   strings.TrimSpace(id),
+			PluginName: summary.Name,
+			Version:    summary.Version,
+			Actor:      actor,
+			Success:    err == nil,
+			Error:      auditError(err),
+			Details: mergeAuditDetails(auditSummaryDetails(summary), map[string]string{
+				"enabled": fmt.Sprintf("%t", enabled),
+			}),
+		})
+	}()
 
 	summary, ok := r.registry.Get(id)
 	if !ok {
@@ -218,17 +279,36 @@ func (r *Runtime) SetEnabled(id string, enabled bool) (Summary, error) {
 	if !ok {
 		return Summary{}, fmt.Errorf("plugin %s was not found after reload", id)
 	}
+	summary = updated
 	return updated, nil
 }
 
 func (r *Runtime) Uninstall(id string) error {
+	return r.UninstallWithActor(id, AuditActor{})
+}
+
+func (r *Runtime) UninstallWithActor(id string, actor AuditActor) (err error) {
 	if r == nil {
 		return fmt.Errorf("plugin runtime is not initialized")
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	var summary Summary
+	defer func() {
+		r.appendAuditLocked(AuditEvent{
+			Action:     "uninstall",
+			PluginID:   strings.TrimSpace(id),
+			PluginName: summary.Name,
+			Version:    summary.Version,
+			Actor:      actor,
+			Success:    err == nil,
+			Error:      auditError(err),
+			Details:    auditSummaryDetails(summary),
+		})
+	}()
 
-	summary, ok := r.registry.Get(id)
+	var ok bool
+	summary, ok = r.registry.Get(id)
 	if !ok {
 		return fmt.Errorf("plugin %s was not found", id)
 	}

@@ -214,6 +214,57 @@
           </template>
         </el-table-column>
       </el-table>
+
+      <el-card class="audit-card" shadow="never">
+        <template #header>
+          <div class="catalog-header">
+            <div>
+              <strong>操作审计</strong>
+              <p>最近的插件安装、启停和卸载记录。</p>
+            </div>
+          </div>
+        </template>
+
+        <el-table :data="auditEntries" row-key="id" empty-text="暂无审计记录">
+          <el-table-column label="时间" min-width="170">
+            <template #default="{ row }">
+              {{ formatAuditTime(row.time) }}
+            </template>
+          </el-table-column>
+          <el-table-column label="动作" width="130">
+            <template #default="{ row }">
+              <el-tag effect="plain">{{ formatAuditAction(row.action) }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="插件" min-width="190">
+            <template #default="{ row }">
+              {{ row.plugin_name || row.plugin_id || '-' }}
+            </template>
+          </el-table-column>
+          <el-table-column label="操作人" min-width="150">
+            <template #default="{ row }">
+              {{ row.actor?.id || '-' }}
+            </template>
+          </el-table-column>
+          <el-table-column label="来源" min-width="180">
+            <template #default="{ row }">
+              {{ row.source || '-' }}
+            </template>
+          </el-table-column>
+          <el-table-column label="结果" width="100">
+            <template #default="{ row }">
+              <el-tag :type="row.success ? 'success' : 'danger'" effect="plain">
+                {{ row.success ? '成功' : '失败' }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="详情" min-width="240">
+            <template #default="{ row }">
+              <span class="events">{{ formatAuditDetails(row) }}</span>
+            </template>
+          </el-table-column>
+        </el-table>
+      </el-card>
     </el-card>
   </div>
 </template>
@@ -222,13 +273,14 @@
 import { onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import { ElMessageBox } from 'element-plus/es/components/message-box/index'
-import { serverApi, type CatalogPluginInfo, type PluginInfo } from '@/api'
+import { serverApi, type CatalogPluginInfo, type PluginAuditEntry, type PluginInfo } from '@/api'
 
 const loading = ref(false)
 const actionLoadingId = ref('')
 const replaceOnInstall = ref(false)
 const plugins = ref<PluginInfo[]>([])
 const catalogPlugins = ref<CatalogPluginInfo[]>([])
+const auditEntries = ref<PluginAuditEntry[]>([])
 const catalogLoadError = ref('')
 const remoteInstallURL = ref('')
 const fileInput = ref<HTMLInputElement | null>(null)
@@ -269,12 +321,47 @@ const formatHash = (hash?: string) => {
   return `${hash.slice(0, 12)}...${hash.slice(-8)}`
 }
 
+const formatAuditAction = (action: string) => {
+  const labels: Record<string, string> = {
+    install_upload: '上传安装',
+    replace_upload: '覆盖安装',
+    install_url: 'URL安装',
+    install_catalog: '目录安装',
+    enable: '启用',
+    disable: '禁用',
+    uninstall: '卸载'
+  }
+  return labels[action] || action || '-'
+}
+
+const formatAuditTime = (value?: string) => {
+  if (!value) return '-'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleString()
+}
+
+const formatAuditDetails = (entry: PluginAuditEntry) => {
+  if (entry.error) return entry.error
+  const details = entry.details || {}
+  if (details.enabled) return details.enabled === 'true' ? '已启用' : '已禁用'
+  if (details.package_sha256) return `包 ${formatHash(details.package_sha256)}`
+  if (details.filename) return details.filename
+  return '-'
+}
+
 const loadPlugins = async () => {
   loading.value = true
   try {
     const response = await serverApi.getPlugins()
     plugins.value = response.plugins || []
     catalogLoadError.value = ''
+    try {
+      const auditResponse = await serverApi.getPluginAudit(100)
+      auditEntries.value = auditResponse.audit || []
+    } catch {
+      auditEntries.value = []
+    }
     try {
       const catalogResponse = await serverApi.getPluginCatalog()
       catalogPlugins.value = catalogResponse.plugins || []
@@ -454,6 +541,11 @@ onMounted(() => {
 
   .catalog-card {
     margin-bottom: 18px;
+    border-radius: 14px;
+  }
+
+  .audit-card {
+    margin-top: 18px;
     border-radius: 14px;
   }
 

@@ -176,6 +176,26 @@ export interface CatalogPluginInfo {
   signature_required: boolean
 }
 
+export interface PluginAuditActor {
+  id?: string
+  ip?: string
+  user_agent?: string
+}
+
+export interface PluginAuditEntry {
+  id: string
+  time: string
+  action: string
+  plugin_id?: string
+  plugin_name?: string
+  version?: string
+  source?: string
+  actor?: PluginAuditActor
+  success: boolean
+  error?: string
+  details?: Record<string, string>
+}
+
 // ===================== 其他 API 方法 =====================
 class ServerApi {
   /**
@@ -242,6 +262,11 @@ class ServerApi {
   // 获取远程插件目录
   getPluginCatalog(): Promise<{ plugins: CatalogPluginInfo[] }> {
     return api.get('/plugins/catalog').then(res => res.data)
+  }
+
+  // 获取插件操作审计
+  getPluginAudit(limit = 100): Promise<{ audit: PluginAuditEntry[] }> {
+    return api.get('/plugins/audit', { params: { limit } }).then(res => res.data)
   }
 
   // 上传安装插件
