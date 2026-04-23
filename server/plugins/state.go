@@ -13,11 +13,12 @@ import (
 const StateFileName = "mkauth-plugin.state.yaml"
 
 type State struct {
-	Enabled       *bool  `json:"enabled,omitempty" yaml:"enabled,omitempty"`
-	Source        string `json:"source,omitempty" yaml:"source,omitempty"`
-	PackageSHA256 string `json:"package_sha256,omitempty" yaml:"package_sha256,omitempty"`
-	InstalledAt   string `json:"installed_at,omitempty" yaml:"installed_at,omitempty"`
-	UpdatedAt     string `json:"updated_at,omitempty" yaml:"updated_at,omitempty"`
+	Enabled       *bool             `json:"enabled,omitempty" yaml:"enabled,omitempty"`
+	Source        string            `json:"source,omitempty" yaml:"source,omitempty"`
+	PackageSHA256 string            `json:"package_sha256,omitempty" yaml:"package_sha256,omitempty"`
+	Config        map[string]string `json:"config,omitempty" yaml:"config,omitempty"`
+	InstalledAt   string            `json:"installed_at,omitempty" yaml:"installed_at,omitempty"`
+	UpdatedAt     string            `json:"updated_at,omitempty" yaml:"updated_at,omitempty"`
 }
 
 func LoadState(directory string) (*State, error) {
@@ -54,7 +55,7 @@ func SaveState(directory string, state State) error {
 	if err := os.MkdirAll(directory, 0o755); err != nil {
 		return fmt.Errorf("create plugin state directory %q: %w", directory, err)
 	}
-	if err := os.WriteFile(filepath.Join(directory, StateFileName), content, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(directory, StateFileName), content, 0o600); err != nil {
 		return fmt.Errorf("write plugin state in %q: %w", directory, err)
 	}
 	return nil

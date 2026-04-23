@@ -252,6 +252,42 @@ func (s *AdminServer) handleGetPluginBackups(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"backups": backups})
 }
 
+func (s *AdminServer) handleGetPluginConfig(c *gin.Context) {
+	if s.plugins == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Plugin runtime is not enabled"})
+		return
+	}
+	view, err := s.plugins.GetConfig(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, view)
+}
+
+func (s *AdminServer) handleUpdatePluginConfig(c *gin.Context) {
+	if s.plugins == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Plugin runtime is not enabled"})
+		return
+	}
+	var req struct {
+		Config map[string]string `json:"config"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "config is required"})
+		return
+	}
+	view, err := s.plugins.SetConfigWithActor(c.Param("id"), req.Config, pluginAuditActor(c))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Plugin configuration updated successfully",
+		"config":  view,
+	})
+}
+
 func (s *AdminServer) handleInstallPlugin(c *gin.Context) {
 	if s.plugins == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Plugin runtime is not enabled"})

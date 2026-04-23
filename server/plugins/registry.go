@@ -35,15 +35,27 @@ const (
 )
 
 type Manifest struct {
-	ID          string              `json:"id" yaml:"id"`
-	Name        string              `json:"name" yaml:"name"`
-	Version     string              `json:"version" yaml:"version"`
-	Type        string              `json:"type" yaml:"type"`
-	Entry       string              `json:"entry" yaml:"entry"`
-	Description string              `json:"description" yaml:"description"`
-	Events      []string            `json:"events" yaml:"events"`
-	Permissions []string            `json:"permissions" yaml:"permissions"`
-	HTTPAction  *ManifestHTTPAction `json:"http_action,omitempty" yaml:"http_action,omitempty"`
+	ID           string              `json:"id" yaml:"id"`
+	Name         string              `json:"name" yaml:"name"`
+	Version      string              `json:"version" yaml:"version"`
+	Type         string              `json:"type" yaml:"type"`
+	Entry        string              `json:"entry" yaml:"entry"`
+	Description  string              `json:"description" yaml:"description"`
+	Events       []string            `json:"events" yaml:"events"`
+	Permissions  []string            `json:"permissions" yaml:"permissions"`
+	ConfigSchema []ConfigField       `json:"config_schema,omitempty" yaml:"config_schema,omitempty"`
+	HTTPAction   *ManifestHTTPAction `json:"http_action,omitempty" yaml:"http_action,omitempty"`
+}
+
+type ConfigField struct {
+	Key         string   `json:"key" yaml:"key"`
+	Label       string   `json:"label,omitempty" yaml:"label,omitempty"`
+	Type        string   `json:"type,omitempty" yaml:"type,omitempty"`
+	Description string   `json:"description,omitempty" yaml:"description,omitempty"`
+	Required    bool     `json:"required,omitempty" yaml:"required,omitempty"`
+	Default     string   `json:"default,omitempty" yaml:"default,omitempty"`
+	Options     []string `json:"options,omitempty" yaml:"options,omitempty"`
+	Sensitive   bool     `json:"sensitive,omitempty" yaml:"sensitive,omitempty"`
 }
 
 type ManifestHTTPAction struct {
@@ -55,20 +67,22 @@ type ManifestHTTPAction struct {
 }
 
 type Summary struct {
-	ID                string       `json:"id"`
-	Name              string       `json:"name"`
-	Version           string       `json:"version,omitempty"`
-	Type              string       `json:"type"`
-	Source            PluginSource `json:"source"`
-	Entry             string       `json:"entry,omitempty"`
-	Description       string       `json:"description,omitempty"`
-	Events            []string     `json:"events,omitempty"`
-	Permissions       []string     `json:"permissions,omitempty"`
-	Enabled           bool         `json:"enabled"`
-	SignatureVerified bool         `json:"signature_verified"`
-	SignerKeyID       string       `json:"signer_key_id,omitempty"`
-	PackageSHA256     string       `json:"package_sha256,omitempty"`
-	Path              string       `json:"path,omitempty"`
+	ID                string        `json:"id"`
+	Name              string        `json:"name"`
+	Version           string        `json:"version,omitempty"`
+	Type              string        `json:"type"`
+	Source            PluginSource  `json:"source"`
+	Entry             string        `json:"entry,omitempty"`
+	Description       string        `json:"description,omitempty"`
+	Events            []string      `json:"events,omitempty"`
+	Permissions       []string      `json:"permissions,omitempty"`
+	ConfigSchema      []ConfigField `json:"config_schema,omitempty"`
+	ConfigConfigured  bool          `json:"config_configured,omitempty"`
+	Enabled           bool          `json:"enabled"`
+	SignatureVerified bool          `json:"signature_verified"`
+	SignerKeyID       string        `json:"signer_key_id,omitempty"`
+	PackageSHA256     string        `json:"package_sha256,omitempty"`
+	Path              string        `json:"path,omitempty"`
 }
 
 var pluginIDPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{1,62}$`)
@@ -172,6 +186,8 @@ func (r *Registry) LoadDirectory(directory string, cfg config.PluginsConfig, ena
 			Description:       plugin.Manifest.Description,
 			Events:            append([]string(nil), plugin.Manifest.Events...),
 			Permissions:       append([]string(nil), plugin.Manifest.Permissions...),
+			ConfigSchema:      append([]ConfigField(nil), plugin.Manifest.ConfigSchema...),
+			ConfigConfigured:  hasConfiguredPluginConfig(plugin.Manifest, plugin.State),
 			Enabled:           plugin.Enabled,
 			SignatureVerified: plugin.Verification.Verified,
 			SignerKeyID:       plugin.Verification.KeyID,
@@ -203,6 +219,7 @@ func LoadManifestContent(content []byte, path string) (Manifest, error) {
 	manifest.Description = strings.TrimSpace(manifest.Description)
 	manifest.Events = normalizeEventList(manifest.Events)
 	manifest.Permissions = normalizePermissionList(manifest.Permissions)
+	manifest.ConfigSchema = normalizeConfigSchema(manifest.ConfigSchema)
 	if manifest.ID == "" {
 		return Manifest{}, fmt.Errorf("plugin manifest %q missing id", path)
 	}
@@ -226,6 +243,9 @@ func LoadManifestContent(content []byte, path string) (Manifest, error) {
 	}
 	if !isSupportedPluginType(manifest.Type) {
 		return Manifest{}, fmt.Errorf("plugin manifest %q has unsupported type %q", path, manifest.Type)
+	}
+	if err := validateConfigSchema(manifest.ConfigSchema, path); err != nil {
+		return Manifest{}, err
 	}
 	return manifest, nil
 }

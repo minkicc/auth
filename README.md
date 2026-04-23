@@ -289,6 +289,8 @@ For local packages, zip a directory that contains `mkauth-plugin.yaml` and insta
 
 Local manifests must declare their runtime permissions. HTTP actions need `network:http_action`, and every hook event needs its matching `hook:<event>` permission, for example `hook:before_token_issue`. If `plugins.allowed_permissions` is not empty, MKAuth rejects plugins that request permissions outside that allowlist.
 
+Local manifests can also declare `config_schema`. The admin console reads that schema, stores values in `mkauth-plugin.state.yaml`, and reloads the runtime after saving. For local HTTP Action plugins, saved config can override `url`, `secret`, `secret_env`, `timeout_ms`, and `fail_open`.
+
 If you want signed packages, add `trusted_signers` and set `require_signature: true`. MKAuth verifies `mkauth-plugin.sig` against the raw manifest content and shows signature status plus the uploaded package SHA-256 fingerprint in the admin UI.
 
 Plugin install, enable, disable, replace, and uninstall operations are written to `mkauth-plugin.audit.jsonl` in the plugin directory. Replace/uninstall operations also create rollback snapshots under `.mkauth-plugin-backups`, and restore validates the backup against the current signature, permission, and host policies before activation.
@@ -307,11 +309,13 @@ Useful endpoints:
 - Admin plugin management: `GET /admin-api/plugins`
 - Admin plugin audit: `GET /admin-api/plugins/audit`
 - Admin plugin backups: `GET /admin-api/plugins/backups`
+- Admin plugin config: `GET /admin-api/plugins/:id/config`
 - Admin plugin install: `POST /admin-api/plugins/install`
 - Admin plugin catalog: `GET /admin-api/plugins/catalog`
 - Admin plugin install from catalog: `POST /admin-api/plugins/install-catalog`
 - Admin plugin install from URL: `POST /admin-api/plugins/install-url`
 - Admin plugin restore: `POST /admin-api/plugins/restore`
+- Admin plugin config update: `PATCH /admin-api/plugins/:id/config`
 
 See [examples/plugins/http-claims-action](examples/plugins/http-claims-action/README.md) for a self-contained local plugin example, and [examples/plugins/catalog.yaml](examples/plugins/catalog.yaml) for a catalog example.
 

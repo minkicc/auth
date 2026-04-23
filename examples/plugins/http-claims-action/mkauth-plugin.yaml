@@ -9,6 +9,26 @@ permissions:
   - hook:before_userinfo
   - hook:post_authenticate
   - network:http_action
+config_schema:
+  - key: url
+    label: HTTP Action URL
+    type: url
+    required: true
+    default: "https://actions.example.com/mkauth"
+    description: Endpoint that receives MKAuth hook payloads.
+  - key: secret_env
+    label: Secret Environment Variable
+    type: string
+    default: "MKAUTH_HTTP_CLAIMS_SECRET"
+    description: Environment variable used as the Bearer token secret.
+  - key: timeout_ms
+    label: Timeout (ms)
+    type: integer
+    default: "3000"
+  - key: fail_open
+    label: Fail Open
+    type: boolean
+    default: "false"
 events:
   - before_token_issue
   - before_userinfo

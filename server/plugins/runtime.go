@@ -444,20 +444,7 @@ func loadHooks(cfg config.PluginsConfig) ([]iam.Hook, error) {
 			if manifest.Type != string(PluginTypeFlowAction) || manifest.HTTPAction == nil {
 				continue
 			}
-			secret := strings.TrimSpace(manifest.HTTPAction.Secret)
-			if secret == "" && strings.TrimSpace(manifest.HTTPAction.SecretEnv) != "" {
-				secret = strings.TrimSpace(os.Getenv(strings.TrimSpace(manifest.HTTPAction.SecretEnv)))
-			}
-			hook, err := buildHTTPActionHook(cfg, config.HTTPActionConfig{
-				ID:        manifest.ID,
-				Name:      manifest.Name,
-				Enabled:   true,
-				Events:    append([]string(nil), manifest.Events...),
-				URL:       manifest.HTTPAction.URL,
-				Secret:    secret,
-				TimeoutMS: manifest.HTTPAction.TimeoutMS,
-				FailOpen:  manifest.HTTPAction.FailOpen,
-			})
+			hook, err := buildHTTPActionHook(cfg, httpActionConfigFromManifest(manifest, plugin.State))
 			if err != nil {
 				return nil, fmt.Errorf("build plugin hook %s: %w", manifest.ID, err)
 			}

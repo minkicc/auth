@@ -97,6 +97,20 @@ permissions:
   - "hook:before_token_issue"
   - "hook:before_userinfo"
   - "network:http_action"
+config_schema:
+  - key: "url"
+    label: "HTTP Action URL"
+    type: "url"
+    required: true
+    default: "https://actions.example.com/mkauth"
+  - key: "timeout_ms"
+    label: "Timeout (ms)"
+    type: "integer"
+    default: "3000"
+  - key: "fail_open"
+    label: "Fail Open"
+    type: "boolean"
+    default: "false"
 events:
   - "before_token_issue"
   - "before_userinfo"
@@ -118,6 +132,8 @@ signature: "BASE64_SIGNATURE_OF_RAW_MANIFEST_CONTENT"
 For local `flow_action` plugins, the manifest itself carries the runtime execution details through `http_action`, so installation no longer depends on an extra `plugins.http_actions` block in the main config.
 
 Manifest permissions are mandatory for executable capabilities. HTTP actions must declare `network:http_action`, and each hook event must declare a matching `hook:<event>` permission. If `allowed_permissions` is configured, install and reload reject plugins that request permissions outside that server-side allowlist.
+
+`config_schema` makes installed plugins configurable from the admin console. Values are stored in `mkauth-plugin.state.yaml`, sensitive fields are not echoed back by the admin API, and local HTTP Action plugins can use saved config to override `url`, `secret`, `secret_env`, `timeout_ms`, and `fail_open`.
 
 Runtime behavior:
 
@@ -148,10 +164,12 @@ Discovery endpoints:
 - Admin catalog: `GET /admin-api/plugins/catalog`
 - Admin audit: `GET /admin-api/plugins/audit`
 - Admin backups: `GET /admin-api/plugins/backups`
+- Admin config: `GET /admin-api/plugins/:id/config`
 - Admin install: `POST /admin-api/plugins/install`
 - Admin install from catalog: `POST /admin-api/plugins/install-catalog`
 - Admin install from URL: `POST /admin-api/plugins/install-url`
 - Admin restore: `POST /admin-api/plugins/restore`
+- Admin config update: `PATCH /admin-api/plugins/:id/config`
 - Admin enable or disable: `PATCH /admin-api/plugins/:id`
 - Admin uninstall: `DELETE /admin-api/plugins/:id`
 
