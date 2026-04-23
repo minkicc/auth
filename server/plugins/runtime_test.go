@@ -268,7 +268,7 @@ func TestRuntimeInstallsPluginFromCatalogEntry(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/catalog.yaml":
-			_, _ = w.Write([]byte("version: \"1\"\nplugins:\n  - id: \"claims-http\"\n    name: \"Claims HTTP Action\"\n    type: \"flow_action\"\n    download_url: \"" + serverURL + "/claims-http.zip\"\n    package_sha256: \"" + checksum + "\"\n"))
+			_, _ = w.Write([]byte("version: \"1\"\nplugins:\n  - id: \"claims-http\"\n    name: \"Claims HTTP Action\"\n    version: \"0.1.0\"\n    type: \"flow_action\"\n    download_url: \"" + serverURL + "/claims-http.zip\"\n    package_sha256: \"" + checksum + "\"\n"))
 		case "/claims-http.zip":
 			w.Header().Set("Content-Disposition", `attachment; filename="claims-http.zip"`)
 			_, _ = w.Write(archive)
@@ -299,6 +299,14 @@ func TestRuntimeInstallsPluginFromCatalogEntry(t *testing.T) {
 	}
 	if summary.ID != "claims-http" || summary.PackageSHA256 != checksum {
 		t.Fatalf("unexpected plugin summary from catalog install: %#v", summary)
+	}
+
+	entries, err := runtime.ListCatalogEntries(context.Background())
+	if err != nil {
+		t.Fatalf("failed to list catalog entries after install: %v", err)
+	}
+	if len(entries) != 1 || !entries[0].Installed || entries[0].InstalledVersion != "0.1.0" || entries[0].UpdateAvailable {
+		t.Fatalf("expected catalog entry to be annotated as installed without update, got %#v", entries)
 	}
 }
 

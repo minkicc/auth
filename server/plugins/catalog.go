@@ -20,18 +20,24 @@ const (
 )
 
 type CatalogEntry struct {
-	CatalogID         string   `json:"catalog_id"`
-	CatalogName       string   `json:"catalog_name,omitempty"`
-	ID                string   `json:"id"`
-	Name              string   `json:"name"`
-	Version           string   `json:"version,omitempty"`
-	Type              string   `json:"type"`
-	Description       string   `json:"description,omitempty"`
-	Permissions       []string `json:"permissions,omitempty"`
-	DownloadURL       string   `json:"download_url"`
-	Homepage          string   `json:"homepage,omitempty"`
-	PackageSHA256     string   `json:"package_sha256,omitempty"`
-	SignatureRequired bool     `json:"signature_required"`
+	CatalogID              string       `json:"catalog_id"`
+	CatalogName            string       `json:"catalog_name,omitempty"`
+	ID                     string       `json:"id"`
+	Name                   string       `json:"name"`
+	Version                string       `json:"version,omitempty"`
+	Type                   string       `json:"type"`
+	Description            string       `json:"description,omitempty"`
+	Permissions            []string     `json:"permissions,omitempty"`
+	DownloadURL            string       `json:"download_url"`
+	Homepage               string       `json:"homepage,omitempty"`
+	PackageSHA256          string       `json:"package_sha256,omitempty"`
+	SignatureRequired      bool         `json:"signature_required"`
+	Installed              bool         `json:"installed"`
+	InstalledVersion       string       `json:"installed_version,omitempty"`
+	InstalledSource        PluginSource `json:"installed_source,omitempty"`
+	InstalledPackageSHA256 string       `json:"installed_package_sha256,omitempty"`
+	UpdateAvailable        bool         `json:"update_available,omitempty"`
+	UpdateReason           string       `json:"update_reason,omitempty"`
 }
 
 type catalogDocument struct {

@@ -194,6 +194,12 @@ export interface CatalogPluginInfo {
   homepage?: string
   package_sha256?: string
   signature_required: boolean
+  installed: boolean
+  installed_version?: string
+  installed_source?: string
+  installed_package_sha256?: string
+  update_available?: boolean
+  update_reason?: string
 }
 
 export interface PluginAuditActor {

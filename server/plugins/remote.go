@@ -18,7 +18,11 @@ func (r *Runtime) ListCatalogEntries(ctx context.Context) ([]CatalogEntry, error
 	if r == nil {
 		return nil, nil
 	}
-	return LoadCatalogEntries(ctx, r.cfg)
+	entries, err := LoadCatalogEntries(ctx, r.cfg)
+	if err != nil {
+		return nil, err
+	}
+	return annotateCatalogEntries(entries, r.registry), nil
 }
 
 func (r *Runtime) InstallCatalogEntry(ctx context.Context, catalogID, pluginID string, replace bool) (Summary, error) {
