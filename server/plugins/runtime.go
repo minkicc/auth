@@ -165,12 +165,14 @@ func (r *Runtime) installArchiveLocked(filename string, content []byte, replace 
 		return installResult{}, err
 	}
 
-	installDir, err := r.primaryDirectory()
+	installDir, targetDir, existing, err := r.installTargetLocked(manifest.ID)
 	if err != nil {
 		return installResult{}, err
 	}
-	targetDir := filepath.Join(installDir, manifest.ID)
 	if !replace {
+		if existing != nil {
+			return installResult{}, fmt.Errorf("plugin %s is already installed", manifest.ID)
+		}
 		if _, err := os.Stat(targetDir); err == nil {
 			return installResult{}, fmt.Errorf("plugin %s is already installed", manifest.ID)
 		} else if !os.IsNotExist(err) {
@@ -219,8 +221,8 @@ func (r *Runtime) installArchiveLocked(filename string, content []byte, replace 
 	if replace {
 		if _, err := os.Stat(targetDir); err == nil {
 			previous := Summary{ID: manifest.ID, Path: targetDir}
-			if registrySummary, ok := r.registry.Get(manifest.ID); ok {
-				previous = registrySummary
+			if existing != nil {
+				previous = *existing
 			}
 			backup, err = r.createBackupLocked(previous, "replace")
 			if err != nil {
@@ -247,6 +249,27 @@ func (r *Runtime) installArchiveLocked(filename string, content []byte, replace 
 		return installResult{}, fmt.Errorf("plugin %s was installed but not loaded", manifest.ID)
 	}
 	return installResult{Summary: summary, Backup: backup}, nil
+}
+
+func (r *Runtime) installTargetLocked(pluginID string) (string, string, *Summary, error) {
+	installDir, err := r.primaryDirectory()
+	if err != nil {
+		return "", "", nil, err
+	}
+	targetDir := filepath.Join(installDir, pluginID)
+	if summary, ok := r.registry.Get(pluginID); ok {
+		if summary.Source != PluginSourceLocal || strings.TrimSpace(summary.Path) == "" {
+			return "", "", nil, fmt.Errorf("plugin %s conflicts with existing %s plugin", pluginID, summary.Source)
+		}
+		if !r.isManagedPath(summary.Path) {
+			return "", "", nil, fmt.Errorf("plugin %s is outside managed plugin directories", pluginID)
+		}
+		existing := summary
+		targetDir = summary.Path
+		installDir = filepath.Dir(targetDir)
+		return installDir, targetDir, &existing, nil
+	}
+	return installDir, targetDir, nil, nil
 }
 
 func (r *Runtime) SetEnabled(id string, enabled bool) (Summary, error) {
