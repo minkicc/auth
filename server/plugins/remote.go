@@ -89,6 +89,7 @@ func (r *Runtime) installURL(ctx context.Context, rawURL, expectedSHA256, source
 	filename := ""
 	pluginID, pluginName, version := "", "", ""
 	previousDetails := map[string]string(nil)
+	var result installResult
 	defer func() {
 		if summary.ID != "" {
 			pluginID = summary.ID
@@ -104,7 +105,7 @@ func (r *Runtime) installURL(ctx context.Context, rawURL, expectedSHA256, source
 			Actor:      actor,
 			Success:    err == nil,
 			Error:      auditError(err),
-			Details: mergeAuditDetails(auditSummaryDetails(summary), previousDetails, map[string]string{
+			Details: mergeAuditDetails(auditSummaryDetails(summary), previousDetails, auditBackupDetails(result.Backup), map[string]string{
 				"filename":                filename,
 				"expected_package_sha256": strings.TrimSpace(strings.ToLower(expectedSHA256)),
 				"replace":                 fmt.Sprintf("%t", replace),
@@ -143,7 +144,8 @@ func (r *Runtime) installURL(ctx context.Context, rawURL, expectedSHA256, source
 			previousDetails = auditPreviousSummaryDetails(previous)
 		}
 	}
-	summary, err = r.installArchiveLocked(filename, content, replace, sourceValue)
+	result, err = r.installArchiveLocked(filename, content, replace, sourceValue)
+	summary = result.Summary
 	return summary, err
 }
 

@@ -196,6 +196,17 @@ export interface PluginAuditEntry {
   details?: Record<string, string>
 }
 
+export interface PluginBackupInfo {
+  id: string
+  plugin_id: string
+  plugin_name?: string
+  version?: string
+  package_sha256?: string
+  source?: string
+  reason?: string
+  created_at: string
+}
+
 // ===================== 其他 API 方法 =====================
 class ServerApi {
   /**
@@ -267,6 +278,16 @@ class ServerApi {
   // 获取插件操作审计
   getPluginAudit(limit = 100): Promise<{ audit: PluginAuditEntry[] }> {
     return api.get('/plugins/audit', { params: { limit } }).then(res => res.data)
+  }
+
+  // 获取插件回滚快照
+  getPluginBackups(limit = 100): Promise<{ backups: PluginBackupInfo[] }> {
+    return api.get('/plugins/backups', { params: { limit } }).then(res => res.data)
+  }
+
+  // 从回滚快照恢复插件
+  restorePluginBackup(backupId: string): Promise<{ message: string, plugin: PluginInfo }> {
+    return api.post('/plugins/restore', { backup_id: backupId }).then(res => res.data)
   }
 
   // 上传安装插件

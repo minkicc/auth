@@ -291,7 +291,7 @@ Local manifests must declare their runtime permissions. HTTP actions need `netwo
 
 If you want signed packages, add `trusted_signers` and set `require_signature: true`. MKAuth verifies `mkauth-plugin.sig` against the raw manifest content and shows signature status plus the uploaded package SHA-256 fingerprint in the admin UI.
 
-Plugin install, enable, disable, replace, and uninstall operations are written to `mkauth-plugin.audit.jsonl` in the plugin directory. Replace/uninstall entries keep package fingerprints for rollback investigation. The admin console reads the latest entries through `GET /admin-api/plugins/audit`.
+Plugin install, enable, disable, replace, and uninstall operations are written to `mkauth-plugin.audit.jsonl` in the plugin directory. Replace/uninstall operations also create rollback snapshots under `.mkauth-plugin-backups`, and restore validates the backup against the current signature, permission, and host policies before activation.
 
 You can generate keys and sign manifests with the bundled helper under [tools](tools/README.md):
 
@@ -306,10 +306,12 @@ Useful endpoints:
 - Public plugin discovery: `GET /api/plugins`
 - Admin plugin management: `GET /admin-api/plugins`
 - Admin plugin audit: `GET /admin-api/plugins/audit`
+- Admin plugin backups: `GET /admin-api/plugins/backups`
 - Admin plugin install: `POST /admin-api/plugins/install`
 - Admin plugin catalog: `GET /admin-api/plugins/catalog`
 - Admin plugin install from catalog: `POST /admin-api/plugins/install-catalog`
 - Admin plugin install from URL: `POST /admin-api/plugins/install-url`
+- Admin plugin restore: `POST /admin-api/plugins/restore`
 
 See [examples/plugins/http-claims-action](examples/plugins/http-claims-action/README.md) for a self-contained local plugin example, and [examples/plugins/catalog.yaml](examples/plugins/catalog.yaml) for a catalog example.
 

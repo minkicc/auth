@@ -219,6 +219,57 @@
         <template #header>
           <div class="catalog-header">
             <div>
+              <strong>回滚快照</strong>
+              <p>覆盖安装或卸载前自动保存，可在这里恢复。</p>
+            </div>
+          </div>
+        </template>
+
+        <el-table :data="backupEntries" row-key="id" empty-text="暂无回滚快照">
+          <el-table-column label="时间" min-width="170">
+            <template #default="{ row }">
+              {{ formatAuditTime(row.created_at) }}
+            </template>
+          </el-table-column>
+          <el-table-column label="插件" min-width="190">
+            <template #default="{ row }">
+              {{ row.plugin_name || row.plugin_id || '-' }}
+            </template>
+          </el-table-column>
+          <el-table-column label="原因" width="120">
+            <template #default="{ row }">
+              <el-tag effect="plain">{{ formatBackupReason(row.reason) }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="包指纹" min-width="180">
+            <template #default="{ row }">
+              <span class="hash">{{ formatHash(row.package_sha256) }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="快照 ID" min-width="220">
+            <template #default="{ row }">
+              <span class="hash">{{ row.id }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" width="110" fixed="right">
+            <template #default="{ row }">
+              <el-button
+                link
+                type="primary"
+                :loading="actionLoadingId === `restore:${row.id}`"
+                @click="restoreBackup(row)"
+              >
+                恢复
+              </el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+      </el-card>
+
+      <el-card class="audit-card" shadow="never">
+        <template #header>
+          <div class="catalog-header">
+            <div>
               <strong>操作审计</strong>
               <p>最近的插件安装、启停和卸载记录。</p>
             </div>
@@ -273,7 +324,7 @@
 import { onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import { ElMessageBox } from 'element-plus/es/components/message-box/index'
-import { serverApi, type CatalogPluginInfo, type PluginAuditEntry, type PluginInfo } from '@/api'
+import { serverApi, type CatalogPluginInfo, type PluginAuditEntry, type PluginBackupInfo, type PluginInfo } from '@/api'
 
 const loading = ref(false)
 const actionLoadingId = ref('')
@@ -281,6 +332,7 @@ const replaceOnInstall = ref(false)
 const plugins = ref<PluginInfo[]>([])
 const catalogPlugins = ref<CatalogPluginInfo[]>([])
 const auditEntries = ref<PluginAuditEntry[]>([])
+const backupEntries = ref<PluginBackupInfo[]>([])
 const catalogLoadError = ref('')
 const remoteInstallURL = ref('')
 const fileInput = ref<HTMLInputElement | null>(null)
@@ -329,9 +381,19 @@ const formatAuditAction = (action: string) => {
     install_catalog: '目录安装',
     enable: '启用',
     disable: '禁用',
-    uninstall: '卸载'
+    uninstall: '卸载',
+    restore: '恢复'
   }
   return labels[action] || action || '-'
+}
+
+const formatBackupReason = (reason?: string) => {
+  const labels: Record<string, string> = {
+    replace: '覆盖前',
+    uninstall: '卸载前',
+    restore_replace: '恢复前'
+  }
+  return labels[reason || ''] || reason || '-'
 }
 
 const formatAuditTime = (value?: string) => {
@@ -361,6 +423,12 @@ const loadPlugins = async () => {
       auditEntries.value = auditResponse.audit || []
     } catch {
       auditEntries.value = []
+    }
+    try {
+      const backupResponse = await serverApi.getPluginBackups(100)
+      backupEntries.value = backupResponse.backups || []
+    } catch {
+      backupEntries.value = []
     }
     try {
       const catalogResponse = await serverApi.getPluginCatalog()
@@ -467,6 +535,33 @@ const deletePlugin = async (plugin: PluginInfo) => {
     await loadPlugins()
   } catch (error: any) {
     ElMessage.error(error?.response?.data?.error || '插件删除失败')
+  } finally {
+    actionLoadingId.value = ''
+  }
+}
+
+const restoreBackup = async (backup: PluginBackupInfo) => {
+  try {
+    await ElMessageBox.confirm(
+      `确定恢复插件 ${backup.plugin_name || backup.plugin_id} 到该快照吗？当前同名插件会先自动备份。`,
+      '恢复插件快照',
+      {
+        confirmButtonText: '恢复',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    )
+  } catch {
+    return
+  }
+
+  actionLoadingId.value = `restore:${backup.id}`
+  try {
+    const response = await serverApi.restorePluginBackup(backup.id)
+    ElMessage.success(response.message || '插件已恢复')
+    await loadPlugins()
+  } catch (error: any) {
+    ElMessage.error(error?.response?.data?.error || '插件恢复失败')
   } finally {
     actionLoadingId.value = ''
   }

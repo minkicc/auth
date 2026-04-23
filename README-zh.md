@@ -297,7 +297,7 @@ plugins:
 
 如果你希望只允许可信插件，可配置 `trusted_signers`，并开启 `require_signature: true`。MKAuth 会校验 `mkauth-plugin.sig` 对 manifest 原文的签名，并在后台展示签名状态和上传包的 SHA-256 指纹。
 
-插件安装、启停、覆盖和卸载操作会写入插件目录下的 `mkauth-plugin.audit.jsonl`。覆盖/卸载记录会保留包指纹，方便后续回滚排查。后台通过 `GET /admin-api/plugins/audit` 读取最近的审计记录。
+插件安装、启停、覆盖和卸载操作会写入插件目录下的 `mkauth-plugin.audit.jsonl`。覆盖/卸载操作还会在 `.mkauth-plugin-backups` 下创建回滚快照；恢复快照前会重新按当前签名、权限和 host 策略校验，避免回滚绕过安全策略。
 
 仓库里已经附带了签名辅助工具，见 [tools](tools/README.md)：
 
@@ -312,10 +312,12 @@ go run ./pluginsign sign -manifest ../examples/plugins/http-claims-action/mkauth
 - 公共插件发现：`GET /api/plugins`
 - 后台插件管理：`GET /admin-api/plugins`
 - 后台插件审计：`GET /admin-api/plugins/audit`
+- 后台插件备份：`GET /admin-api/plugins/backups`
 - 后台安装插件：`POST /admin-api/plugins/install`
 - 后台插件目录：`GET /admin-api/plugins/catalog`
 - 后台按目录安装：`POST /admin-api/plugins/install-catalog`
 - 后台 URL 安装：`POST /admin-api/plugins/install-url`
+- 后台恢复备份：`POST /admin-api/plugins/restore`
 
 一个完整的本地插件示例见 [examples/plugins/http-claims-action](examples/plugins/http-claims-action/README.md)，远程目录示例见 [examples/plugins/catalog.yaml](examples/plugins/catalog.yaml)。
 
