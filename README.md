@@ -13,7 +13,7 @@ It is a good fit when:
 
 - Multiple login providers
 - OIDC provider + JWT access and ID tokens
-- CIAM/IAM foundation for organizations, organization admin management, external identities, flow hooks, and installable plugins
+- CIAM/IAM foundation for organizations, organization admin management, inbound SCIM user provisioning, external identities, flow hooks, and installable plugins
 - Redis-backed session management
 - Avatar upload
 - Admin console
@@ -340,6 +340,45 @@ Useful admin endpoints:
 - Membership update/delete: `PATCH /admin-api/organizations/:id/memberships/:user_id`, `DELETE /admin-api/organizations/:id/memberships/:user_id`
 
 When a user has an active organization membership and the downstream OIDC client requests `profile`, MKAuth can include `org_id`, `org_slug`, and `org_roles` in the ID Token and `/oauth2/userinfo`.
+
+### Inbound SCIM user provisioning
+
+MKAuth can expose a SCIM 2.0 Users endpoint so enterprise directories such as Okta, Entra ID, or Google Workspace can provision users into an organization.
+
+Configure one inbound SCIM connection per enterprise directory:
+
+```yaml
+iam:
+  scim_inbound:
+    - enabled: true
+      slug: "acme-scim"
+      name: "Acme SCIM"
+      organization_id: "org_acme000000000000"
+      bearer_token_hash: "$2a$10$..."
+```
+
+Use `tools/hashpwd.go` to generate the bcrypt token hash:
+
+```bash
+cd tools
+go run hashpwd.go -password "YOUR_LONG_RANDOM_SCIM_TOKEN"
+```
+
+Point the enterprise directory at:
+
+```text
+https://auth.example.com/api/scim/v2
+```
+
+Supported SCIM endpoints:
+
+- Discovery: `GET /api/scim/v2/ServiceProviderConfig`, `GET /api/scim/v2/ResourceTypes`, `GET /api/scim/v2/Schemas`
+- User list/create: `GET /api/scim/v2/Users`, `POST /api/scim/v2/Users`
+- User read/replace/patch/delete: `GET /api/scim/v2/Users/:id`, `PUT /api/scim/v2/Users/:id`, `PATCH /api/scim/v2/Users/:id`, `DELETE /api/scim/v2/Users/:id`
+
+The first SCIM version supports Users only. It creates or updates MKAuth users, links them through `external_identities` with `provider_type=scim`, and syncs organization membership status plus lightweight role names. `DELETE /Users/:id` and `active=false` disable the MKAuth user and mark the organization membership as disabled.
+
+SCIM Groups are not implemented yet; add them next if you need enterprise group-to-role synchronization.
 
 ### Storage
 

@@ -19,10 +19,11 @@ Implemented:
 - `enterprise_oidc` as the first upstream enterprise identity connector.
 - Organization claim injection into ID Token and `/oauth2/userinfo`.
 - Admin API and admin console page for organization, domain, and membership management.
+- Inbound SCIM Users MVP for enterprise directory provisioning into an organization.
 
 Not implemented yet:
 
-- Inbound SCIM.
+- SCIM Groups and group-to-role synchronization.
 - Enterprise SAML.
 - LDAP federation or sync.
 - Full role/group/RBAC policy enforcement.
@@ -263,6 +264,42 @@ The admin API accepts either organization ID or slug in the `:id` path segment:
 
 Organizations are not hard-deleted in this MVP. Use `inactive` status to disable an organization without destroying tenant history.
 
+## Inbound SCIM Users MVP
+
+The first provisioning connector is inbound SCIM 2.0 Users. Configure clients under `iam.scim_inbound`:
+
+```yaml
+iam:
+  scim_inbound:
+    - enabled: true
+      slug: "acme-scim"
+      name: "Acme SCIM"
+      organization_id: "org_acme000000000000"
+      bearer_token_hash: "$2a$10$..."
+```
+
+Runtime endpoints:
+
+- `GET /api/scim/v2/ServiceProviderConfig`
+- `GET /api/scim/v2/ResourceTypes`
+- `GET /api/scim/v2/Schemas`
+- `GET /api/scim/v2/Users`
+- `POST /api/scim/v2/Users`
+- `GET /api/scim/v2/Users/:id`
+- `PUT /api/scim/v2/Users/:id`
+- `PATCH /api/scim/v2/Users/:id`
+- `DELETE /api/scim/v2/Users/:id`
+
+Provisioning behavior:
+
+1. Authenticates SCIM calls with an inbound bearer token. Production configs should prefer `bearer_token_hash`.
+2. Creates MKAuth users with random unusable local passwords.
+3. Links the external directory record through `external_identities` with `provider_type=scim`.
+4. Syncs organization membership status and lightweight role names.
+5. Maps `active=false` and `DELETE /Users/:id` to disabled MKAuth users and disabled organization memberships.
+
+This is intentionally Users-only. SCIM Groups should be added next to map enterprise groups into MKAuth roles or future group records.
+
 ## Enterprise OIDC MVP
 
 The first upstream identity connector is `enterprise_oidc`. Configure providers under `iam.enterprise_oidc`:
@@ -316,8 +353,9 @@ The first version selects the earliest active organization membership. A future 
 2. Implement `enterprise_oidc` as the first upstream enterprise connector. Done.
 3. Add claim mapping for organization and membership claims. Done.
 4. Add organization admin APIs and UI. Done.
-5. Add inbound SCIM for user and group provisioning.
-6. Add SAML and LDAP connectors after the OIDC path is stable.
+5. Add inbound SCIM Users provisioning. Done.
+6. Add SCIM Groups for group-to-role synchronization.
+7. Add SAML and LDAP connectors after the OIDC path is stable.
 
 ## Non-Goals For The First Version
 

@@ -28,6 +28,7 @@ const (
 	IdentityProviderTypeOIDC   IdentityProviderType = "oidc"
 	IdentityProviderTypeSAML   IdentityProviderType = "saml"
 	IdentityProviderTypeLDAP   IdentityProviderType = "ldap"
+	IdentityProviderTypeSCIM   IdentityProviderType = "scim"
 	IdentityProviderTypeGoogle IdentityProviderType = "google"
 	IdentityProviderTypeWeixin IdentityProviderType = "weixin"
 )

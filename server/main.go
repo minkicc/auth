@@ -315,6 +315,9 @@ func main() {
 	}
 	// Register routes
 	authHandler.RegisterRoutes(r.Group(API_ROUTER_PATH), cfg)
+	if scimHandler := handlers.NewSCIMHandler(cfg.IAM, globalDB, iamService); scimHandler != nil && scimHandler.Enabled() {
+		scimHandler.RegisterRoutes(r.Group(API_ROUTER_PATH + "/scim/v2"))
+	}
 	if oidcProvider != nil {
 		oidcProvider.RegisterRoutes(r)
 	}

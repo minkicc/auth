@@ -53,6 +53,7 @@ type AuthConfig struct {
 // IAMConfig contains optional CIAM/IAM extensions.
 type IAMConfig struct {
 	EnterpriseOIDC []EnterpriseOIDCProviderConfig `json:"enterprise_oidc" yaml:"enterprise_oidc"`
+	SCIMInbound    []SCIMInboundConfig            `json:"scim_inbound" yaml:"scim_inbound"`
 }
 
 // EnterpriseOIDCProviderConfig describes an upstream enterprise OIDC provider.
@@ -65,6 +66,16 @@ type EnterpriseOIDCProviderConfig struct {
 	ClientSecret   string   `json:"client_secret" yaml:"client_secret"`
 	RedirectURI    string   `json:"redirect_uri" yaml:"redirect_uri"`
 	Scopes         []string `json:"scopes" yaml:"scopes"`
+}
+
+// SCIMInboundConfig describes an inbound SCIM 2.0 provisioning connection.
+type SCIMInboundConfig struct {
+	Enabled         bool   `json:"enabled" yaml:"enabled"`
+	Slug            string `json:"slug" yaml:"slug"`
+	Name            string `json:"name" yaml:"name"`
+	OrganizationID  string `json:"organization_id" yaml:"organization_id"`
+	BearerToken     string `json:"bearer_token" yaml:"bearer_token"`
+	BearerTokenHash string `json:"bearer_token_hash" yaml:"bearer_token_hash"`
 }
 
 // PluginsConfig enables installable manifest plugins and configurable runtime actions.

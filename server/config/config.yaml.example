@@ -58,6 +58,17 @@ iam:
         - "openid"
         - "profile"
         - "email"
+  scim_inbound:
+    - enabled: false
+      slug: "acme-scim"
+      name: "Acme SCIM"
+      organization_id: "org_acme000000000000"
+      # Prefer bearer_token_hash in production. You can generate a bcrypt hash
+      # with: cd tools && go run hashpwd.go -password "YOUR_SCIM_TOKEN"
+      bearer_token_hash: "$2a$10$..."
+      # bearer_token is convenient for local testing, but should not be used
+      # in production config files.
+      bearer_token: ""
 
 plugins:
   enabled: false
