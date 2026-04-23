@@ -201,6 +201,15 @@
                 {{ row.enabled ? '禁用' : '启用' }}
               </el-button>
               <el-button
+                v-if="canConfigure(row)"
+                link
+                type="primary"
+                :loading="actionLoadingId === `config:${row.id}`"
+                @click="openPluginConfig(row)"
+              >
+                配置
+              </el-button>
+              <el-button
                 v-if="canManage(row)"
                 link
                 type="danger"
@@ -317,6 +326,54 @@
         </el-table>
       </el-card>
     </el-card>
+
+    <el-dialog
+      v-model="configDialogVisible"
+      :title="`配置插件 ${activeConfigPlugin?.name || activeConfigPlugin?.id || ''}`"
+      width="560px"
+    >
+      <el-form label-position="top">
+        <el-form-item
+          v-for="field in configSchema"
+          :key="field.key"
+          :label="`${field.label || field.key}${field.required ? ' *' : ''}`"
+        >
+          <el-switch
+            v-if="field.type === 'boolean'"
+            v-model="configValues[field.key]"
+            active-value="true"
+            inactive-value="false"
+          />
+          <el-select
+            v-else-if="field.type === 'select'"
+            v-model="configValues[field.key]"
+            :placeholder="field.description || field.key"
+            clearable
+            class="config-control"
+          >
+            <el-option
+              v-for="option in field.options || []"
+              :key="option"
+              :label="option"
+              :value="option"
+            />
+          </el-select>
+          <el-input
+            v-else
+            v-model="configValues[field.key]"
+            :type="field.type === 'secret' ? 'password' : field.type === 'text' ? 'textarea' : 'text'"
+            :show-password="field.type === 'secret'"
+            :placeholder="configPlaceholder(field)"
+            clearable
+          />
+          <p v-if="field.description" class="field-help">{{ field.description }}</p>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="configDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="configLoading" @click="savePluginConfig">保存配置</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -324,7 +381,7 @@
 import { onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import { ElMessageBox } from 'element-plus/es/components/message-box/index'
-import { serverApi, type CatalogPluginInfo, type PluginAuditEntry, type PluginBackupInfo, type PluginInfo } from '@/api'
+import { serverApi, type CatalogPluginInfo, type PluginAuditEntry, type PluginBackupInfo, type PluginConfigField, type PluginInfo } from '@/api'
 
 const loading = ref(false)
 const actionLoadingId = ref('')
@@ -336,8 +393,15 @@ const backupEntries = ref<PluginBackupInfo[]>([])
 const catalogLoadError = ref('')
 const remoteInstallURL = ref('')
 const fileInput = ref<HTMLInputElement | null>(null)
+const configDialogVisible = ref(false)
+const configLoading = ref(false)
+const activeConfigPlugin = ref<PluginInfo | null>(null)
+const configSchema = ref<PluginConfigField[]>([])
+const configValues = ref<Record<string, string>>({})
+const configConfigured = ref<Record<string, boolean>>({})
 
 const canManage = (plugin: PluginInfo) => plugin.source === 'local'
+const canConfigure = (plugin: PluginInfo) => canManage(plugin) && !!plugin.config_schema?.length
 
 const sourceTagType = (source: string) => {
   if (source === 'builtin') return 'success'
@@ -371,6 +435,11 @@ const formatHash = (hash?: string) => {
   if (!hash) return '-'
   if (hash.length <= 16) return hash
   return `${hash.slice(0, 12)}...${hash.slice(-8)}`
+}
+
+const configPlaceholder = (field: PluginConfigField) => {
+  if (field.sensitive && configConfigured.value[field.key]) return '已配置；留空则保持不变'
+  return field.description || field.default || field.key
 }
 
 const formatAuditAction = (action: string) => {
@@ -540,6 +609,37 @@ const deletePlugin = async (plugin: PluginInfo) => {
   }
 }
 
+const openPluginConfig = async (plugin: PluginInfo) => {
+  actionLoadingId.value = `config:${plugin.id}`
+  try {
+    const view = await serverApi.getPluginConfig(plugin.id)
+    activeConfigPlugin.value = plugin
+    configSchema.value = view.schema || []
+    configValues.value = { ...(view.values || {}) }
+    configConfigured.value = { ...(view.configured || {}) }
+    configDialogVisible.value = true
+  } catch (error: any) {
+    ElMessage.error(error?.response?.data?.error || '加载插件配置失败')
+  } finally {
+    actionLoadingId.value = ''
+  }
+}
+
+const savePluginConfig = async () => {
+  if (!activeConfigPlugin.value) return
+  configLoading.value = true
+  try {
+    const response = await serverApi.updatePluginConfig(activeConfigPlugin.value.id, configValues.value)
+    ElMessage.success(response.message || '插件配置已保存')
+    configDialogVisible.value = false
+    await loadPlugins()
+  } catch (error: any) {
+    ElMessage.error(error?.response?.data?.error || '插件配置保存失败')
+  } finally {
+    configLoading.value = false
+  }
+}
+
 const restoreBackup = async (backup: PluginBackupInfo) => {
   try {
     await ElMessageBox.confirm(
@@ -670,6 +770,17 @@ onMounted(() => {
     display: flex;
     align-items: center;
     gap: 12px;
+  }
+
+  .config-control {
+    width: 100%;
+  }
+
+  .field-help {
+    margin: 6px 0 0;
+    color: #64748b;
+    font-size: 12px;
+    line-height: 1.5;
   }
 }
 

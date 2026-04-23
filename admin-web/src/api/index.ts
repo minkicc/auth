@@ -154,11 +154,31 @@ export interface PluginInfo {
   description?: string
   events?: string[]
   permissions?: string[]
+  config_schema?: PluginConfigField[]
+  config_configured?: boolean
   enabled: boolean
   signature_verified: boolean
   signer_key_id?: string
   package_sha256?: string
   path?: string
+}
+
+export interface PluginConfigField {
+  key: string
+  label?: string
+  type?: 'string' | 'text' | 'url' | 'secret' | 'integer' | 'boolean' | 'select' | string
+  description?: string
+  required?: boolean
+  default?: string
+  options?: string[]
+  sensitive?: boolean
+}
+
+export interface PluginConfigView {
+  plugin_id: string
+  schema: PluginConfigField[]
+  values: Record<string, string>
+  configured: Record<string, boolean>
 }
 
 export interface CatalogPluginInfo {
@@ -288,6 +308,16 @@ class ServerApi {
   // 从回滚快照恢复插件
   restorePluginBackup(backupId: string): Promise<{ message: string, plugin: PluginInfo }> {
     return api.post('/plugins/restore', { backup_id: backupId }).then(res => res.data)
+  }
+
+  // 获取插件配置
+  getPluginConfig(id: string): Promise<PluginConfigView> {
+    return api.get(`/plugins/${id}/config`).then(res => res.data)
+  }
+
+  // 更新插件配置
+  updatePluginConfig(id: string, config: Record<string, string>): Promise<{ message: string, config: PluginConfigView }> {
+    return api.patch(`/plugins/${id}/config`, { config }).then(res => res.data)
   }
 
   // 上传安装插件
