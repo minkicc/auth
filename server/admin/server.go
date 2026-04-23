@@ -173,6 +173,20 @@ func (s *AdminServer) registerRoutes(r *gin.Engine, webFilePath string) {
 		admin.DELETE("/user/:id/sessions/:session_id", s.handleTerminateUserSession)
 		admin.DELETE("/user/:id/sessions", s.handleTerminateAllUserSessions)
 
+		// CIAM organization management
+		admin.GET("/organizations", s.handleListOrganizations)
+		admin.POST("/organizations", s.handleCreateOrganization)
+		admin.GET("/organizations/:id", s.handleGetOrganization)
+		admin.PATCH("/organizations/:id", s.handleUpdateOrganization)
+		admin.GET("/organizations/:id/domains", s.handleListOrganizationDomains)
+		admin.POST("/organizations/:id/domains", s.handleCreateOrganizationDomain)
+		admin.PATCH("/organizations/:id/domains/:domain", s.handleUpdateOrganizationDomain)
+		admin.DELETE("/organizations/:id/domains/:domain", s.handleDeleteOrganizationDomain)
+		admin.GET("/organizations/:id/memberships", s.handleListOrganizationMemberships)
+		admin.POST("/organizations/:id/memberships", s.handleUpsertOrganizationMembership)
+		admin.PATCH("/organizations/:id/memberships/:user_id", s.handleUpdateOrganizationMembership)
+		admin.DELETE("/organizations/:id/memberships/:user_id", s.handleDeleteOrganizationMembership)
+
 		// Plugin management
 		admin.GET("/plugins", s.handleGetPlugins)
 		admin.GET("/plugins/audit", s.handleGetPluginAudit)

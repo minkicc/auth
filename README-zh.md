@@ -13,7 +13,7 @@ Auth 是一个可独立部署的统一认证服务，提供账号密码、邮箱
 
 - 多种登录方式：账号、邮箱、手机号、Google、微信、微信小程序
 - OIDC Provider + JWT Access / ID Token
-- CIAM/IAM 基础能力：组织、外部身份映射、认证流程 Hook、可安装插件
+- CIAM/IAM 基础能力：组织管理、外部身份映射、认证流程 Hook、可安装插件
 - Redis 会话管理
 - 用户头像上传
 - 管理后台
@@ -329,6 +329,23 @@ go run ./pluginsign sign -manifest ../examples/plugins/http-claims-action/auth-p
 - 后台更新配置：`PATCH /admin-api/plugins/:id/config`
 
 一个完整的本地插件示例见 [examples/plugins/http-claims-action](examples/plugins/http-claims-action/README.md)，远程目录示例见 [examples/plugins/catalog.yaml](examples/plugins/catalog.yaml)。
+
+### CIAM/IAM 组织管理
+
+启用管理后台后，可以在 `组织管理` 菜单里维护 B2B 租户。当前后台已经支持创建和编辑组织、绑定邮箱域名、把已有用户加入组织，并给成员配置轻量角色名。
+
+下面接口里的 `:id` 可以传组织 ID，也可以传组织 slug。第一版暂不提供组织硬删除，暂时不用的组织建议把状态改成 `inactive`。
+
+常用后台接口：
+
+- 组织列表/创建：`GET /admin-api/organizations`、`POST /admin-api/organizations`
+- 组织详情/更新：`GET /admin-api/organizations/:id`、`PATCH /admin-api/organizations/:id`
+- 组织域名：`GET /admin-api/organizations/:id/domains`、`POST /admin-api/organizations/:id/domains`
+- 域名更新/删除：`PATCH /admin-api/organizations/:id/domains/:domain`、`DELETE /admin-api/organizations/:id/domains/:domain`
+- 组织成员：`GET /admin-api/organizations/:id/memberships`、`POST /admin-api/organizations/:id/memberships`
+- 成员更新/删除：`PATCH /admin-api/organizations/:id/memberships/:user_id`、`DELETE /admin-api/organizations/:id/memberships/:user_id`
+
+当用户存在 active 组织成员关系，并且下游 OIDC 客户端请求了 `profile` scope 时，Auth 可以在 ID Token 和 `/oauth2/userinfo` 中返回 `org_id`、`org_slug`、`org_roles`。
 
 ### 存储
 

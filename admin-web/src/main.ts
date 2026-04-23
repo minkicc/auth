@@ -23,6 +23,7 @@ import { ElMenu, ElMenuItem } from 'element-plus/es/components/menu/index'
 import { ElPagination } from 'element-plus/es/components/pagination/index'
 import { ElOption, ElSelect } from 'element-plus/es/components/select/index'
 import { ElSkeleton } from 'element-plus/es/components/skeleton/index'
+import { ElSwitch } from 'element-plus/es/components/switch/index'
 import { ElTable, ElTableColumn } from 'element-plus/es/components/table/index'
 import { ElTabPane, ElTabs } from 'element-plus/es/components/tabs/index'
 import { ElTag } from 'element-plus/es/components/tag/index'
@@ -51,6 +52,7 @@ import 'element-plus/es/components/option/style/css'
 import 'element-plus/es/components/pagination/style/css'
 import 'element-plus/es/components/select/style/css'
 import 'element-plus/es/components/skeleton/style/css'
+import 'element-plus/es/components/switch/style/css'
 import 'element-plus/es/components/table/style/css'
 import 'element-plus/es/components/tabs/style/css'
 import 'element-plus/es/components/tag/style/css'
@@ -89,6 +91,7 @@ const elementComponents = [
   ElPagination,
   ElSelect,
   ElSkeleton,
+  ElSwitch,
   ElTable,
   ElTableColumn,
   ElTabPane,
