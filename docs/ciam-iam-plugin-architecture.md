@@ -17,6 +17,7 @@ Implemented:
 - Flow hook boundaries for `post_authenticate`, `before_token_issue`, and `before_userinfo`.
 - Installable plugin runtime with local ZIP packages, catalog installation, URL installation, preview, config schema, signatures, audit log, backups, restore, and in-process reload.
 - `enterprise_oidc` as the first upstream enterprise identity connector.
+- HRD (Home Realm Discovery) from verified organization domains to Enterprise OIDC providers.
 - Organization claim injection into ID Token and `/oauth2/userinfo`.
 - Admin API and admin console page for organization, domain, membership, and Enterprise OIDC identity provider management.
 - Inbound SCIM Users and Groups MVP for enterprise directory provisioning into an organization.
@@ -349,6 +350,13 @@ Runtime admin behavior:
 2. The client secret stays in stored config but is not echoed back by the admin API.
 3. Saving or deleting a provider triggers an in-process `EnterpriseOIDCManager.Reload()`.
 4. Enterprise OIDC routes are registered whenever the manager exists, so newly added providers become reachable without restarting the service.
+
+HRD behavior:
+
+1. The public endpoint `GET /api/enterprise/oidc/discover?email=...` extracts the email domain.
+2. MKAuth looks up a verified record in `organization_domains`.
+3. The matched active organization is resolved to one or more runtime Enterprise OIDC providers.
+4. The login page auto-redirects when exactly one provider is matched, or narrows the provider list when multiple providers are available for that organization.
 
 The callback flow:
 

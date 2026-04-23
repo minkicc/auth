@@ -138,19 +138,47 @@
           v-if="hasWeixinLogin" 
           @login-error="handleLoginError"
         />
-        <div v-if="hasEnterpriseOIDCLogin" class="enterprise-login-list">
-          <button
-            v-for="provider in enterpriseOIDCProviders"
-            :key="provider.slug"
-            class="enterprise-login-btn"
-            type="button"
-            @click="handleEnterpriseOIDCLogin(provider.slug)"
-          >
-            <span class="enterprise-login-mark">SSO</span>
-            <span class="enterprise-login-text">
-              {{ $t('auth.loginWithEnterprise', { name: provider.name }) }}
-            </span>
-          </button>
+        <div v-if="hasEnterpriseOIDCLogin" class="enterprise-sso-panel">
+          <div class="enterprise-discovery-card">
+            <p class="enterprise-discovery-title">{{ $t('auth.enterpriseEmailLogin') }}</p>
+            <p class="enterprise-discovery-subtitle">{{ $t('auth.enterpriseEmailLoginHint') }}</p>
+            <div class="enterprise-discovery-form">
+              <input
+                v-model="enterpriseEmail"
+                class="enterprise-discovery-input"
+                type="email"
+                :placeholder="$t('auth.enterpriseEmailPlaceholder')"
+                @input="resetEnterpriseOIDCDiscovery"
+                @keyup.enter="handleEnterpriseOIDCDiscovery"
+              />
+              <button
+                class="enterprise-discovery-submit"
+                type="button"
+                :disabled="enterpriseDiscoveryLoading"
+                @click="handleEnterpriseOIDCDiscovery"
+              >
+                {{ enterpriseDiscoveryLoading ? $t('common.loading') : $t('common.next') }}
+              </button>
+            </div>
+            <p v-if="enterpriseDiscoveryMessage" class="enterprise-discovery-message">
+              {{ enterpriseDiscoveryMessage }}
+            </p>
+          </div>
+
+          <div v-if="visibleEnterpriseOIDCProviders.length > 0" class="enterprise-login-list">
+            <button
+              v-for="provider in visibleEnterpriseOIDCProviders"
+              :key="provider.slug"
+              class="enterprise-login-btn"
+              type="button"
+              @click="handleEnterpriseOIDCLogin(provider.slug)"
+            >
+              <span class="enterprise-login-mark">SSO</span>
+              <span class="enterprise-login-text">
+                {{ $t('auth.loginWithEnterprise', { name: provider.name }) }}
+              </span>
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -172,19 +200,47 @@
       v-if="hasWeixinLogin" 
       @login-error="handleLoginError"
     />
-    <div v-if="hasEnterpriseOIDCLogin" class="enterprise-login-list">
-      <button
-        v-for="provider in enterpriseOIDCProviders"
-        :key="provider.slug"
-        class="enterprise-login-btn"
-        type="button"
-        @click="handleEnterpriseOIDCLogin(provider.slug)"
-      >
-        <span class="enterprise-login-mark">SSO</span>
-        <span class="enterprise-login-text">
-          {{ $t('auth.loginWithEnterprise', { name: provider.name }) }}
-        </span>
-      </button>
+    <div v-if="hasEnterpriseOIDCLogin" class="enterprise-sso-panel">
+      <div class="enterprise-discovery-card">
+        <p class="enterprise-discovery-title">{{ $t('auth.enterpriseEmailLogin') }}</p>
+        <p class="enterprise-discovery-subtitle">{{ $t('auth.enterpriseEmailLoginHint') }}</p>
+        <div class="enterprise-discovery-form">
+          <input
+            v-model="enterpriseEmail"
+            class="enterprise-discovery-input"
+            type="email"
+            :placeholder="$t('auth.enterpriseEmailPlaceholder')"
+            @input="resetEnterpriseOIDCDiscovery"
+            @keyup.enter="handleEnterpriseOIDCDiscovery"
+          />
+          <button
+            class="enterprise-discovery-submit"
+            type="button"
+            :disabled="enterpriseDiscoveryLoading"
+            @click="handleEnterpriseOIDCDiscovery"
+          >
+            {{ enterpriseDiscoveryLoading ? $t('common.loading') : $t('common.next') }}
+          </button>
+        </div>
+        <p v-if="enterpriseDiscoveryMessage" class="enterprise-discovery-message">
+          {{ enterpriseDiscoveryMessage }}
+        </p>
+      </div>
+
+      <div v-if="visibleEnterpriseOIDCProviders.length > 0" class="enterprise-login-list">
+        <button
+          v-for="provider in visibleEnterpriseOIDCProviders"
+          :key="provider.slug"
+          class="enterprise-login-btn"
+          type="button"
+          @click="handleEnterpriseOIDCLogin(provider.slug)"
+        >
+          <span class="enterprise-login-mark">SSO</span>
+          <span class="enterprise-login-text">
+            {{ $t('auth.loginWithEnterprise', { name: provider.name }) }}
+          </span>
+        </button>
+      </div>
     </div>
     <div v-if="errorMessage" class="error-message">
       {{ errorMessage }}
@@ -208,8 +264,8 @@ import WeixinLogin from '@/components/auth/WeixinLogin.vue'
 import AccountRegister from '@/components/auth/AccountRegister.vue'
 import EmailRegister from '@/components/auth/EmailRegister.vue'
 import PhoneRegister from '@/components/auth/PhoneRegister.vue'
-import { serverApi } from '@/api/serverApi'
-import type { AuthProvider, EnterpriseOIDCProvider } from '@/api/serverApi'
+import { getApiErrorMessage, serverApi } from '@/api/serverApi'
+import type { AuthProvider, EnterpriseOIDCDiscoveryResponse, EnterpriseOIDCProvider } from '@/api/serverApi'
 
 
 const { t } = useI18n()
@@ -223,6 +279,10 @@ const registerType = ref<'account' | 'email' | 'phone'>('account')
 const errorMessage = ref('')
 const shouldShowLoginForm = ref(false)
 const enterpriseOIDCProviders = ref<EnterpriseOIDCProvider[]>([])
+const enterpriseEmail = ref('')
+const enterpriseDiscoveryLoading = ref(false)
+const enterpriseDiscoveryMessage = ref('')
+const discoveredEnterpriseOIDCProviders = ref<EnterpriseOIDCProvider[]>([])
 
 // 登录方式检查
 const hasProvider = (provider: AuthProvider) => context.hasProvider(provider)
@@ -237,6 +297,11 @@ const hasEnterpriseOIDCLogin = hasProvider('enterprise_oidc')
 // 计算属性
 const hasPrimaryLogin = computed(() => hasAccountLogin || hasEmailLogin || hasPhoneLogin)
 const hasSocialLogin = computed(() => hasGoogleLogin || hasWeixinLogin || hasEnterpriseOIDCLogin)
+const visibleEnterpriseOIDCProviders = computed(() => {
+  return discoveredEnterpriseOIDCProviders.value.length > 0
+    ? discoveredEnterpriseOIDCProviders.value
+    : enterpriseOIDCProviders.value
+})
 
 const hasMultipleLoginMethods = computed(() => {
   let count = 0
@@ -279,6 +344,7 @@ const handleWechatLogin = async () => {
 const loadEnterpriseOIDCProviders = async () => {
   if (!hasEnterpriseOIDCLogin) {
     enterpriseOIDCProviders.value = []
+    discoveredEnterpriseOIDCProviders.value = []
     return
   }
   try {
@@ -289,8 +355,67 @@ const loadEnterpriseOIDCProviders = async () => {
   }
 }
 
+const resetEnterpriseOIDCDiscovery = () => {
+  discoveredEnterpriseOIDCProviders.value = []
+  enterpriseDiscoveryMessage.value = ''
+  errorMessage.value = ''
+}
+
+const enterpriseDiscoveryOrganizationName = (response: EnterpriseOIDCDiscoveryResponse) => {
+  return response.organization_display_name || response.organization_name || response.organization_slug || response.domain || 'SSO'
+}
+
+const handleEnterpriseOIDCDiscovery = async () => {
+  const email = enterpriseEmail.value.trim()
+  if (!email) {
+    errorMessage.value = t('errors.enterpriseEmailRequired')
+    return
+  }
+
+  enterpriseDiscoveryLoading.value = true
+  errorMessage.value = ''
+  enterpriseDiscoveryMessage.value = ''
+  discoveredEnterpriseOIDCProviders.value = []
+
+  try {
+    const response = await serverApi.discoverEnterpriseOIDCByEmail(email)
+    switch (response.status) {
+      case 'matched':
+        if (response.providers.length === 1) {
+          enterpriseDiscoveryMessage.value = t('auth.enterpriseDiscoveryMatched', {
+            name: enterpriseDiscoveryOrganizationName(response)
+          })
+          handleEnterpriseOIDCLogin(response.providers[0].slug)
+          return
+        }
+        discoveredEnterpriseOIDCProviders.value = response.providers
+        enterpriseDiscoveryMessage.value = t('auth.enterpriseDiscoveryMultiple', {
+          name: enterpriseDiscoveryOrganizationName(response)
+        })
+        return
+      case 'domain_not_found':
+        errorMessage.value = t('errors.enterpriseEmailDomainNotFound')
+        return
+      case 'organization_inactive':
+        errorMessage.value = t('errors.enterpriseOrganizationInactive')
+        return
+      case 'no_provider':
+        errorMessage.value = t('errors.enterpriseOIDCNotConfigured')
+        return
+      default:
+        errorMessage.value = t('errors.enterpriseOIDCDiscoveryFailed')
+        return
+    }
+  } catch (error) {
+    errorMessage.value = getApiErrorMessage(error, t('errors.enterpriseOIDCDiscoveryFailed'))
+  } finally {
+    enterpriseDiscoveryLoading.value = false
+  }
+}
+
 const handleEnterpriseOIDCLogin = (slug: string) => {
   try {
+    errorMessage.value = ''
     serverApi.startEnterpriseOIDCLogin(slug)
   } catch (error) {
     console.error(t('errors.enterpriseOIDCLoginFailed'), error)
@@ -559,6 +684,86 @@ input.error {
   width: 100%;
 }
 
+.enterprise-sso-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+}
+
+.enterprise-discovery-card {
+  padding: 14px;
+  border: 1px solid #d8e6ed;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #fbfdfe 0%, #f3f8fb 100%);
+}
+
+.enterprise-discovery-title {
+  margin: 0 0 4px;
+  color: #113f54;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.enterprise-discovery-subtitle {
+  margin: 0 0 12px;
+  color: #627b88;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.enterprise-discovery-form {
+  display: flex;
+  gap: 10px;
+}
+
+.enterprise-discovery-input {
+  flex: 1;
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid #c9d7df;
+  border-radius: 10px;
+  font-size: 14px;
+  color: #113f54;
+  background: #ffffff;
+  outline: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.enterprise-discovery-input:focus {
+  border-color: #1890ff;
+  box-shadow: 0 0 0 3px rgba(24, 144, 255, 0.12);
+}
+
+.enterprise-discovery-submit {
+  padding: 0 16px;
+  border: none;
+  border-radius: 10px;
+  background: #113f54;
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.enterprise-discovery-submit:hover:not(:disabled) {
+  opacity: 0.92;
+  transform: translateY(-1px);
+}
+
+.enterprise-discovery-submit:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.enterprise-discovery-message {
+  margin: 10px 0 0;
+  color: #3a5a68;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
 .enterprise-login-list {
   display: flex;
   flex-direction: column;
@@ -639,5 +844,15 @@ input.error {
 @keyframes spin {
   0% { transform: rotate(0deg); }
   100% { transform: rotate(360deg); }
+}
+
+@media (max-width: 520px) {
+  .enterprise-discovery-form {
+    flex-direction: column;
+  }
+
+  .enterprise-discovery-submit {
+    min-height: 44px;
+  }
 }
 </style>

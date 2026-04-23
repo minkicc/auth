@@ -7,7 +7,11 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/glebarez/sqlite"
+	"gorm.io/gorm"
+
 	"minki.cc/mkauth/server/config"
+	"minki.cc/mkauth/server/iam"
 	"minki.cc/mkauth/server/plugins"
 )
 
@@ -69,5 +73,100 @@ func TestGetPluginsReturnsInstalledPluginSummaries(t *testing.T) {
 	}
 	if len(body.Plugins) != 1 || body.Plugins[0].ID != "enterprise_oidc" {
 		t.Fatalf("unexpected plugins response: %#v", body.Plugins)
+	}
+}
+
+func TestDiscoverEnterpriseOIDC(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	db, err := gorm.Open(sqlite.Open("file:enterprise-oidc-handler-discover?mode=memory&cache=shared"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("failed to open sqlite: %v", err)
+	}
+	if err := iam.NewService(db).AutoMigrate(); err != nil {
+		t.Fatalf("failed to migrate iam tables: %v", err)
+	}
+	if err := db.Create(&iam.Organization{
+		OrganizationID: "org_acme000000000000",
+		Slug:           "acme",
+		Name:           "Acme Inc",
+		DisplayName:    "Acme",
+		Status:         iam.OrganizationStatusActive,
+	}).Error; err != nil {
+		t.Fatalf("failed to create organization: %v", err)
+	}
+	if err := db.Create(&iam.OrganizationDomain{
+		Domain:         "example.com",
+		OrganizationID: "org_acme000000000000",
+		Verified:       true,
+	}).Error; err != nil {
+		t.Fatalf("failed to create organization domain: %v", err)
+	}
+
+	manager, err := iam.NewEnterpriseOIDCManager(config.IAMConfig{EnterpriseOIDC: []config.EnterpriseOIDCProviderConfig{{
+		Slug:           "acme",
+		Name:           "Acme Workforce",
+		OrganizationID: "org_acme000000000000",
+		Issuer:         "https://login.acme.test",
+		ClientID:       "acme-client",
+		ClientSecret:   "acme-secret",
+		RedirectURI:    "https://auth.example.com/api/enterprise/oidc/acme/callback",
+	}}}, db, nil)
+	if err != nil {
+		t.Fatalf("failed to create enterprise oidc manager: %v", err)
+	}
+
+	h := &AuthHandler{enterpriseOIDC: manager}
+	router := gin.New()
+	router.GET("/enterprise/oidc/discover", h.DiscoverEnterpriseOIDC)
+
+	req := httptest.NewRequest(http.MethodGet, "/enterprise/oidc/discover?email=user@example.com", nil)
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	var body iam.EnterpriseOIDCDiscoveryResult
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("failed to decode discovery response: %v", err)
+	}
+	if body.Status != iam.EnterpriseOIDCDiscoveryMatched || len(body.Providers) != 1 || body.Providers[0].Slug != "acme" {
+		t.Fatalf("unexpected discovery body: %#v", body)
+	}
+}
+
+func TestDiscoverEnterpriseOIDCRejectsInvalidEmail(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	db, err := gorm.Open(sqlite.Open("file:enterprise-oidc-handler-invalid-email?mode=memory&cache=shared"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("failed to open sqlite: %v", err)
+	}
+	if err := iam.NewService(db).AutoMigrate(); err != nil {
+		t.Fatalf("failed to migrate iam tables: %v", err)
+	}
+	manager, err := iam.NewEnterpriseOIDCManager(config.IAMConfig{EnterpriseOIDC: []config.EnterpriseOIDCProviderConfig{{
+		Slug:         "acme",
+		Name:         "Acme Workforce",
+		Issuer:       "https://login.acme.test",
+		ClientID:     "acme-client",
+		ClientSecret: "acme-secret",
+		RedirectURI:  "https://auth.example.com/api/enterprise/oidc/acme/callback",
+	}}}, db, nil)
+	if err != nil {
+		t.Fatalf("failed to create enterprise oidc manager: %v", err)
+	}
+
+	h := &AuthHandler{enterpriseOIDC: manager}
+	router := gin.New()
+	router.GET("/enterprise/oidc/discover", h.DiscoverEnterpriseOIDC)
+
+	req := httptest.NewRequest(http.MethodGet, "/enterprise/oidc/discover?email=invalid-email", nil)
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d with body %s", recorder.Code, recorder.Body.String())
 	}
 }

@@ -350,6 +350,12 @@ Enterprise OIDC can now be managed in two ways:
 
 Providers created from the admin console are stored in the database, their client secret is not echoed back by the admin API, and saving changes triggers an in-process reload so the enterprise login routes become available immediately without restarting MKAuth.
 
+When an organization has at least one verified domain plus Enterprise OIDC providers, the end-user login page can now perform HRD (Home Realm Discovery) from a work email address. The public discovery endpoint is:
+
+- `GET /api/enterprise/oidc/discover?email=user@example.com`
+
+It returns the matched organization plus one or more Enterprise OIDC providers for that domain. The login page uses this to auto-redirect when a single provider is matched, or to narrow the SSO choices when multiple providers exist.
+
 ### Inbound SCIM provisioning
 
 MKAuth can expose SCIM 2.0 Users and Groups endpoints so enterprise directories such as Okta, Entra ID, or Google Workspace can provision users and group-derived roles into an organization.

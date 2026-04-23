@@ -37,6 +37,24 @@ export interface EnterpriseOIDCProvider {
     organization_id?: string
 }
 
+export type EnterpriseOIDCDiscoveryStatus =
+    | 'matched'
+    | 'domain_not_found'
+    | 'organization_not_found'
+    | 'organization_inactive'
+    | 'no_provider'
+
+export interface EnterpriseOIDCDiscoveryResponse {
+    status: EnterpriseOIDCDiscoveryStatus
+    email?: string
+    domain?: string
+    organization_id?: string
+    organization_slug?: string
+    organization_name?: string
+    organization_display_name?: string
+    providers: EnterpriseOIDCProvider[]
+}
+
 type ApiErrorPayload = {
     error?: string | {
         message?: string
@@ -252,6 +270,17 @@ class ServerApi {
     async fetchEnterpriseOIDCProviders(): Promise<EnterpriseOIDCProvider[]> {
         const response = await axios.get('/enterprise/oidc/providers')
         return response.data.providers || []
+    }
+
+    async discoverEnterpriseOIDCByEmail(email: string): Promise<EnterpriseOIDCDiscoveryResponse> {
+        const response = await axios.get('/enterprise/oidc/discover', {
+            params: { email }
+        })
+        const data = response.data || {}
+        return {
+            ...data,
+            providers: data.providers || []
+        }
     }
 
     startEnterpriseOIDCLogin(slug: string): void {

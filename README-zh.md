@@ -356,6 +356,12 @@ Enterprise OIDC 现在支持两种维护方式：
 
 后台创建的 Enterprise OIDC 配置会落库保存，客户端 secret 不会被后台 API 回显，保存后会直接触发进程内 reload，因此新增或禁用企业登录源不需要重启 MKAuth。
 
+当组织已经绑定了已验证域名，并且存在可用的 Enterprise OIDC provider 时，用户登录页现在支持基于企业邮箱做 HRD（Home Realm Discovery）。公开发现接口为：
+
+- `GET /api/enterprise/oidc/discover?email=user@example.com`
+
+接口会返回该邮箱域名命中的组织以及一个或多个 Enterprise OIDC provider。登录页在命中单个 provider 时会直接跳转，在命中多个 provider 时会自动收敛出可选的企业登录方式。
+
 ### Inbound SCIM 同步
 
 MKAuth 可以暴露 SCIM 2.0 Users 和 Groups 接口，让 Okta、Entra ID、Google Workspace 这类企业目录把用户和组同步到指定组织。

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 	"net/url"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"minki.cc/mkauth/server/auth"
 	"minki.cc/mkauth/server/common"
+	"minki.cc/mkauth/server/iam"
 )
 
 const enterpriseOIDCStateTTL = 15 * time.Minute
@@ -26,6 +28,34 @@ func (h *AuthHandler) GetEnterpriseOIDCProviders(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"providers": h.enterpriseOIDC.Providers()})
+}
+
+func (h *AuthHandler) DiscoverEnterpriseOIDC(c *gin.Context) {
+	email := strings.TrimSpace(c.Query("email"))
+	if email == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "email is required"})
+		return
+	}
+
+	if h.enterpriseOIDC == nil {
+		c.JSON(http.StatusOK, iam.EnterpriseOIDCDiscoveryResult{
+			Status:    iam.EnterpriseOIDCDiscoveryNoProvider,
+			Email:     strings.ToLower(email),
+			Providers: []iam.EnterpriseOIDCProviderSummary{},
+		})
+		return
+	}
+
+	result, err := h.enterpriseOIDC.DiscoverByEmail(email)
+	if err != nil {
+		if errors.Is(err, iam.ErrInvalidEnterpriseOIDCEmail) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "email is invalid"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, result)
 }
 
 func (h *AuthHandler) EnterpriseOIDCLogin(c *gin.Context) {
