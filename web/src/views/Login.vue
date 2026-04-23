@@ -365,6 +365,11 @@ const enterpriseDiscoveryOrganizationName = (response: EnterpriseOIDCDiscoveryRe
   return response.organization_display_name || response.organization_name || response.organization_slug || response.domain || 'SSO'
 }
 
+const canUseEnterpriseLoginHint = (value: string) => {
+  const trimmed = value.trim()
+  return trimmed.includes('@') && !trimmed.startsWith('@') && !trimmed.endsWith('@')
+}
+
 const handleEnterpriseOIDCDiscovery = async () => {
   const email = enterpriseEmail.value.trim()
   if (!email) {
@@ -443,6 +448,12 @@ onMounted(async () => {
     }
 
     await loadEnterpriseOIDCProviders()
+
+    const loginHint = serverApi.loginHint.trim()
+    if (hasEnterpriseOIDCLogin && canUseEnterpriseLoginHint(loginHint)) {
+      enterpriseEmail.value = loginHint
+      await handleEnterpriseOIDCDiscovery()
+    }
 
     // 如果只有微信登录
     if (!hasAccountLogin && !hasEmailLogin && !hasPhoneLogin && !hasGoogleLogin && !hasEnterpriseOIDCLogin && hasWeixinLogin) {

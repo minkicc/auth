@@ -23,7 +23,8 @@ const routes = [
         : typeof to.query.redirect_url === 'string'
           ? to.query.redirect_url
           : undefined
-      serverApi.updateAuthData(client_id, redirect_uri)
+      const login_hint = typeof to.query.login_hint === 'string' ? to.query.login_hint : undefined
+      serverApi.updateAuthData(client_id, redirect_uri, login_hint)
     }
   },
   {
@@ -42,7 +43,8 @@ const routes = [
         : typeof to.query.redirect_url === 'string'
           ? to.query.redirect_url
           : undefined
-      serverApi.updateAuthData(client_id, redirect_uri)
+      const login_hint = typeof to.query.login_hint === 'string' ? to.query.login_hint : undefined
+      serverApi.updateAuthData(client_id, redirect_uri, login_hint)
     }
   },
   {
