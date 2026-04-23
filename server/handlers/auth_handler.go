@@ -136,6 +136,7 @@ func (h *AuthHandler) RegisterRoutes(authGroup *gin.RouterGroup, cfg *config.Con
 	}
 
 	if h.enterpriseOIDC != nil {
+		authGroup.GET("/enterprise/oidc/discover", h.DiscoverEnterpriseOIDC)
 		authGroup.GET("/enterprise/oidc/providers", h.GetEnterpriseOIDCProviders)
 		authGroup.GET("/enterprise/oidc/:slug/login", h.EnterpriseOIDCLogin)
 		authGroup.GET("/enterprise/oidc/:slug/callback", h.EnterpriseOIDCCallback)

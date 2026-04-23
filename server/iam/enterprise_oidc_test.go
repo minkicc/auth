@@ -260,6 +260,82 @@ func TestEnterpriseOIDCManagerReloadReflectsDatabaseChanges(t *testing.T) {
 	}
 }
 
+func TestEnterpriseOIDCDiscoverByEmail(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file:enterprise-oidc-discover?mode=memory&cache=shared"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("failed to open sqlite: %v", err)
+	}
+	if err := NewService(db).AutoMigrate(); err != nil {
+		t.Fatalf("failed to migrate iam tables: %v", err)
+	}
+	if err := db.Create(&Organization{
+		OrganizationID: "org_acme000000000000",
+		Slug:           "acme",
+		Name:           "Acme Inc",
+		DisplayName:    "Acme",
+		Status:         OrganizationStatusActive,
+	}).Error; err != nil {
+		t.Fatalf("failed to create organization: %v", err)
+	}
+	if err := db.Create(&OrganizationDomain{
+		Domain:         "example.com",
+		OrganizationID: "org_acme000000000000",
+		Verified:       true,
+	}).Error; err != nil {
+		t.Fatalf("failed to create organization domain: %v", err)
+	}
+
+	manager, err := NewEnterpriseOIDCManager(config.IAMConfig{EnterpriseOIDC: []config.EnterpriseOIDCProviderConfig{{
+		Slug:           "acme",
+		Name:           "Acme Workforce",
+		OrganizationID: "org_acme000000000000",
+		Issuer:         "https://login.acme.test",
+		ClientID:       "acme-client",
+		ClientSecret:   "acme-secret",
+		RedirectURI:    "https://auth.example.com/api/enterprise/oidc/acme/callback",
+	}}}, db, nil)
+	if err != nil {
+		t.Fatalf("failed to create enterprise oidc manager: %v", err)
+	}
+
+	result, err := manager.DiscoverByEmail("User@Example.com")
+	if err != nil {
+		t.Fatalf("failed to discover enterprise oidc by email: %v", err)
+	}
+	if result.Status != EnterpriseOIDCDiscoveryMatched {
+		t.Fatalf("expected matched status, got %q", result.Status)
+	}
+	if result.Domain != "example.com" || result.OrganizationSlug != "acme" {
+		t.Fatalf("unexpected discovery result: %#v", result)
+	}
+	if len(result.Providers) != 1 || result.Providers[0].Slug != "acme" {
+		t.Fatalf("unexpected discovery providers: %#v", result.Providers)
+	}
+}
+
+func TestEnterpriseOIDCDiscoverByEmailReturnsNoProviderWhenDomainMissing(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file:enterprise-oidc-discover-domain-miss?mode=memory&cache=shared"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("failed to open sqlite: %v", err)
+	}
+	if err := NewService(db).AutoMigrate(); err != nil {
+		t.Fatalf("failed to migrate iam tables: %v", err)
+	}
+
+	manager, err := NewEnterpriseOIDCManager(config.IAMConfig{}, db, nil)
+	if err != nil {
+		t.Fatalf("failed to create enterprise oidc manager: %v", err)
+	}
+
+	result, err := manager.DiscoverByEmail("user@example.com")
+	if err != nil {
+		t.Fatalf("failed to discover enterprise oidc by email: %v", err)
+	}
+	if result.Status != EnterpriseOIDCDiscoveryDomainNotFound {
+		t.Fatalf("expected domain_not_found, got %q", result.Status)
+	}
+}
+
 type fakeEnterpriseUser struct {
 	Subject           string
 	Email             string

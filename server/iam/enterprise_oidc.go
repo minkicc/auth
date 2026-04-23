@@ -12,6 +12,7 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/big"
 	"net/http"
@@ -34,6 +35,18 @@ import (
 const defaultEnterpriseOIDCTimeout = 10 * time.Second
 
 var defaultEnterpriseOIDCScopes = []string{"openid", "profile", "email"}
+
+var ErrInvalidEnterpriseOIDCEmail = errors.New("enterprise oidc discovery email is invalid")
+
+type EnterpriseOIDCDiscoveryStatus string
+
+const (
+	EnterpriseOIDCDiscoveryMatched              EnterpriseOIDCDiscoveryStatus = "matched"
+	EnterpriseOIDCDiscoveryDomainNotFound       EnterpriseOIDCDiscoveryStatus = "domain_not_found"
+	EnterpriseOIDCDiscoveryOrganizationNotFound EnterpriseOIDCDiscoveryStatus = "organization_not_found"
+	EnterpriseOIDCDiscoveryOrganizationInactive EnterpriseOIDCDiscoveryStatus = "organization_inactive"
+	EnterpriseOIDCDiscoveryNoProvider           EnterpriseOIDCDiscoveryStatus = "no_provider"
+)
 
 type EnterpriseOIDCManager struct {
 	db            *gorm.DB
@@ -60,6 +73,17 @@ type EnterpriseOIDCProviderSummary struct {
 	Slug           string `json:"slug"`
 	Name           string `json:"name"`
 	OrganizationID string `json:"organization_id,omitempty"`
+}
+
+type EnterpriseOIDCDiscoveryResult struct {
+	Status                  EnterpriseOIDCDiscoveryStatus   `json:"status"`
+	Email                   string                          `json:"email,omitempty"`
+	Domain                  string                          `json:"domain,omitempty"`
+	OrganizationID          string                          `json:"organization_id,omitempty"`
+	OrganizationSlug        string                          `json:"organization_slug,omitempty"`
+	OrganizationName        string                          `json:"organization_name,omitempty"`
+	OrganizationDisplayName string                          `json:"organization_display_name,omitempty"`
+	Providers               []EnterpriseOIDCProviderSummary `json:"providers"`
 }
 
 type EnterpriseOIDCUserInfo struct {
@@ -261,6 +285,59 @@ func (m *EnterpriseOIDCManager) HasProviders() bool {
 	return len(m.providers) > 0
 }
 
+func (m *EnterpriseOIDCManager) DiscoverByEmail(email string) (EnterpriseOIDCDiscoveryResult, error) {
+	result := EnterpriseOIDCDiscoveryResult{
+		Email:     strings.TrimSpace(strings.ToLower(email)),
+		Providers: []EnterpriseOIDCProviderSummary{},
+	}
+
+	domain, err := normalizeEnterpriseOIDCEmailDomain(result.Email)
+	if err != nil {
+		return result, err
+	}
+	result.Domain = domain
+
+	if m == nil || m.db == nil {
+		result.Status = EnterpriseOIDCDiscoveryNoProvider
+		return result, nil
+	}
+
+	var organizationDomain OrganizationDomain
+	if err := m.db.First(&organizationDomain, "domain = ? AND verified = ?", domain, true).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			result.Status = EnterpriseOIDCDiscoveryDomainNotFound
+			return result, nil
+		}
+		return result, err
+	}
+
+	var organization Organization
+	if err := m.db.First(&organization, "organization_id = ?", organizationDomain.OrganizationID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			result.Status = EnterpriseOIDCDiscoveryOrganizationNotFound
+			return result, nil
+		}
+		return result, err
+	}
+	result.OrganizationID = organization.OrganizationID
+	result.OrganizationSlug = organization.Slug
+	result.OrganizationName = organization.Name
+	result.OrganizationDisplayName = organization.DisplayName
+
+	if organization.Status != OrganizationStatusActive {
+		result.Status = EnterpriseOIDCDiscoveryOrganizationInactive
+		return result, nil
+	}
+
+	result.Providers = m.providersForOrganization(organization.OrganizationID)
+	if len(result.Providers) == 0 {
+		result.Status = EnterpriseOIDCDiscoveryNoProvider
+		return result, nil
+	}
+	result.Status = EnterpriseOIDCDiscoveryMatched
+	return result, nil
+}
+
 func (m *EnterpriseOIDCManager) AuthCodeURL(ctx context.Context, slug, state, nonce string) (string, error) {
 	provider, ok := m.provider(slug)
 	if !ok {
@@ -289,6 +366,33 @@ func (m *EnterpriseOIDCManager) provider(slug string) (*EnterpriseOIDCProvider, 
 	defer m.mu.RUnlock()
 	provider, ok := m.providers[strings.TrimSpace(slug)]
 	return provider, ok
+}
+
+func (m *EnterpriseOIDCManager) providersForOrganization(organizationID string) []EnterpriseOIDCProviderSummary {
+	if m == nil {
+		return nil
+	}
+	organizationID = strings.TrimSpace(organizationID)
+	if organizationID == "" {
+		return nil
+	}
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	providers := make([]EnterpriseOIDCProviderSummary, 0, len(m.providers))
+	for _, provider := range m.providers {
+		if provider.cfg.OrganizationID != organizationID {
+			continue
+		}
+		providers = append(providers, EnterpriseOIDCProviderSummary{
+			Slug:           provider.cfg.Slug,
+			Name:           provider.cfg.Name,
+			OrganizationID: provider.cfg.OrganizationID,
+		})
+	}
+	sort.Slice(providers, func(i, j int) bool { return providers[i].Slug < providers[j].Slug })
+	return providers
 }
 
 func (p *EnterpriseOIDCProvider) AuthCodeURL(ctx context.Context, state, nonce string) (string, error) {
@@ -702,6 +806,37 @@ func parseEnterpriseOIDCJWK(key jwkKey) (*rsa.PublicKey, error) {
 		return publicKey, nil
 	}
 	return nil, fmt.Errorf("jwk missing rsa modulus/exponent")
+}
+
+func normalizeEnterpriseOIDCEmailDomain(raw string) (string, error) {
+	raw = strings.TrimSpace(strings.ToLower(raw))
+	at := strings.LastIndex(raw, "@")
+	if at <= 0 || at == len(raw)-1 {
+		return "", ErrInvalidEnterpriseOIDCEmail
+	}
+	return normalizeEnterpriseOIDCDomain(raw[at+1:])
+}
+
+func normalizeEnterpriseOIDCDomain(raw string) (string, error) {
+	domain := strings.TrimSpace(strings.ToLower(raw))
+	domain = strings.TrimSuffix(domain, ".")
+	if domain == "" {
+		return "", ErrInvalidEnterpriseOIDCEmail
+	}
+	if strings.Contains(domain, "://") || strings.ContainsAny(domain, "/@") || len(domain) > 253 || !strings.Contains(domain, ".") {
+		return "", ErrInvalidEnterpriseOIDCEmail
+	}
+	for _, label := range strings.Split(domain, ".") {
+		if label == "" || len(label) > 63 || strings.HasPrefix(label, "-") || strings.HasSuffix(label, "-") {
+			return "", ErrInvalidEnterpriseOIDCEmail
+		}
+		for _, ch := range label {
+			if (ch < 'a' || ch > 'z') && (ch < '0' || ch > '9') && ch != '-' {
+				return "", ErrInvalidEnterpriseOIDCEmail
+			}
+		}
+	}
+	return domain, nil
 }
 
 func parseCacheMaxAge(cacheControl string) time.Duration {
