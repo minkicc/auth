@@ -25,6 +25,8 @@ func TestServiceAutoMigrateCreatesFoundationTables(t *testing.T) {
 		&OrganizationIdentityProvider{},
 		&ExternalIdentity{},
 		&OrganizationMembership{},
+		&OrganizationGroup{},
+		&OrganizationGroupMember{},
 	} {
 		if !db.Migrator().HasTable(model) {
 			t.Fatalf("expected table for %T to exist", model)
@@ -65,5 +67,13 @@ func TestServiceGeneratesReadablePrefixedIDs(t *testing.T) {
 	}
 	if !strings.HasPrefix(externalID, ExternalIdentityIDPrefix) || len(externalID) != len(ExternalIdentityIDPrefix)+readableRandomIDLength {
 		t.Fatalf("unexpected external identity ID format: %q", externalID)
+	}
+
+	groupID, err := service.GenerateOrganizationGroupID()
+	if err != nil {
+		t.Fatalf("failed to generate organization group ID: %v", err)
+	}
+	if !strings.HasPrefix(groupID, OrganizationGroupIDPrefix) || len(groupID) != len(OrganizationGroupIDPrefix)+readableRandomIDLength {
+		t.Fatalf("unexpected organization group ID format: %q", groupID)
 	}
 }

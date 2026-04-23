@@ -13,7 +13,7 @@ Auth 是一个可独立部署的统一认证服务，提供账号密码、邮箱
 
 - 多种登录方式：账号、邮箱、手机号、Google、微信、微信小程序
 - OIDC Provider + JWT Access / ID Token
-- CIAM/IAM 基础能力：组织管理、Inbound SCIM 用户同步、外部身份映射、认证流程 Hook、可安装插件
+- CIAM/IAM 基础能力：组织管理、Inbound SCIM 用户/组同步、外部身份映射、认证流程 Hook、可安装插件
 - Redis 会话管理
 - 用户头像上传
 - 管理后台
@@ -347,9 +347,9 @@ go run ./pluginsign sign -manifest ../examples/plugins/http-claims-action/auth-p
 
 当用户存在 active 组织成员关系，并且下游 OIDC 客户端请求了 `profile` scope 时，Auth 可以在 ID Token 和 `/oauth2/userinfo` 中返回 `org_id`、`org_slug`、`org_roles`。
 
-### Inbound SCIM 用户同步
+### Inbound SCIM 同步
 
-Auth 可以暴露 SCIM 2.0 Users 接口，让 Okta、Entra ID、Google Workspace 这类企业目录把用户同步到指定组织。
+Auth 可以暴露 SCIM 2.0 Users 和 Groups 接口，让 Okta、Entra ID、Google Workspace 这类企业目录把用户和组同步到指定组织。
 
 每个企业目录配置一条 inbound SCIM 连接：
 
@@ -381,10 +381,12 @@ https://auth.example.com/api/scim/v2
 - 发现接口：`GET /api/scim/v2/ServiceProviderConfig`、`GET /api/scim/v2/ResourceTypes`、`GET /api/scim/v2/Schemas`
 - 用户列表/创建：`GET /api/scim/v2/Users`、`POST /api/scim/v2/Users`
 - 用户读取/替换/局部更新/删除：`GET /api/scim/v2/Users/:id`、`PUT /api/scim/v2/Users/:id`、`PATCH /api/scim/v2/Users/:id`、`DELETE /api/scim/v2/Users/:id`
+- 组列表/创建：`GET /api/scim/v2/Groups`、`POST /api/scim/v2/Groups`
+- 组读取/替换/局部更新/删除：`GET /api/scim/v2/Groups/:id`、`PUT /api/scim/v2/Groups/:id`、`PATCH /api/scim/v2/Groups/:id`、`DELETE /api/scim/v2/Groups/:id`
 
-第一版 SCIM 只支持 Users。它会创建或更新 Auth 用户，通过 `external_identities(provider_type=scim)` 建立外部目录映射，并同步组织成员状态和轻量角色名。`DELETE /Users/:id` 和 `active=false` 会禁用 Auth 用户，并把对应组织成员关系标记为 disabled。
+SCIM Users 会创建或更新 Auth 用户，通过 `external_identities(provider_type=scim)` 建立外部目录映射，并同步组织成员状态和轻量角色名。`DELETE /Users/:id` 和 `active=false` 会禁用 Auth 用户，并把对应组织成员关系标记为 disabled。
 
-SCIM Groups 还没实现；如果需要企业组到角色的自动同步，下一步可以继续补 Groups。
+SCIM Groups 会把企业目录组映射成组织内的轻量角色。Group `displayName` 会被规范化成 role name，比如 `Engineering Team` 会变成 `engineering-team`。当组成员变化或组被删除时，Auth 只会重算由 SCIM Groups 管理的角色，并保留其它手工分配的角色。
 
 ### 存储
 

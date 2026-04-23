@@ -116,6 +116,78 @@ func TestSCIMInboundRequiresBearerToken(t *testing.T) {
 	}
 }
 
+func TestSCIMInboundGroupsSyncOrganizationRoles(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, router := newSCIMTestRouter(t, "scim-secret")
+
+	ada := createSCIMTestUser(t, router, "ada-group", "ada@example.com", []string{"admin"})
+	bob := createSCIMTestUser(t, router, "bob-group", "bob@example.com", nil)
+
+	groupResp := performSCIMJSON(t, router, http.MethodPost, "/api/scim/v2/Groups", map[string]any{
+		"schemas":     []string{scimGroupSchema},
+		"externalId":  "grp-engineering",
+		"displayName": "Engineering Team",
+		"members": []map[string]any{
+			{"value": ada.ID, "display": "Ada"},
+			{"value": bob.ID, "display": "Bob"},
+		},
+	}, "scim-secret")
+	if groupResp.Code != http.StatusCreated {
+		t.Fatalf("expected group create status 201, got %d with body %s", groupResp.Code, groupResp.Body.String())
+	}
+	var group scimGroupResource
+	if err := json.Unmarshal(groupResp.Body.Bytes(), &group); err != nil {
+		t.Fatalf("failed to decode SCIM group response: %v", err)
+	}
+	if group.ID == "" || group.DisplayName != "Engineering Team" || len(group.Members) != 2 {
+		t.Fatalf("unexpected SCIM group response: %#v", group)
+	}
+
+	var storedGroup iam.OrganizationGroup
+	if err := db.First(&storedGroup, "group_id = ?", group.ID).Error; err != nil {
+		t.Fatalf("expected organization group: %v", err)
+	}
+	if storedGroup.RoleName != "engineering-team" {
+		t.Fatalf("expected normalized role engineering-team, got %q", storedGroup.RoleName)
+	}
+	assertMembershipRoles(t, db, ada.ID, []string{"admin", "engineering-team"})
+	assertMembershipRoles(t, db, bob.ID, []string{"engineering-team"})
+
+	renameResp := performSCIMJSON(t, router, http.MethodPatch, "/api/scim/v2/Groups/"+group.ID, map[string]any{
+		"schemas": []string{scimPatchSchema},
+		"Operations": []map[string]any{{
+			"op":    "Replace",
+			"path":  "displayName",
+			"value": "Product Team",
+		}},
+	}, "scim-secret")
+	if renameResp.Code != http.StatusOK {
+		t.Fatalf("expected group rename status 200, got %d with body %s", renameResp.Code, renameResp.Body.String())
+	}
+	assertMembershipRoles(t, db, ada.ID, []string{"admin", "product-team"})
+	assertMembershipRoles(t, db, bob.ID, []string{"product-team"})
+
+	removeResp := performSCIMJSON(t, router, http.MethodPatch, "/api/scim/v2/Groups/"+group.ID, map[string]any{
+		"schemas": []string{scimPatchSchema},
+		"Operations": []map[string]any{{
+			"op":   "Remove",
+			"path": `members[value eq "` + ada.ID + `"]`,
+		}},
+	}, "scim-secret")
+	if removeResp.Code != http.StatusOK {
+		t.Fatalf("expected group patch status 200, got %d with body %s", removeResp.Code, removeResp.Body.String())
+	}
+	assertMembershipRoles(t, db, ada.ID, []string{"admin"})
+	assertMembershipRoles(t, db, bob.ID, []string{"product-team"})
+
+	deleteResp := performSCIMJSON(t, router, http.MethodDelete, "/api/scim/v2/Groups/"+group.ID, nil, "scim-secret")
+	if deleteResp.Code != http.StatusNoContent {
+		t.Fatalf("expected group delete status 204, got %d with body %s", deleteResp.Code, deleteResp.Body.String())
+	}
+	assertMembershipRoles(t, db, ada.ID, []string{"admin"})
+	assertMembershipRoles(t, db, bob.ID, []string{})
+}
+
 func newSCIMTestRouter(t *testing.T, token string) (*gorm.DB, *gin.Engine) {
 	t.Helper()
 	dsn := "file:" + strings.ReplaceAll(t.Name(), "/", "_") + "?mode=memory&cache=shared"
@@ -155,6 +227,53 @@ func newSCIMTestRouter(t *testing.T, token string) (*gorm.DB, *gin.Engine) {
 	router := gin.New()
 	handler.RegisterRoutes(router.Group("/api/scim/v2"))
 	return db, router
+}
+
+func createSCIMTestUser(t *testing.T, router *gin.Engine, externalID, email string, roles []string) scimUserResource {
+	t.Helper()
+	roleValues := make([]map[string]any, 0, len(roles))
+	for _, role := range roles {
+		roleValues = append(roleValues, map[string]any{"value": role})
+	}
+	resp := performSCIMJSON(t, router, http.MethodPost, "/api/scim/v2/Users", map[string]any{
+		"schemas":     []string{scimUserSchema},
+		"externalId":  externalID,
+		"userName":    email,
+		"displayName": email,
+		"active":      true,
+		"emails": []map[string]any{{
+			"value":   email,
+			"primary": true,
+			"type":    "work",
+		}},
+		"roles": roleValues,
+	}, "scim-secret")
+	if resp.Code != http.StatusCreated {
+		t.Fatalf("expected test user create status 201, got %d with body %s", resp.Code, resp.Body.String())
+	}
+	var resource scimUserResource
+	if err := json.Unmarshal(resp.Body.Bytes(), &resource); err != nil {
+		t.Fatalf("failed to decode SCIM test user response: %v", err)
+	}
+	return resource
+}
+
+func assertMembershipRoles(t *testing.T, db *gorm.DB, userID string, want []string) {
+	t.Helper()
+	var membership iam.OrganizationMembership
+	if err := db.First(&membership, "organization_id = ? AND user_id = ?", "org_acme", userID).Error; err != nil {
+		t.Fatalf("expected membership for %s: %v", userID, err)
+	}
+	got := parseStringListJSON(membership.RolesJSON)
+	want = uniqueStrings(want)
+	if len(got) != len(want) {
+		t.Fatalf("unexpected roles for %s: got %#v want %#v", userID, got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("unexpected roles for %s: got %#v want %#v", userID, got, want)
+		}
+	}
 }
 
 func performSCIMJSON(t *testing.T, router *gin.Engine, method, path string, body any, token string) *httptest.ResponseRecorder {
