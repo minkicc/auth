@@ -30,6 +30,11 @@ type Runtime struct {
 	builtins map[string]Summary
 }
 
+type installResult struct {
+	Summary Summary
+	Backup  *BackupSummary
+}
+
 func NewRuntime(cfg config.PluginsConfig) (*Runtime, error) {
 	cfg = normalizeConfig(cfg)
 	registry, err := NewRegistry(config.PluginsConfig{})
@@ -119,6 +124,7 @@ func (r *Runtime) InstallZipWithActor(filename string, content []byte, replace b
 			previousDetails = auditPreviousSummaryDetails(previous)
 		}
 	}
+	var result installResult
 	defer func() {
 		pluginID, pluginName, version := summary.ID, summary.Name, summary.Version
 		if pluginID == "" && parseErr == nil {
@@ -135,52 +141,54 @@ func (r *Runtime) InstallZipWithActor(filename string, content []byte, replace b
 			Actor:      actor,
 			Success:    err == nil,
 			Error:      auditError(err),
-			Details: mergeAuditDetails(auditSummaryDetails(summary), previousDetails, map[string]string{
+			Details: mergeAuditDetails(auditSummaryDetails(summary), previousDetails, auditBackupDetails(result.Backup), map[string]string{
 				"filename": strings.TrimSpace(filename),
 				"replace":  fmt.Sprintf("%t", replace),
 			}),
 		})
 	}()
-	return r.installArchiveLocked(filename, content, replace, source)
+	result, err = r.installArchiveLocked(filename, content, replace, source)
+	summary = result.Summary
+	return summary, err
 }
 
-func (r *Runtime) installArchiveLocked(filename string, content []byte, replace bool, source string) (Summary, error) {
+func (r *Runtime) installArchiveLocked(filename string, content []byte, replace bool, source string) (installResult, error) {
 	if !r.cfg.Enabled {
-		return Summary{}, fmt.Errorf("plugin runtime is disabled")
+		return installResult{}, fmt.Errorf("plugin runtime is disabled")
 	}
 
 	manifest, rootPrefix, archive, err := parsePluginArchive(content)
 	if err != nil {
-		return Summary{}, err
+		return installResult{}, err
 	}
 	if err := ValidateManifestPermissions(manifest, r.cfg); err != nil {
-		return Summary{}, err
+		return installResult{}, err
 	}
 
 	installDir, err := r.primaryDirectory()
 	if err != nil {
-		return Summary{}, err
+		return installResult{}, err
 	}
 	targetDir := filepath.Join(installDir, manifest.ID)
 	if !replace {
 		if _, err := os.Stat(targetDir); err == nil {
-			return Summary{}, fmt.Errorf("plugin %s is already installed", manifest.ID)
+			return installResult{}, fmt.Errorf("plugin %s is already installed", manifest.ID)
 		} else if !os.IsNotExist(err) {
-			return Summary{}, fmt.Errorf("inspect plugin %s: %w", manifest.ID, err)
+			return installResult{}, fmt.Errorf("inspect plugin %s: %w", manifest.ID, err)
 		}
 	}
 
 	tempDir, err := os.MkdirTemp(installDir, manifest.ID+".tmp-*")
 	if err != nil {
-		return Summary{}, fmt.Errorf("create temporary plugin directory: %w", err)
+		return installResult{}, fmt.Errorf("create temporary plugin directory: %w", err)
 	}
 	defer os.RemoveAll(tempDir)
 
 	if err := extractPluginArchive(archive, rootPrefix, tempDir); err != nil {
-		return Summary{}, err
+		return installResult{}, err
 	}
 	if _, err := inspectLocalPluginDir(tempDir, r.cfg, nil, nil); err != nil {
-		return Summary{}, err
+		return installResult{}, err
 	}
 
 	now := time.Now().UTC().Format(time.RFC3339)
@@ -199,28 +207,41 @@ func (r *Runtime) installArchiveLocked(filename string, content []byte, replace 
 		}
 	}
 	if err := SaveState(tempDir, state); err != nil {
-		return Summary{}, err
+		return installResult{}, err
 	}
 
+	var backup *BackupSummary
 	if replace {
-		if err := os.RemoveAll(targetDir); err != nil {
-			return Summary{}, fmt.Errorf("remove existing plugin %s: %w", manifest.ID, err)
+		if _, err := os.Stat(targetDir); err == nil {
+			previous := Summary{ID: manifest.ID, Path: targetDir}
+			if registrySummary, ok := r.registry.Get(manifest.ID); ok {
+				previous = registrySummary
+			}
+			backup, err = r.createBackupLocked(previous, "replace")
+			if err != nil {
+				return installResult{}, err
+			}
+			if err := os.RemoveAll(targetDir); err != nil {
+				return installResult{}, fmt.Errorf("remove existing plugin %s: %w", manifest.ID, err)
+			}
+		} else if err != nil && !os.IsNotExist(err) {
+			return installResult{}, fmt.Errorf("inspect existing plugin %s: %w", manifest.ID, err)
 		}
 	}
 	if err := os.MkdirAll(installDir, 0o755); err != nil {
-		return Summary{}, fmt.Errorf("create plugins directory %q: %w", installDir, err)
+		return installResult{}, fmt.Errorf("create plugins directory %q: %w", installDir, err)
 	}
 	if err := os.Rename(tempDir, targetDir); err != nil {
-		return Summary{}, fmt.Errorf("activate plugin %s: %w", manifest.ID, err)
+		return installResult{}, fmt.Errorf("activate plugin %s: %w", manifest.ID, err)
 	}
 	if err := r.reloadLocked(); err != nil {
-		return Summary{}, err
+		return installResult{}, err
 	}
 	summary, ok := r.registry.Get(manifest.ID)
 	if !ok {
-		return Summary{}, fmt.Errorf("plugin %s was installed but not loaded", manifest.ID)
+		return installResult{}, fmt.Errorf("plugin %s was installed but not loaded", manifest.ID)
 	}
-	return summary, nil
+	return installResult{Summary: summary, Backup: backup}, nil
 }
 
 func (r *Runtime) SetEnabled(id string, enabled bool) (Summary, error) {
@@ -294,6 +315,7 @@ func (r *Runtime) UninstallWithActor(id string, actor AuditActor) (err error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	var summary Summary
+	var backup *BackupSummary
 	defer func() {
 		r.appendAuditLocked(AuditEvent{
 			Action:     "uninstall",
@@ -303,7 +325,7 @@ func (r *Runtime) UninstallWithActor(id string, actor AuditActor) (err error) {
 			Actor:      actor,
 			Success:    err == nil,
 			Error:      auditError(err),
-			Details:    auditSummaryDetails(summary),
+			Details:    mergeAuditDetails(auditSummaryDetails(summary), auditBackupDetails(backup)),
 		})
 	}()
 
@@ -317,6 +339,10 @@ func (r *Runtime) UninstallWithActor(id string, actor AuditActor) (err error) {
 	}
 	if !r.isManagedPath(summary.Path) {
 		return fmt.Errorf("plugin %s is outside managed plugin directories", id)
+	}
+	backup, err = r.createBackupLocked(summary, "uninstall")
+	if err != nil {
+		return err
 	}
 	if err := os.RemoveAll(summary.Path); err != nil {
 		return fmt.Errorf("remove plugin %s: %w", id, err)

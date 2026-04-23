@@ -224,6 +224,25 @@ func auditPreviousSummaryDetails(summary Summary) map[string]string {
 	return details
 }
 
+func auditBackupDetails(backup *BackupSummary) map[string]string {
+	if backup == nil {
+		return nil
+	}
+	details := map[string]string{
+		"backup_id": backup.ID,
+	}
+	if backup.PackageSHA256 != "" {
+		details["backup_package_sha256"] = backup.PackageSHA256
+	}
+	if backup.Reason != "" {
+		details["backup_reason"] = backup.Reason
+	}
+	if backup.CreatedAt != "" {
+		details["backup_created_at"] = backup.CreatedAt
+	}
+	return details
+}
+
 func mergeAuditDetails(items ...map[string]string) map[string]string {
 	merged := map[string]string{}
 	for _, item := range items {

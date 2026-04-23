@@ -230,6 +230,28 @@ func (s *AdminServer) handleGetPluginAudit(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"audit": events})
 }
 
+func (s *AdminServer) handleGetPluginBackups(c *gin.Context) {
+	if s.plugins == nil {
+		c.JSON(http.StatusOK, gin.H{"backups": []any{}})
+		return
+	}
+	limit := 100
+	if raw := strings.TrimSpace(c.Query("limit")); raw != "" {
+		if _, err := fmt.Sscanf(raw, "%d", &limit); err != nil || limit < 1 {
+			limit = 100
+		}
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	backups, err := s.plugins.ListBackups(c.Query("plugin_id"), limit)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"backups": backups})
+}
+
 func (s *AdminServer) handleInstallPlugin(c *gin.Context) {
 	if s.plugins == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Plugin runtime is not enabled"})
@@ -366,6 +388,31 @@ func (s *AdminServer) handleDeletePlugin(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "Plugin deleted successfully"})
+}
+
+func (s *AdminServer) handleRestorePluginBackup(c *gin.Context) {
+	if s.plugins == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Plugin runtime is not enabled"})
+		return
+	}
+
+	var req struct {
+		BackupID string `json:"backup_id"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.BackupID) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "backup_id is required"})
+		return
+	}
+
+	summary, err := s.plugins.RestoreBackupWithActor(req.BackupID, pluginAuditActor(c))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Plugin restored successfully",
+		"plugin":  summary,
+	})
 }
 
 func pluginAuditActor(c *gin.Context) plugins.AuditActor {
