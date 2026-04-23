@@ -7,6 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"minki.cc/mkauth/server/auth"
+	"minki.cc/mkauth/server/iam"
 )
 
 func (h *AuthHandler) completeBrowserLogin(c *gin.Context, user *auth.User, message string) {
@@ -46,6 +47,9 @@ func (h *AuthHandler) createBrowserSession(c *gin.Context, user *auth.User) (*au
 	if err := auth.EnsureUserCanAuthenticate(user); err != nil {
 		return nil, err
 	}
+	if err := h.runHook(c, iam.HookPostAuthenticate, user, nil); err != nil {
+		return nil, auth.NewPermissionDeniedError(err.Error())
+	}
 
 	session, err := h.sessionMgr.CreateUserSession(user.UserID, c.ClientIP(), c.Request.UserAgent(), auth.SessionExpiration)
 	if err != nil {
@@ -57,6 +61,22 @@ func (h *AuthHandler) createBrowserSession(c *gin.Context, user *auth.User) (*au
 	}
 
 	return session, nil
+}
+
+func (h *AuthHandler) runHook(c *gin.Context, event iam.HookEvent, user *auth.User, claims map[string]any) error {
+	if h == nil || h.hookRegistry == nil {
+		return nil
+	}
+	return h.hookRegistry.Run(c.Request.Context(), event, &iam.HookContext{
+		User:      user,
+		IP:        c.ClientIP(),
+		UserAgent: c.Request.UserAgent(),
+		Claims:    claims,
+		Metadata: map[string]string{
+			"path":   c.Request.URL.Path,
+			"method": c.Request.Method,
+		},
+	})
 }
 
 func (h *AuthHandler) revokeUserSessions(c *gin.Context, userID string) {

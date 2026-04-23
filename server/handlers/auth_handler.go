@@ -16,6 +16,7 @@ import (
 	"minki.cc/mkauth/server/iam"
 	"minki.cc/mkauth/server/middleware"
 	"minki.cc/mkauth/server/oidc"
+	"minki.cc/mkauth/server/plugins"
 )
 
 // AuthHandler Authentication handler
@@ -34,6 +35,8 @@ type AuthHandler struct {
 	avatarHandler   *AvatarHandler
 	oidcProvider    *oidc.Provider
 	enterpriseOIDC  *iam.EnterpriseOIDCManager
+	hookRegistry    *iam.HookRegistry
+	pluginRegistry  *plugins.Registry
 	config          *config.Config
 	logger          *log.Logger
 }
@@ -60,6 +63,8 @@ func NewAuthHandler(
 	avatarService *auth.AvatarService,
 	oidcProvider *oidc.Provider,
 	enterpriseOIDC *iam.EnterpriseOIDCManager,
+	hookRegistry *iam.HookRegistry,
+	pluginRegistry *plugins.Registry,
 	config *config.Config) *AuthHandler {
 	return &AuthHandler{
 		useAccountAuth:  useAccountAuth,
@@ -76,6 +81,8 @@ func NewAuthHandler(
 		avatarHandler:   NewAvatarHandler(accountAuth, avatarService),
 		oidcProvider:    oidcProvider,
 		enterpriseOIDC:  enterpriseOIDC,
+		hookRegistry:    hookRegistry,
+		pluginRegistry:  pluginRegistry,
 		config:          config,
 		logger:          log.New(os.Stdout, "[AUTH] ", log.LstdFlags|log.Lshortfile),
 	}
@@ -85,6 +92,7 @@ func NewAuthHandler(
 func (h *AuthHandler) RegisterRoutes(authGroup *gin.RouterGroup, cfg *config.Config) {
 	// Get supported login methods
 	authGroup.GET("/providers", h.GetSupportedProviders)
+	authGroup.GET("/plugins", h.GetPlugins)
 
 	rejectCrossOriginSessionCreation := h.RejectCrossOriginBrowserSessionCreation()
 
@@ -210,4 +218,12 @@ func (h *AuthHandler) GetSupportedProviders(c *gin.Context) {
 	c.JSON(200, gin.H{
 		"providers": providers,
 	})
+}
+
+func (h *AuthHandler) GetPlugins(c *gin.Context) {
+	if h.pluginRegistry == nil {
+		c.JSON(200, gin.H{"plugins": []plugins.Summary{}})
+		return
+	}
+	c.JSON(200, gin.H{"plugins": plugins.PublicSummaries(h.pluginRegistry.List())})
 }

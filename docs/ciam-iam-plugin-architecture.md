@@ -37,6 +37,129 @@ Flow actions run at stable points in the authentication lifecycle:
 
 These hooks are intended for custom claims, risk checks, automatic organization assignment, audit fanout, and profile enrichment.
 
+## Installable Plugin Runtime
+
+The runtime now supports two delivery styles without requiring Go `.so` plugins:
+
+- Configured HTTP actions under `plugins.http_actions`
+- Local installable plugin packages loaded from `plugins.directories`
+- Catalog-based remote installation from `plugins.catalogs`
+- Direct URL installation for remote ZIP packages through the admin API
+
+Example runtime configuration:
+
+```yaml
+plugins:
+  enabled: true
+  directories:
+    - "plugins"
+  enabled_plugins: []
+  disabled_plugins: []
+  allowed_permissions:
+    - "hook:post_authenticate"
+    - "hook:before_token_issue"
+    - "hook:before_userinfo"
+    - "network:http_action"
+  require_signature: false
+  allow_private_networks: false
+  allowed_catalog_hosts:
+    - "plugins.example.com"
+  allowed_download_hosts:
+    - "plugins.example.com"
+    - "downloads.example.com"
+  allowed_action_hosts:
+    - "actions.example.com"
+  trusted_signers:
+    - id: "mkauth-dev"
+      algorithm: "ed25519"
+      public_key: "BASE64_ED25519_PUBLIC_KEY"
+  catalogs:
+    - id: "official"
+      name: "Official Plugin Catalog"
+      url: "https://plugins.example.com/mkauth/catalog.yaml"
+      enabled: true
+```
+
+Each local plugin directory must contain one of these manifest files:
+
+- `mkauth-plugin.yaml`
+- `plugin.yaml`
+- `plugin.yml`
+
+Example local plugin manifest:
+
+```yaml
+id: "claims-enricher"
+name: "Claims Enricher"
+version: "0.1.0"
+type: "flow_action"
+permissions:
+  - "hook:before_token_issue"
+  - "hook:before_userinfo"
+  - "network:http_action"
+events:
+  - "before_token_issue"
+  - "before_userinfo"
+http_action:
+  url: "https://actions.example.com/mkauth"
+  secret_env: "MKAUTH_CLAIMS_SECRET"
+  timeout_ms: 3000
+  fail_open: false
+```
+
+Optional detached signature file beside the manifest:
+
+```yaml
+key_id: "mkauth-dev"
+algorithm: "ed25519"
+signature: "BASE64_SIGNATURE_OF_RAW_MANIFEST_CONTENT"
+```
+
+For local `flow_action` plugins, the manifest itself carries the runtime execution details through `http_action`, so installation no longer depends on an extra `plugins.http_actions` block in the main config.
+
+Manifest permissions are mandatory for executable capabilities. HTTP actions must declare `network:http_action`, and each hook event must declare a matching `hook:<event>` permission. If `allowed_permissions` is configured, install and reload reject plugins that request permissions outside that server-side allowlist.
+
+Runtime behavior:
+
+1. Installing a ZIP package copies it into the first configured plugin directory.
+2. MKAuth validates the archive structure, per-file limits, manifest schema, declared permissions, and optional signature.
+3. MKAuth can also fetch remote plugin catalogs and install ZIP packages directly from a catalog entry or explicit download URL.
+4. MKAuth writes `mkauth-plugin.state.yaml` beside the manifest to persist enabled or disabled state and the uploaded package SHA-256 fingerprint.
+5. The registry and hook runtime reload in place, so new plugins can start participating in `post_authenticate`, `before_token_issue`, and `before_userinfo` without a process restart.
+
+Signature behavior:
+
+- If `require_signature` is `false`, unsigned local plugins are allowed.
+- If a signature file is present, it must match a configured `trusted_signers` key.
+- If `require_signature` is `true`, unsigned or untrusted local plugins are rejected at install and reload time.
+
+Operational tooling:
+
+- `tools/pluginsign` can generate an ed25519 key pair
+- `tools/pluginsign sign` signs the raw manifest content into `mkauth-plugin.sig`
+- `tools/pluginsign verify` validates a signed plugin before upload or rollout
+
+Discovery endpoints:
+
+- Public: `GET /api/plugins`
+- Admin: `GET /admin-api/plugins`
+- Admin catalog: `GET /admin-api/plugins/catalog`
+- Admin install: `POST /admin-api/plugins/install`
+- Admin install from catalog: `POST /admin-api/plugins/install-catalog`
+- Admin install from URL: `POST /admin-api/plugins/install-url`
+- Admin enable or disable: `PATCH /admin-api/plugins/:id`
+- Admin uninstall: `DELETE /admin-api/plugins/:id`
+
+Remote source trust behavior:
+
+- Catalog URLs can be restricted with `allowed_catalog_hosts`
+- Direct ZIP downloads can be restricted with `allowed_download_hosts`
+- Plugin HTTP Action endpoints can be restricted with `allowed_action_hosts`
+- A catalog plugin entry may only point to the catalog's own host or an explicitly allowed download host
+- Redirects are checked against the same host policy so a trusted source cannot silently bounce to an untrusted host
+- Loopback, private, link-local, multicast, and unspecified IP addresses are rejected by default for plugin downloads and plugin HTTP Actions
+- `allow_private_networks: true` should only be used for explicitly trusted private plugin distribution environments
+
 ### Claim Mappers
 
 Claim mappers transform MKAuth user, organization, membership, and group data into OIDC claims. The first useful claims are:

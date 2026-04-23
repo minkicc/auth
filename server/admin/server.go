@@ -20,6 +20,7 @@ import (
 
 	"minki.cc/mkauth/server/auth"
 	"minki.cc/mkauth/server/config"
+	"minki.cc/mkauth/server/plugins"
 )
 
 const (
@@ -38,10 +39,11 @@ type AdminServer struct {
 	logger     *log.Logger
 	redis      *auth.RedisStore
 	sessionMgr *auth.SessionManager
+	plugins    *plugins.Runtime
 }
 
 // NewAdminServer Create admin server
-func NewAdminServer(cfg *config.Config, db *gorm.DB, logger *log.Logger, webFilePath string, port int) *AdminServer {
+func NewAdminServer(cfg *config.Config, db *gorm.DB, logger *log.Logger, pluginRuntime *plugins.Runtime, webFilePath string, port int) *AdminServer {
 	if !cfg.Admin.Enabled {
 		return nil
 	}
@@ -82,6 +84,7 @@ func NewAdminServer(cfg *config.Config, db *gorm.DB, logger *log.Logger, webFile
 		logger:     logger,
 		redis:      redisStore,
 		sessionMgr: sessionManager,
+		plugins:    pluginRuntime,
 	}
 
 	// Set Gin mode
@@ -169,6 +172,15 @@ func (s *AdminServer) registerRoutes(r *gin.Engine, webFilePath string) {
 		admin.GET("/user/:id/sessions", s.handleGetUserSessions)
 		admin.DELETE("/user/:id/sessions/:session_id", s.handleTerminateUserSession)
 		admin.DELETE("/user/:id/sessions", s.handleTerminateAllUserSessions)
+
+		// Plugin management
+		admin.GET("/plugins", s.handleGetPlugins)
+		admin.GET("/plugins/catalog", s.handleGetPluginCatalog)
+		admin.POST("/plugins/install", s.handleInstallPlugin)
+		admin.POST("/plugins/install-catalog", s.handleInstallPluginFromCatalog)
+		admin.POST("/plugins/install-url", s.handleInstallPluginFromURL)
+		admin.PATCH("/plugins/:id", s.handleUpdatePlugin)
+		admin.DELETE("/plugins/:id", s.handleDeletePlugin)
 
 		// Logout
 		admin.POST("/logout", s.handleLogout)

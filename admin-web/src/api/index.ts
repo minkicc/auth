@@ -144,6 +144,38 @@ export interface UserSessionsResponse {
   jwt_sessions: JWTSessionData[]
 }
 
+export interface PluginInfo {
+  id: string
+  name: string
+  version?: string
+  type: string
+  source: 'builtin' | 'local' | 'http_action' | string
+  entry?: string
+  description?: string
+  events?: string[]
+  permissions?: string[]
+  enabled: boolean
+  signature_verified: boolean
+  signer_key_id?: string
+  package_sha256?: string
+  path?: string
+}
+
+export interface CatalogPluginInfo {
+  catalog_id: string
+  catalog_name?: string
+  id: string
+  name: string
+  version?: string
+  type: string
+  description?: string
+  permissions?: string[]
+  download_url: string
+  homepage?: string
+  package_sha256?: string
+  signature_required: boolean
+}
+
 // ===================== 其他 API 方法 =====================
 class ServerApi {
   /**
@@ -200,6 +232,48 @@ class ServerApi {
   // 终止用户所有会话
   terminateAllUserSessions(userId: string): Promise<{ message: string }> {
     return api.delete(`/user/${userId}/sessions`).then(res => res.data)
+  }
+
+  // 获取插件列表
+  getPlugins(): Promise<{ plugins: PluginInfo[] }> {
+    return api.get('/plugins').then(res => res.data)
+  }
+
+  // 获取远程插件目录
+  getPluginCatalog(): Promise<{ plugins: CatalogPluginInfo[] }> {
+    return api.get('/plugins/catalog').then(res => res.data)
+  }
+
+  // 上传安装插件
+  installPlugin(file: File, replace = false): Promise<{ message: string, plugin: PluginInfo }> {
+    const form = new FormData()
+    form.append('package', file)
+    form.append('replace', String(replace))
+    return api.post('/plugins/install', form, {
+      headers: {
+        'Content-Type': 'multipart/form-data'
+      }
+    }).then(res => res.data)
+  }
+
+  // 通过 URL 安装插件
+  installPluginFromURL(payload: { url: string, replace?: boolean, package_sha256?: string, source?: string }): Promise<{ message: string, plugin: PluginInfo }> {
+    return api.post('/plugins/install-url', payload).then(res => res.data)
+  }
+
+  // 通过 catalog 安装插件
+  installPluginFromCatalog(payload: { catalog_id: string, plugin_id: string, replace?: boolean }): Promise<{ message: string, plugin: PluginInfo }> {
+    return api.post('/plugins/install-catalog', payload).then(res => res.data)
+  }
+
+  // 启用/禁用插件
+  updatePlugin(id: string, enabled: boolean): Promise<{ message: string, plugin: PluginInfo }> {
+    return api.patch(`/plugins/${id}`, { enabled }).then(res => res.data)
+  }
+
+  // 删除插件
+  deletePlugin(id: string): Promise<{ message: string }> {
+    return api.delete(`/plugins/${id}`).then(res => res.data)
   }
 }
 

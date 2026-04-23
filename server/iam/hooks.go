@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 
 	"minki.cc/mkauth/server/auth"
 )
@@ -24,6 +25,15 @@ const (
 	HookBeforeUserInfo   HookEvent = "before_userinfo"
 	HookPostLogout       HookEvent = "post_logout"
 )
+
+func IsSupportedHookEvent(event string) bool {
+	switch HookEvent(strings.TrimSpace(event)) {
+	case HookPreRegister, HookPostRegister, HookPreAuthenticate, HookPostAuthenticate, HookBeforeTokenIssue, HookBeforeUserInfo, HookPostLogout:
+		return true
+	default:
+		return false
+	}
+}
 
 // HookContext is the stable envelope passed to flow/action plugins.
 type HookContext struct {
@@ -61,6 +71,7 @@ func (h HookFunc) Handle(ctx context.Context, event HookEvent, data *HookContext
 // HookRegistry runs registered hooks in order. It is intentionally small so
 // HTTP/JS/WASM actions can share the same boundary later.
 type HookRegistry struct {
+	mu    sync.RWMutex
 	hooks []Hook
 }
 
@@ -81,6 +92,8 @@ func (r *HookRegistry) Register(hook Hook) error {
 	if strings.TrimSpace(hook.Name()) == "" {
 		return fmt.Errorf("iam hook name is required")
 	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.hooks = append(r.hooks, hook)
 	return nil
 }
@@ -89,10 +102,22 @@ func (r *HookRegistry) Run(ctx context.Context, event HookEvent, data *HookConte
 	if r == nil {
 		return nil
 	}
-	for _, hook := range r.hooks {
+	r.mu.RLock()
+	hooks := append([]Hook(nil), r.hooks...)
+	r.mu.RUnlock()
+	for _, hook := range hooks {
 		if err := hook.Handle(ctx, event, data); err != nil {
 			return fmt.Errorf("iam hook %s failed: %w", hook.Name(), err)
 		}
 	}
 	return nil
+}
+
+func (r *HookRegistry) Replace(hooks []Hook) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.hooks = append([]Hook(nil), hooks...)
 }

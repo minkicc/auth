@@ -9,7 +9,9 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-contrib/sessions"
@@ -19,6 +21,8 @@ import (
 	"minki.cc/mkauth/server/auth"
 	"minki.cc/mkauth/server/config"
 )
+
+const maxPluginPackageSize = 20 << 20
 
 // Login handler
 func (s *AdminServer) handleLogin(c *gin.Context) {
@@ -176,6 +180,167 @@ func (s *AdminServer) handleGetStats(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, stats)
+}
+
+func (s *AdminServer) handleGetPlugins(c *gin.Context) {
+	if s.plugins == nil {
+		c.JSON(http.StatusOK, gin.H{"plugins": []any{}})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"plugins": s.plugins.List()})
+}
+
+func (s *AdminServer) handleGetPluginCatalog(c *gin.Context) {
+	if s.plugins == nil {
+		c.JSON(http.StatusOK, gin.H{"plugins": []any{}})
+		return
+	}
+	items, err := s.plugins.ListCatalogEntries(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		return
+	}
+	if items == nil {
+		c.JSON(http.StatusOK, gin.H{"plugins": []any{}})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"plugins": items})
+}
+
+func (s *AdminServer) handleInstallPlugin(c *gin.Context) {
+	if s.plugins == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Plugin runtime is not enabled"})
+		return
+	}
+
+	replace := strings.EqualFold(strings.TrimSpace(c.PostForm("replace")), "true")
+	upload, err := c.FormFile("package")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Plugin package is required"})
+		return
+	}
+	if !strings.HasSuffix(strings.ToLower(strings.TrimSpace(upload.Filename)), ".zip") {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Plugin package must be a .zip file"})
+		return
+	}
+	file, err := upload.Open()
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to open plugin package"})
+		return
+	}
+	defer file.Close()
+
+	content, err := io.ReadAll(io.LimitReader(file, maxPluginPackageSize+1))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to read plugin package"})
+		return
+	}
+	if len(content) > maxPluginPackageSize {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Plugin package is too large"})
+		return
+	}
+
+	summary, err := s.plugins.InstallZip(upload.Filename, content, replace)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Plugin installed successfully",
+		"plugin":  summary,
+	})
+}
+
+func (s *AdminServer) handleInstallPluginFromCatalog(c *gin.Context) {
+	if s.plugins == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Plugin runtime is not enabled"})
+		return
+	}
+
+	var req struct {
+		CatalogID string `json:"catalog_id"`
+		PluginID  string `json:"plugin_id"`
+		Replace   bool   `json:"replace"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.CatalogID) == "" || strings.TrimSpace(req.PluginID) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "catalog_id and plugin_id are required"})
+		return
+	}
+
+	summary, err := s.plugins.InstallCatalogEntry(c.Request.Context(), req.CatalogID, req.PluginID, req.Replace)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Plugin installed successfully",
+		"plugin":  summary,
+	})
+}
+
+func (s *AdminServer) handleInstallPluginFromURL(c *gin.Context) {
+	if s.plugins == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Plugin runtime is not enabled"})
+		return
+	}
+
+	var req struct {
+		URL           string `json:"url"`
+		Replace       bool   `json:"replace"`
+		PackageSHA256 string `json:"package_sha256"`
+		Source        string `json:"source"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.URL) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "url is required"})
+		return
+	}
+
+	summary, err := s.plugins.InstallURL(c.Request.Context(), req.URL, req.PackageSHA256, req.Source, req.Replace)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Plugin installed successfully",
+		"plugin":  summary,
+	})
+}
+
+func (s *AdminServer) handleUpdatePlugin(c *gin.Context) {
+	if s.plugins == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Plugin runtime is not enabled"})
+		return
+	}
+
+	var req struct {
+		Enabled *bool `json:"enabled"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || req.Enabled == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "enabled is required"})
+		return
+	}
+
+	summary, err := s.plugins.SetEnabled(c.Param("id"), *req.Enabled)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Plugin updated successfully",
+		"plugin":  summary,
+	})
+}
+
+func (s *AdminServer) handleDeletePlugin(c *gin.Context) {
+	if s.plugins == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Plugin runtime is not enabled"})
+		return
+	}
+	if err := s.plugins.Uninstall(c.Param("id")); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "Plugin deleted successfully"})
 }
 
 // Get user list

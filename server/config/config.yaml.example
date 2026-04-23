@@ -59,6 +59,61 @@ iam:
         - "profile"
         - "email"
 
+plugins:
+  enabled: false
+  # Local plugin packages are loaded from these directories.
+  # The admin plugin page installs ZIP packages into the first directory.
+  directories:
+    - "plugins"
+  enabled_plugins: []
+  disabled_plugins: []
+  # Optional: restrict local plugin manifests to this permission allowlist.
+  # Leave empty to allow every currently supported plugin permission.
+  allowed_permissions:
+    - "hook:post_authenticate"
+    - "hook:before_token_issue"
+    - "hook:before_userinfo"
+    - "network:http_action"
+  # When enabled, local plugins must provide a valid mkauth-plugin.sig file.
+  require_signature: false
+  # Keep false in production unless remote plugin catalogs/packages are hosted
+  # on a private network you explicitly trust.
+  allow_private_networks: false
+  # Optional: restrict which hosts can serve remote catalogs and plugin ZIP files.
+  # Supports exact hosts, host:port, .example.com, and *.example.com.
+  allowed_catalog_hosts:
+    - "plugins.example.com"
+  allowed_download_hosts:
+    - "plugins.example.com"
+    - "downloads.example.com"
+  # Optional: restrict outbound HTTP Action endpoints declared by plugins.
+  allowed_action_hosts:
+    - "actions.example.com"
+  trusted_signers:
+    - id: "mkauth-dev"
+      algorithm: "ed25519"
+      public_key: "BASE64_ED25519_PUBLIC_KEY"
+  catalogs:
+    - id: "official"
+      name: "Official Plugin Catalog"
+      url: "https://plugins.example.com/mkauth/catalog.yaml"
+      enabled: false
+  # Optional: centrally configured remote HTTP actions.
+  # Local flow_action plugins can also carry their own http_action block in
+  # mkauth-plugin.yaml, so they do not need to be repeated here.
+  http_actions:
+    - id: "claims-enricher"
+      name: "Claims Enricher"
+      enabled: false
+      events:
+        - "before_token_issue"
+        - "before_userinfo"
+        - "post_authenticate"
+      url: "https://actions.example.com/mkauth"
+      secret: "YOUR_ACTION_BEARER_SECRET"
+      timeout_ms: 3000
+      fail_open: false
+
 storage:
   # provider: minio / s3 / r2 / oss
   provider: "minio"

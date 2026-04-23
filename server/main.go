@@ -38,6 +38,7 @@ import (
 	"minki.cc/mkauth/server/iam"
 	"minki.cc/mkauth/server/middleware"
 	"minki.cc/mkauth/server/oidc"
+	"minki.cc/mkauth/server/plugins"
 )
 
 // Global variables - reduce multiple passing of DB
@@ -279,14 +280,37 @@ func main() {
 
 	r.Use(middleware.AccessLogMiddleware())
 
+	pluginRuntime, err := plugins.NewRuntime(cfg.Plugins)
+	if err != nil {
+		log.Fatalf("Failed to initialize plugin runtime: %v", err)
+	}
+	if len(cfg.IAM.EnterpriseOIDC) > 0 {
+		if err := pluginRuntime.RegisterBuiltin(plugins.Summary{
+			ID:          "enterprise_oidc",
+			Name:        "Enterprise OIDC",
+			Type:        string(plugins.PluginTypeIdentityConnector),
+			Source:      plugins.PluginSourceBuiltin,
+			Entry:       "builtin",
+			Description: "Upstream enterprise OIDC identity connector",
+			Enabled:     true,
+		}); err != nil {
+			log.Fatalf("Failed to register builtin plugin: %v", err)
+		}
+	}
+	pluginRegistry := pluginRuntime.Registry()
+	hookRegistry := pluginRuntime.Hooks()
+
 	oidcProvider, err := oidc.NewProvider(cfg.OIDC, globalDB, globalRedisStore, accountAuth)
 	if err != nil {
 		log.Fatalf("Failed to initialize OIDC provider: %v", err)
 	}
+	if oidcProvider != nil {
+		oidcProvider.SetHookRegistry(hookRegistry)
+	}
 
 	// Initialize authentication handler
 	var authHandler *handlers.AuthHandler
-	if err := initAuthHandler(cfg, accountAuth, oidcProvider, &authHandler); err != nil {
+	if err := initAuthHandler(cfg, accountAuth, oidcProvider, hookRegistry, pluginRegistry, &authHandler); err != nil {
 		log.Fatalf("Failed to initialize authentication handler: %v", err)
 	}
 	// Register routes
@@ -304,7 +328,7 @@ func main() {
 	var adminServer *admin.AdminServer
 	if cfg.Admin.Enabled {
 		logger := log.New(os.Stdout, "[ADMIN] ", log.LstdFlags)
-		adminServer = admin.NewAdminServer(cfg, globalDB, logger, *adminWebFilePath, *adminPort)
+		adminServer = admin.NewAdminServer(cfg, globalDB, logger, pluginRuntime, *adminWebFilePath, *adminPort)
 
 		if adminServer != nil {
 			go func() {
@@ -348,7 +372,14 @@ func main() {
 	log.Println("Main server has been shut down")
 }
 
-func initAuthHandler(cfg *config.Config, accountAuth *auth.AccountAuth, oidcProvider *oidc.Provider, handler **handlers.AuthHandler) error {
+func initAuthHandler(
+	cfg *config.Config,
+	accountAuth *auth.AccountAuth,
+	oidcProvider *oidc.Provider,
+	hookRegistry *iam.HookRegistry,
+	pluginRegistry *plugins.Registry,
+	handler **handlers.AuthHandler,
+) error {
 	// Initialize email authentication
 	var emailAuth *auth.EmailAuth
 	if containsProvider(cfg.Auth.EnabledProviders, "email") && cfg.Auth.Smtp.Host != "" {
@@ -488,6 +519,8 @@ func initAuthHandler(cfg *config.Config, accountAuth *auth.AccountAuth, oidcProv
 		avatarService,
 		oidcProvider,
 		enterpriseOIDC,
+		hookRegistry,
+		pluginRegistry,
 		cfg,
 	)
 

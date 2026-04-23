@@ -1,0 +1,16 @@
+version: "1"
+plugins:
+  - id: "http-claims-action"
+    name: "HTTP Claims Action"
+    version: "0.1.0"
+    type: "flow_action"
+    description: "Example flow action plugin served from a remote catalog."
+    permissions:
+      - "hook:before_token_issue"
+      - "hook:before_userinfo"
+      - "hook:post_authenticate"
+      - "network:http_action"
+    download_url: "https://plugins.example.com/mkauth/http-claims-action.zip"
+    homepage: "https://example.com/docs/mkauth/http-claims-action"
+    package_sha256: "REPLACE_WITH_REAL_ZIP_SHA256"
+    signature_required: true

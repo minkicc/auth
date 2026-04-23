@@ -1,6 +1,7 @@
 package oidc
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -231,6 +232,22 @@ func TestAuthorizeReusesBrowserSessionAndTokenExchangeSucceeds(t *testing.T) {
 
 	user := env.createAccountUser(t, "demo")
 	env.createOrganizationMembership(t, user.UserID)
+	hookRegistry, err := iam.NewHookRegistry(iam.HookFunc{
+		HookName: "test-claims",
+		Fn: func(ctx context.Context, event iam.HookEvent, data *iam.HookContext) error {
+			if event == iam.HookBeforeTokenIssue {
+				data.Claims["department"] = "engineering"
+			}
+			if event == iam.HookBeforeUserInfo {
+				data.Claims["userinfo_source"] = "hook"
+			}
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to create hook registry: %v", err)
+	}
+	env.provider.SetHookRegistry(hookRegistry)
 	sessionCookie := env.createBrowserSessionCookie(t, user.UserID)
 
 	authorizeURL := "/oauth2/authorize?client_id=demo-spa" +
@@ -331,6 +348,10 @@ func TestAuthorizeReusesBrowserSessionAndTokenExchangeSucceeds(t *testing.T) {
 	if !stringSliceEqual(idTokenClaims.OrgRoles, []string{"owner", "billing_admin"}) {
 		t.Fatalf("expected id token org_roles owner/billing_admin, got %#v", idTokenClaims.OrgRoles)
 	}
+	idTokenMap := parseIDTokenMap(t, env.provider, idToken)
+	if idTokenMap["department"] != "engineering" {
+		t.Fatalf("expected custom id token department claim from hook, got %#v", idTokenMap["department"])
+	}
 
 	userInfoResp := performBearerRequest(t, env.router, http.MethodGet, "/oauth2/userinfo", accessToken)
 	if userInfoResp.Code != http.StatusOK {
@@ -361,6 +382,25 @@ func TestAuthorizeReusesBrowserSessionAndTokenExchangeSucceeds(t *testing.T) {
 	if !ok || len(userInfoRoles) != 2 || userInfoRoles[0] != "owner" || userInfoRoles[1] != "billing_admin" {
 		t.Fatalf("expected userinfo org_roles owner/billing_admin, got %#v", userInfoBody["org_roles"])
 	}
+	if userInfoBody["userinfo_source"] != "hook" {
+		t.Fatalf("expected custom userinfo claim from hook, got %#v", userInfoBody["userinfo_source"])
+	}
+}
+
+func parseIDTokenMap(t *testing.T, provider *Provider, token string) jwt.MapClaims {
+	t.Helper()
+
+	parsed, err := jwt.ParseWithClaims(token, jwt.MapClaims{}, func(t *jwt.Token) (interface{}, error) {
+		return provider.signer.publicKey, nil
+	}, jwt.WithValidMethods([]string{jwt.SigningMethodRS256.Alg()}))
+	if err != nil {
+		t.Fatalf("failed to parse id token map: %v", err)
+	}
+	claims, ok := parsed.Claims.(jwt.MapClaims)
+	if !ok || !parsed.Valid {
+		t.Fatalf("expected valid id token map claims")
+	}
+	return claims
 }
 
 func stringSliceEqual(left, right []string) bool {

@@ -1,0 +1,20 @@
+id: http-claims-action
+name: HTTP Claims Action
+version: 0.1.0
+type: flow_action
+entry: http_action
+description: Example manifest for an HTTP action that can enrich token and userinfo claims.
+permissions:
+  - hook:before_token_issue
+  - hook:before_userinfo
+  - hook:post_authenticate
+  - network:http_action
+events:
+  - before_token_issue
+  - before_userinfo
+  - post_authenticate
+http_action:
+  url: "https://actions.example.com/mkauth"
+  secret_env: "MKAUTH_HTTP_CLAIMS_SECRET"
+  timeout_ms: 3000
+  fail_open: false

@@ -13,7 +13,7 @@ It is a good fit when:
 
 - Multiple login providers
 - OIDC provider + JWT access and ID tokens
-- CIAM/IAM foundation for organizations, external identities, and flow hooks
+- CIAM/IAM foundation for organizations, external identities, flow hooks, and installable plugins
 - Redis-backed session management
 - Avatar upload
 - Admin console
@@ -219,6 +219,96 @@ redis:
 ```
 
 If you do not configure MySQL, MKAuth now starts with SQLite by default and stores data in `data/mkauth.sqlite3`. You can also set `db.driver: sqlite` explicitly and override the file location with `db.sqlite_path`.
+
+### Plugin runtime
+
+```yaml
+plugins:
+  enabled: true
+  directories:
+    - "plugins"
+  enabled_plugins: []
+  disabled_plugins: []
+  allowed_permissions:
+    - "hook:post_authenticate"
+    - "hook:before_token_issue"
+    - "hook:before_userinfo"
+    - "network:http_action"
+  require_signature: false
+  allow_private_networks: false
+  allowed_catalog_hosts:
+    - "plugins.example.com"
+  allowed_download_hosts:
+    - "plugins.example.com"
+    - "downloads.example.com"
+  allowed_action_hosts:
+    - "actions.example.com"
+  trusted_signers:
+    - id: "mkauth-dev"
+      algorithm: "ed25519"
+      public_key: "BASE64_ED25519_PUBLIC_KEY"
+  catalogs:
+    - id: "official"
+      name: "Official Plugin Catalog"
+      url: "https://plugins.example.com/mkauth/catalog.yaml"
+      enabled: true
+  http_actions:
+    - id: "claims-enricher"
+      name: "Claims Enricher"
+      enabled: false
+      events:
+        - "before_token_issue"
+        - "before_userinfo"
+      url: "https://actions.example.com/mkauth"
+      secret: "YOUR_ACTION_BEARER_SECRET"
+      timeout_ms: 3000
+      fail_open: false
+```
+
+There are now two plugin delivery modes:
+
+- Configured HTTP actions from `plugins.http_actions`
+- Local installable plugin packages loaded from `plugins.directories`
+
+There are also two remote distribution paths:
+
+- Catalog-driven installation from `plugins.catalogs`
+- Direct admin-side URL installation for a remote ZIP package
+
+For safer production rollout, restrict remote sources with:
+
+- `plugins.allowed_catalog_hosts`
+- `plugins.allowed_download_hosts`
+- `plugins.allowed_action_hosts`
+
+These host allowlists support exact hosts, `host:port`, `.example.com`, and `*.example.com`. A catalog entry can only point to the same host as the catalog itself, or to an explicitly allowed download host.
+
+Remote plugin downloads and plugin HTTP Actions also reject loopback, private, link-local, multicast, and unspecified IP addresses by default. Keep `allow_private_networks: false` in production unless your plugin catalog, ZIP packages, or HTTP Action endpoints are intentionally served from a trusted private network.
+
+For local packages, zip a directory that contains `mkauth-plugin.yaml` and install it from the admin plugin page. A local `flow_action` plugin can carry its own runtime `http_action` block in the manifest, so it does not require an extra main-config entry.
+
+Local manifests must declare their runtime permissions. HTTP actions need `network:http_action`, and every hook event needs its matching `hook:<event>` permission, for example `hook:before_token_issue`. If `plugins.allowed_permissions` is not empty, MKAuth rejects plugins that request permissions outside that allowlist.
+
+If you want signed packages, add `trusted_signers` and set `require_signature: true`. MKAuth verifies `mkauth-plugin.sig` against the raw manifest content and shows signature status plus the uploaded package SHA-256 fingerprint in the admin UI.
+
+You can generate keys and sign manifests with the bundled helper under [tools](tools/README.md):
+
+```bash
+cd tools
+go run ./pluginsign genkey -key-id mkauth-dev -out-private ./plugin-signing.key.pem -out-public ./plugin-signing.pub
+go run ./pluginsign sign -manifest ../examples/plugins/http-claims-action/mkauth-plugin.yaml -private-key ./plugin-signing.key.pem -key-id mkauth-dev
+```
+
+Useful endpoints:
+
+- Public plugin discovery: `GET /api/plugins`
+- Admin plugin management: `GET /admin-api/plugins`
+- Admin plugin install: `POST /admin-api/plugins/install`
+- Admin plugin catalog: `GET /admin-api/plugins/catalog`
+- Admin plugin install from catalog: `POST /admin-api/plugins/install-catalog`
+- Admin plugin install from URL: `POST /admin-api/plugins/install-url`
+
+See [examples/plugins/http-claims-action](examples/plugins/http-claims-action/README.md) for a self-contained local plugin example, and [examples/plugins/catalog.yaml](examples/plugins/catalog.yaml) for a catalog example.
 
 ### Storage
 
