@@ -20,6 +20,7 @@ import (
 	"gorm.io/gorm"
 	"minki.cc/mkauth/server/auth"
 	"minki.cc/mkauth/server/config"
+	"minki.cc/mkauth/server/plugins"
 )
 
 const maxPluginPackageSize = 20 << 20
@@ -207,6 +208,28 @@ func (s *AdminServer) handleGetPluginCatalog(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"plugins": items})
 }
 
+func (s *AdminServer) handleGetPluginAudit(c *gin.Context) {
+	if s.plugins == nil {
+		c.JSON(http.StatusOK, gin.H{"audit": []any{}})
+		return
+	}
+	limit := 100
+	if raw := strings.TrimSpace(c.Query("limit")); raw != "" {
+		if _, err := fmt.Sscanf(raw, "%d", &limit); err != nil || limit < 1 {
+			limit = 100
+		}
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	events, err := s.plugins.ListAudit(limit)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"audit": events})
+}
+
 func (s *AdminServer) handleInstallPlugin(c *gin.Context) {
 	if s.plugins == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Plugin runtime is not enabled"})
@@ -240,7 +263,7 @@ func (s *AdminServer) handleInstallPlugin(c *gin.Context) {
 		return
 	}
 
-	summary, err := s.plugins.InstallZip(upload.Filename, content, replace)
+	summary, err := s.plugins.InstallZipWithActor(upload.Filename, content, replace, pluginAuditActor(c))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -267,7 +290,8 @@ func (s *AdminServer) handleInstallPluginFromCatalog(c *gin.Context) {
 		return
 	}
 
-	summary, err := s.plugins.InstallCatalogEntry(c.Request.Context(), req.CatalogID, req.PluginID, req.Replace)
+	ctx := plugins.ContextWithAuditActor(c.Request.Context(), pluginAuditActor(c))
+	summary, err := s.plugins.InstallCatalogEntry(ctx, req.CatalogID, req.PluginID, req.Replace)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -295,7 +319,8 @@ func (s *AdminServer) handleInstallPluginFromURL(c *gin.Context) {
 		return
 	}
 
-	summary, err := s.plugins.InstallURL(c.Request.Context(), req.URL, req.PackageSHA256, req.Source, req.Replace)
+	ctx := plugins.ContextWithAuditActor(c.Request.Context(), pluginAuditActor(c))
+	summary, err := s.plugins.InstallURL(ctx, req.URL, req.PackageSHA256, req.Source, req.Replace)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -320,7 +345,7 @@ func (s *AdminServer) handleUpdatePlugin(c *gin.Context) {
 		return
 	}
 
-	summary, err := s.plugins.SetEnabled(c.Param("id"), *req.Enabled)
+	summary, err := s.plugins.SetEnabledWithActor(c.Param("id"), *req.Enabled, pluginAuditActor(c))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -336,11 +361,27 @@ func (s *AdminServer) handleDeletePlugin(c *gin.Context) {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Plugin runtime is not enabled"})
 		return
 	}
-	if err := s.plugins.Uninstall(c.Param("id")); err != nil {
+	if err := s.plugins.UninstallWithActor(c.Param("id"), pluginAuditActor(c)); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "Plugin deleted successfully"})
+}
+
+func pluginAuditActor(c *gin.Context) plugins.AuditActor {
+	actorID := ""
+	if username, ok := c.Get("username"); ok && username != nil {
+		if value, ok := username.(string); ok {
+			actorID = value
+		} else {
+			actorID = fmt.Sprint(username)
+		}
+	}
+	return plugins.AuditActor{
+		ID:        actorID,
+		IP:        c.ClientIP(),
+		UserAgent: c.GetHeader("User-Agent"),
+	}
 }
 
 // Get user list

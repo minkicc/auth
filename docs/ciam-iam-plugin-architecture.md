@@ -125,7 +125,8 @@ Runtime behavior:
 2. MKAuth validates the archive structure, per-file limits, manifest schema, declared permissions, and optional signature.
 3. MKAuth can also fetch remote plugin catalogs and install ZIP packages directly from a catalog entry or explicit download URL.
 4. MKAuth writes `mkauth-plugin.state.yaml` beside the manifest to persist enabled or disabled state and the uploaded package SHA-256 fingerprint.
-5. The registry and hook runtime reload in place, so new plugins can start participating in `post_authenticate`, `before_token_issue`, and `before_userinfo` without a process restart.
+5. MKAuth appends plugin management operations to `mkauth-plugin.audit.jsonl` in the plugin directory.
+6. The registry and hook runtime reload in place, so new plugins can start participating in `post_authenticate`, `before_token_issue`, and `before_userinfo` without a process restart.
 
 Signature behavior:
 
@@ -144,6 +145,7 @@ Discovery endpoints:
 - Public: `GET /api/plugins`
 - Admin: `GET /admin-api/plugins`
 - Admin catalog: `GET /admin-api/plugins/catalog`
+- Admin audit: `GET /admin-api/plugins/audit`
 - Admin install: `POST /admin-api/plugins/install`
 - Admin install from catalog: `POST /admin-api/plugins/install-catalog`
 - Admin install from URL: `POST /admin-api/plugins/install-url`

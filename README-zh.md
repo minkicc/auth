@@ -297,6 +297,8 @@ plugins:
 
 如果你希望只允许可信插件，可配置 `trusted_signers`，并开启 `require_signature: true`。MKAuth 会校验 `mkauth-plugin.sig` 对 manifest 原文的签名，并在后台展示签名状态和上传包的 SHA-256 指纹。
 
+插件安装、启停、覆盖和卸载操作会写入插件目录下的 `mkauth-plugin.audit.jsonl`。覆盖/卸载记录会保留包指纹，方便后续回滚排查。后台通过 `GET /admin-api/plugins/audit` 读取最近的审计记录。
+
 仓库里已经附带了签名辅助工具，见 [tools](tools/README.md)：
 
 ```bash
@@ -309,6 +311,7 @@ go run ./pluginsign sign -manifest ../examples/plugins/http-claims-action/mkauth
 
 - 公共插件发现：`GET /api/plugins`
 - 后台插件管理：`GET /admin-api/plugins`
+- 后台插件审计：`GET /admin-api/plugins/audit`
 - 后台安装插件：`POST /admin-api/plugins/install`
 - 后台插件目录：`GET /admin-api/plugins/catalog`
 - 后台按目录安装：`POST /admin-api/plugins/install-catalog`

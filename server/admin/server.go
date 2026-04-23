@@ -175,6 +175,7 @@ func (s *AdminServer) registerRoutes(r *gin.Engine, webFilePath string) {
 
 		// Plugin management
 		admin.GET("/plugins", s.handleGetPlugins)
+		admin.GET("/plugins/audit", s.handleGetPluginAudit)
 		admin.GET("/plugins/catalog", s.handleGetPluginCatalog)
 		admin.POST("/plugins/install", s.handleInstallPlugin)
 		admin.POST("/plugins/install-catalog", s.handleInstallPluginFromCatalog)
