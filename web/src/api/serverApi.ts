@@ -29,7 +29,13 @@ interface NestedAuthResponse {
     avatar?: string
 }
 
-export type AuthProvider = 'account' | 'email' | 'google' | 'weixin' | 'phone' | 'weixin_mini'
+export type AuthProvider = 'account' | 'email' | 'google' | 'weixin' | 'phone' | 'weixin_mini' | 'enterprise_oidc'
+
+export interface EnterpriseOIDCProvider {
+    slug: string
+    name: string
+    organization_id?: string
+}
 
 type ApiErrorPayload = {
     error?: string | {
@@ -118,6 +124,17 @@ class ServerApi {
     private buildAppURL(path: string): string {
         const normalizedPath = path.replace(/^\/+/, '')
         return new URL(normalizedPath, this.appBaseURL()).toString()
+    }
+
+    private buildApiURL(path: string, params?: URLSearchParams): string {
+        const baseURL = axios.defaults.baseURL || ''
+        const normalizedBase = baseURL.replace(/\/+$/, '')
+        const normalizedPath = path.startsWith('/') ? path : `/${path}`
+        const url = new URL(`${normalizedBase}${normalizedPath}`, window.location.origin)
+        if (params) {
+            params.forEach((value, key) => url.searchParams.set(key, value))
+        }
+        return url.toString()
     }
 
     private sanitizeRedirectUri(redirectUri?: string | null): string {
@@ -230,6 +247,17 @@ class ServerApi {
     async fetchSupportedProviders(): Promise<{ providers: AuthProvider[] }> {
         const response = await axios.get('/providers')
         return response.data
+    }
+
+    async fetchEnterpriseOIDCProviders(): Promise<EnterpriseOIDCProvider[]> {
+        const response = await axios.get('/enterprise/oidc/providers')
+        return response.data.providers || []
+    }
+
+    startEnterpriseOIDCLogin(slug: string): void {
+        const params = new URLSearchParams()
+        params.set('return_uri', this.isOIDCFlow() ? this.redirectUri : this.routePath('/profile'))
+        window.location.href = this.buildApiURL(`/enterprise/oidc/${encodeURIComponent(slug)}/login`, params)
     }
 
     // 账号密码登录

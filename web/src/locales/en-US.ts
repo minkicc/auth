@@ -52,6 +52,7 @@ export default {
     wechatLogin: 'Login with WeChat',
     loginWithGoogle: 'Login with Google',
     loginWithWechat: 'Login with WeChat',
+    loginWithEnterprise: 'Login with {name}',
     sendCode: 'Send Code',
     resendCode: 'Resend',
     getVerificationCode: 'Get Code',
@@ -148,6 +149,8 @@ export default {
     renderGoogleButtonFailed: 'Failed to render Google login button',
     googleServiceLoadFailed: 'Failed to load Google login service',
     invalidWeixinCallback: 'Invalid WeChat callback parameters',
+    enterpriseOIDCProvidersFailed: 'Failed to load enterprise login methods',
+    enterpriseOIDCLoginFailed: 'Failed to start enterprise login',
   },
   email: {
     verificationTitle: 'Email Verification',

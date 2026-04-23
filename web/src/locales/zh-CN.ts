@@ -52,6 +52,7 @@ export default {
     wechatLogin: '使用微信登录',
     loginWithGoogle: '使用 Google 登录',
     loginWithWechat: '使用微信登录',
+    loginWithEnterprise: '使用 {name} 登录',
     sendCode: '发送验证码',
     resendCode: '重新发送',
     getVerificationCode: '获取验证码',
@@ -148,6 +149,8 @@ export default {
     renderGoogleButtonFailed: '渲染谷歌登录按钮失败',
     googleServiceLoadFailed: '加载谷歌登录服务失败',
     invalidWeixinCallback: '微信回调参数无效',
+    enterpriseOIDCProvidersFailed: '获取企业登录方式失败',
+    enterpriseOIDCLoginFailed: '企业登录跳转失败',
   },
   email: {
     verificationTitle: '邮箱验证',

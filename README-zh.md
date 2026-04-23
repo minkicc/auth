@@ -13,12 +13,15 @@ Auth 是一个可独立部署的统一认证服务，提供账号密码、邮箱
 
 - 多种登录方式：账号、邮箱、手机号、Google、微信、微信小程序
 - OIDC Provider + JWT Access / ID Token
+- CIAM/IAM 基础能力：组织、外部身份映射、认证流程 Hook
 - Redis 会话管理
 - 用户头像上传
 - 管理后台
 - 用户活跃统计
 - Go SDK
 - Docker / Docker Compose 部署
+
+CIAM/IAM 扩展路线见 [docs/ciam-iam-plugin-architecture.md](docs/ciam-iam-plugin-architecture.md)。
 
 ## 仓库结构
 
@@ -368,6 +371,9 @@ curl -X POST http://localhost:8080/oauth2/token \
 
 常用接口：
 - `GET /api/providers`：查询当前启用的登录方式
+- `GET /api/enterprise/oidc/providers`：查询企业 OIDC 登录方式
+- `GET /api/enterprise/oidc/:slug/login`：发起企业 OIDC 登录
+- `GET /api/enterprise/oidc/:slug/callback`：企业 OIDC 回调
 - `POST /api/account/register`
 - `POST /api/account/login`
 - `POST /api/email/login`
@@ -375,6 +381,8 @@ curl -X POST http://localhost:8080/oauth2/token \
 - `GET /api/browser-session`
 - `POST /api/logout`
 - `GET /api/user`
+
+当存在 CIAM/IAM 组织成员数据，并且下游 OIDC 客户端请求了 `profile` scope 时，Auth 会在 ID Token 和 `/oauth2/userinfo` 中额外返回 `org_id`、`org_slug`、`org_roles`。
 
 账号登录示例：
 
