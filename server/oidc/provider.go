@@ -201,6 +201,9 @@ func (p *Provider) authorize(c *gin.Context) {
 			return
 		}
 		loginURL := "/login?client_id=" + url.QueryEscape(client.ClientID) + "&redirect_uri=" + url.QueryEscape(p.currentRequestURL(c))
+		if loginHint := strings.TrimSpace(c.Query("login_hint")); loginHint != "" {
+			loginURL += "&login_hint=" + url.QueryEscape(loginHint)
+		}
 		c.Redirect(http.StatusFound, loginURL)
 		return
 	}

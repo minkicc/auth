@@ -356,6 +356,8 @@ When an organization has at least one verified domain plus Enterprise OIDC provi
 
 It returns the matched organization plus one or more Enterprise OIDC providers for that domain. The login page uses this to auto-redirect when a single provider is matched, or to narrow the SSO choices when multiple providers exist.
 
+If a downstream OIDC client already knows the user's work email, it can pass `login_hint=user@example.com` to `/oauth2/authorize`. MKAuth now forwards that hint to the login page and automatically triggers Enterprise OIDC discovery from it.
+
 ### Inbound SCIM provisioning
 
 MKAuth can expose SCIM 2.0 Users and Groups endpoints so enterprise directories such as Okta, Entra ID, or Google Workspace can provision users and group-derived roles into an organization.

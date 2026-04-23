@@ -124,9 +124,14 @@ class ServerApi {
 
     clientId: string = ''
     redirectUri: string = ''
+    loginHint: string = ''
 
     private redirectStorageKey(clientId: string): string {
         return `mkauth:redirect:${clientId}`
+    }
+
+    private loginHintStorageKey(clientId: string): string {
+        return `mkauth:login_hint:${clientId}`
     }
 
     private appBaseURL(): URL {
@@ -178,6 +183,29 @@ class ServerApi {
         return this.normalizePath(new URL(path.replace(/^\/+/, ''), this.appBaseURL()).pathname)
     }
 
+    private sanitizeLoginHint(loginHint?: string | null): string {
+        return typeof loginHint === 'string' ? loginHint.trim() : ''
+    }
+
+    private extractLoginHintFromRedirectUri(redirectUri?: string | null): string {
+        const sanitizedRedirectUri = this.sanitizeRedirectUri(redirectUri)
+        if (!sanitizedRedirectUri) {
+            return ''
+        }
+
+        try {
+            const url = new URL(sanitizedRedirectUri)
+            const normalizedPath = this.normalizePath(url.pathname)
+            const isAuthorizePath = normalizedPath === '/oauth2/authorize' || normalizedPath.endsWith('/oauth2/authorize')
+            if (!isAuthorizePath) {
+                return ''
+            }
+            return this.sanitizeLoginHint(url.searchParams.get('login_hint'))
+        } catch {
+            return ''
+        }
+    }
+
     clearStoredAuth() {
         localStorage.removeItem('token')
         localStorage.removeItem('user')
@@ -219,16 +247,23 @@ class ServerApi {
         this.handleLoginRedirect() // 重定向到应用
     }
 
-    updateAuthData(clientId: string, redirectUri?: string) {
+    updateAuthData(clientId: string, redirectUri?: string, loginHint?: string) {
         serverApi.clientId = clientId
-        if (redirectUri !== undefined) {
+        if (redirectUri !== undefined || loginHint !== undefined) {
             const sanitizedRedirectUri = this.sanitizeRedirectUri(redirectUri)
+            const sanitizedLoginHint = this.sanitizeLoginHint(loginHint) || this.extractLoginHintFromRedirectUri(sanitizedRedirectUri)
             serverApi.redirectUri = sanitizedRedirectUri
+            serverApi.loginHint = sanitizedLoginHint
             if (clientId) {
                 if (sanitizedRedirectUri) {
                     sessionStorage.setItem(this.redirectStorageKey(clientId), sanitizedRedirectUri)
                 } else {
                     sessionStorage.removeItem(this.redirectStorageKey(clientId))
+                }
+                if (sanitizedLoginHint) {
+                    sessionStorage.setItem(this.loginHintStorageKey(clientId), sanitizedLoginHint)
+                } else {
+                    sessionStorage.removeItem(this.loginHintStorageKey(clientId))
                 }
             }
             return
@@ -236,15 +271,22 @@ class ServerApi {
 
         if (clientId) {
             const storedRedirectUri = sessionStorage.getItem(this.redirectStorageKey(clientId)) || ''
+            const storedLoginHint = sessionStorage.getItem(this.loginHintStorageKey(clientId)) || ''
             const sanitizedRedirectUri = this.sanitizeRedirectUri(storedRedirectUri)
+            const sanitizedLoginHint = this.sanitizeLoginHint(storedLoginHint) || this.extractLoginHintFromRedirectUri(sanitizedRedirectUri)
             serverApi.redirectUri = sanitizedRedirectUri
+            serverApi.loginHint = sanitizedLoginHint
             if (!sanitizedRedirectUri) {
                 sessionStorage.removeItem(this.redirectStorageKey(clientId))
+            }
+            if (!sanitizedLoginHint) {
+                sessionStorage.removeItem(this.loginHintStorageKey(clientId))
             }
             return
         }
 
         serverApi.redirectUri = ''
+        serverApi.loginHint = ''
     }
 
     hasBusinessConnection(): boolean {
