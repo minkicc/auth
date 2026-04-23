@@ -39,6 +39,8 @@ type EnterpriseOIDCManager struct {
 	db            *gorm.DB
 	service       *Service
 	avatarService *auth.AvatarService
+	staticConfigs []config.EnterpriseOIDCProviderConfig
+	mu            sync.RWMutex
 	providers     map[string]*EnterpriseOIDCProvider
 }
 
@@ -103,9 +105,6 @@ type jwkKey struct {
 }
 
 func NewEnterpriseOIDCManager(cfg config.IAMConfig, db *gorm.DB, avatarService *auth.AvatarService) (*EnterpriseOIDCManager, error) {
-	if len(cfg.EnterpriseOIDC) == 0 {
-		return nil, nil
-	}
 	if db == nil {
 		return nil, fmt.Errorf("enterprise oidc requires database")
 	}
@@ -114,19 +113,90 @@ func NewEnterpriseOIDCManager(cfg config.IAMConfig, db *gorm.DB, avatarService *
 		db:            db,
 		service:       NewService(db),
 		avatarService: avatarService,
-		providers:     make(map[string]*EnterpriseOIDCProvider, len(cfg.EnterpriseOIDC)),
+		staticConfigs: append([]config.EnterpriseOIDCProviderConfig(nil), cfg.EnterpriseOIDC...),
+		providers:     map[string]*EnterpriseOIDCProvider{},
 	}
-	for _, providerCfg := range cfg.EnterpriseOIDC {
+	if err := manager.Reload(); err != nil {
+		return nil, err
+	}
+	return manager, nil
+}
+
+func (m *EnterpriseOIDCManager) Reload() error {
+	if m == nil {
+		return nil
+	}
+	providers, err := m.buildProviders()
+	if err != nil {
+		return err
+	}
+	m.mu.Lock()
+	m.providers = providers
+	m.mu.Unlock()
+	return nil
+}
+
+func (m *EnterpriseOIDCManager) HasStaticProviderSlug(slug string) bool {
+	if m == nil {
+		return false
+	}
+	slug = strings.TrimSpace(strings.ToLower(slug))
+	for _, provider := range m.staticConfigs {
+		if strings.TrimSpace(strings.ToLower(provider.Slug)) == slug {
+			return true
+		}
+	}
+	return false
+}
+
+func (m *EnterpriseOIDCManager) buildProviders() (map[string]*EnterpriseOIDCProvider, error) {
+	providers := make(map[string]*EnterpriseOIDCProvider, len(m.staticConfigs))
+	for _, providerCfg := range m.staticConfigs {
 		provider, err := NewEnterpriseOIDCProvider(providerCfg)
 		if err != nil {
 			return nil, err
 		}
-		if _, exists := manager.providers[provider.cfg.Slug]; exists {
+		if _, exists := providers[provider.cfg.Slug]; exists {
 			return nil, fmt.Errorf("duplicate enterprise oidc provider slug %q", provider.cfg.Slug)
 		}
-		manager.providers[provider.cfg.Slug] = provider
+		providers[provider.cfg.Slug] = provider
 	}
-	return manager, nil
+
+	var records []OrganizationIdentityProvider
+	if err := m.db.Where("provider_type = ? AND enabled = ?", IdentityProviderTypeOIDC, true).
+		Order("created_at ASC").
+		Find(&records).Error; err != nil {
+		return nil, err
+	}
+	for _, record := range records {
+		providerCfg, err := enterpriseOIDCProviderConfigFromRecord(record)
+		if err != nil {
+			return nil, fmt.Errorf("load enterprise oidc provider %q: %w", record.Slug, err)
+		}
+		provider, err := NewEnterpriseOIDCProvider(providerCfg)
+		if err != nil {
+			return nil, err
+		}
+		if _, exists := providers[provider.cfg.Slug]; exists {
+			return nil, fmt.Errorf("duplicate enterprise oidc provider slug %q", provider.cfg.Slug)
+		}
+		providers[provider.cfg.Slug] = provider
+	}
+
+	return providers, nil
+}
+
+func enterpriseOIDCProviderConfigFromRecord(record OrganizationIdentityProvider) (config.EnterpriseOIDCProviderConfig, error) {
+	var providerCfg config.EnterpriseOIDCProviderConfig
+	if strings.TrimSpace(record.ConfigJSON) != "" {
+		if err := json.Unmarshal([]byte(record.ConfigJSON), &providerCfg); err != nil {
+			return config.EnterpriseOIDCProviderConfig{}, fmt.Errorf("decode provider config: %w", err)
+		}
+	}
+	providerCfg.Slug = record.Slug
+	providerCfg.Name = record.Name
+	providerCfg.OrganizationID = record.OrganizationID
+	return providerCfg, nil
 }
 
 func NewEnterpriseOIDCProvider(cfg config.EnterpriseOIDCProviderConfig) (*EnterpriseOIDCProvider, error) {
@@ -168,6 +238,8 @@ func (m *EnterpriseOIDCManager) Providers() []EnterpriseOIDCProviderSummary {
 	if m == nil {
 		return nil
 	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	providers := make([]EnterpriseOIDCProviderSummary, 0, len(m.providers))
 	for _, provider := range m.providers {
 		providers = append(providers, EnterpriseOIDCProviderSummary{
@@ -181,7 +253,12 @@ func (m *EnterpriseOIDCManager) Providers() []EnterpriseOIDCProviderSummary {
 }
 
 func (m *EnterpriseOIDCManager) HasProviders() bool {
-	return m != nil && len(m.providers) > 0
+	if m == nil {
+		return false
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return len(m.providers) > 0
 }
 
 func (m *EnterpriseOIDCManager) AuthCodeURL(ctx context.Context, slug, state, nonce string) (string, error) {
@@ -208,6 +285,8 @@ func (m *EnterpriseOIDCManager) provider(slug string) (*EnterpriseOIDCProvider, 
 	if m == nil {
 		return nil, false
 	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	provider, ok := m.providers[strings.TrimSpace(slug)]
 	return provider, ok
 }

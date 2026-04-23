@@ -158,6 +158,108 @@ func TestEnterpriseOIDCRejectsNonceMismatch(t *testing.T) {
 	}
 }
 
+func TestEnterpriseOIDCManagerLoadsDatabaseProviders(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file:enterprise-oidc-db-load?mode=memory&cache=shared"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("failed to open sqlite: %v", err)
+	}
+	if err := NewService(db).AutoMigrate(); err != nil {
+		t.Fatalf("failed to migrate iam tables: %v", err)
+	}
+
+	configJSON, err := json.Marshal(config.EnterpriseOIDCProviderConfig{
+		Issuer:       "https://login.acme.test",
+		ClientID:     "acme-client",
+		ClientSecret: "acme-secret",
+		RedirectURI:  "https://auth.example.com/api/enterprise/oidc/acme/callback",
+		Scopes:       []string{"openid", "profile", "email"},
+	})
+	if err != nil {
+		t.Fatalf("failed to marshal provider config: %v", err)
+	}
+	if err := db.Create(&OrganizationIdentityProvider{
+		IdentityProviderID: "idp_acme1234567890",
+		OrganizationID:     "org_acme000000000000",
+		ProviderType:       IdentityProviderTypeOIDC,
+		Name:               "Acme",
+		Slug:               "acme",
+		Enabled:            true,
+		ConfigJSON:         string(configJSON),
+	}).Error; err != nil {
+		t.Fatalf("failed to create organization identity provider: %v", err)
+	}
+
+	manager, err := NewEnterpriseOIDCManager(config.IAMConfig{}, db, nil)
+	if err != nil {
+		t.Fatalf("failed to create enterprise oidc manager: %v", err)
+	}
+	if !manager.HasProviders() {
+		t.Fatalf("expected database-backed provider to be loaded")
+	}
+	providers := manager.Providers()
+	if len(providers) != 1 || providers[0].Slug != "acme" || providers[0].OrganizationID != "org_acme000000000000" {
+		t.Fatalf("unexpected providers: %#v", providers)
+	}
+}
+
+func TestEnterpriseOIDCManagerReloadReflectsDatabaseChanges(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file:enterprise-oidc-db-reload?mode=memory&cache=shared"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("failed to open sqlite: %v", err)
+	}
+	if err := NewService(db).AutoMigrate(); err != nil {
+		t.Fatalf("failed to migrate iam tables: %v", err)
+	}
+
+	manager, err := NewEnterpriseOIDCManager(config.IAMConfig{}, db, nil)
+	if err != nil {
+		t.Fatalf("failed to create enterprise oidc manager: %v", err)
+	}
+	if manager.HasProviders() {
+		t.Fatalf("expected empty manager before creating database providers")
+	}
+
+	configJSON, err := json.Marshal(config.EnterpriseOIDCProviderConfig{
+		Issuer:       "https://login.globex.test",
+		ClientID:     "globex-client",
+		ClientSecret: "globex-secret",
+		RedirectURI:  "https://auth.example.com/api/enterprise/oidc/globex/callback",
+		Scopes:       []string{"openid", "profile", "email"},
+	})
+	if err != nil {
+		t.Fatalf("failed to marshal provider config: %v", err)
+	}
+	record := OrganizationIdentityProvider{
+		IdentityProviderID: "idp_globex12345678",
+		OrganizationID:     "org_globex000000000",
+		ProviderType:       IdentityProviderTypeOIDC,
+		Name:               "Globex",
+		Slug:               "globex",
+		Enabled:            true,
+		ConfigJSON:         string(configJSON),
+	}
+	if err := db.Create(&record).Error; err != nil {
+		t.Fatalf("failed to create provider record: %v", err)
+	}
+	if err := manager.Reload(); err != nil {
+		t.Fatalf("failed to reload manager: %v", err)
+	}
+	if !manager.HasProviders() {
+		t.Fatalf("expected provider after reload")
+	}
+
+	record.Enabled = false
+	if err := db.Save(&record).Error; err != nil {
+		t.Fatalf("failed to disable provider record: %v", err)
+	}
+	if err := manager.Reload(); err != nil {
+		t.Fatalf("failed to reload manager after disable: %v", err)
+	}
+	if manager.HasProviders() {
+		t.Fatalf("expected disabled provider to be removed from runtime manager")
+	}
+}
+
 type fakeEnterpriseUser struct {
 	Subject           string
 	Email             string

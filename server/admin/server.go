@@ -20,6 +20,7 @@ import (
 
 	"minki.cc/mkauth/server/auth"
 	"minki.cc/mkauth/server/config"
+	"minki.cc/mkauth/server/iam"
 	"minki.cc/mkauth/server/plugins"
 )
 
@@ -32,18 +33,19 @@ const ADMIN_ROUTER_PATH = config.ADMIN_ROUTER_PATH
 
 // AdminServer Admin server
 type AdminServer struct {
-	config     *config.AdminConfig
-	db         *gorm.DB
-	router     *gin.Engine
-	server     *http.Server
-	logger     *log.Logger
-	redis      *auth.RedisStore
-	sessionMgr *auth.SessionManager
-	plugins    *plugins.Runtime
+	config         *config.AdminConfig
+	db             *gorm.DB
+	router         *gin.Engine
+	server         *http.Server
+	logger         *log.Logger
+	redis          *auth.RedisStore
+	sessionMgr     *auth.SessionManager
+	plugins        *plugins.Runtime
+	enterpriseOIDC *iam.EnterpriseOIDCManager
 }
 
 // NewAdminServer Create admin server
-func NewAdminServer(cfg *config.Config, db *gorm.DB, logger *log.Logger, pluginRuntime *plugins.Runtime, webFilePath string, port int) *AdminServer {
+func NewAdminServer(cfg *config.Config, db *gorm.DB, logger *log.Logger, pluginRuntime *plugins.Runtime, enterpriseOIDC *iam.EnterpriseOIDCManager, webFilePath string, port int) *AdminServer {
 	if !cfg.Admin.Enabled {
 		return nil
 	}
@@ -79,12 +81,13 @@ func NewAdminServer(cfg *config.Config, db *gorm.DB, logger *log.Logger, pluginR
 
 	// Create admin server
 	server := &AdminServer{
-		config:     &cfg.Admin,
-		db:         db,
-		logger:     logger,
-		redis:      redisStore,
-		sessionMgr: sessionManager,
-		plugins:    pluginRuntime,
+		config:         &cfg.Admin,
+		db:             db,
+		logger:         logger,
+		redis:          redisStore,
+		sessionMgr:     sessionManager,
+		plugins:        pluginRuntime,
+		enterpriseOIDC: enterpriseOIDC,
 	}
 
 	// Set Gin mode
@@ -186,6 +189,10 @@ func (s *AdminServer) registerRoutes(r *gin.Engine, webFilePath string) {
 		admin.POST("/organizations/:id/memberships", s.handleUpsertOrganizationMembership)
 		admin.PATCH("/organizations/:id/memberships/:user_id", s.handleUpdateOrganizationMembership)
 		admin.DELETE("/organizations/:id/memberships/:user_id", s.handleDeleteOrganizationMembership)
+		admin.GET("/organizations/:id/identity-providers", s.handleListOrganizationIdentityProviders)
+		admin.POST("/organizations/:id/identity-providers", s.handleCreateOrganizationIdentityProvider)
+		admin.PATCH("/organizations/:id/identity-providers/:provider_id", s.handleUpdateOrganizationIdentityProvider)
+		admin.DELETE("/organizations/:id/identity-providers/:provider_id", s.handleDeleteOrganizationIdentityProvider)
 
 		// Plugin management
 		admin.GET("/plugins", s.handleGetPlugins)

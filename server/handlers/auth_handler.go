@@ -135,7 +135,7 @@ func (h *AuthHandler) RegisterRoutes(authGroup *gin.RouterGroup, cfg *config.Con
 		authGroup.GET("/weixin/miniprogram", h.WeixinMiniLogin)
 	}
 
-	if h.enterpriseOIDC != nil && h.enterpriseOIDC.HasProviders() {
+	if h.enterpriseOIDC != nil {
 		authGroup.GET("/enterprise/oidc/providers", h.GetEnterpriseOIDCProviders)
 		authGroup.GET("/enterprise/oidc/:slug/login", h.EnterpriseOIDCLogin)
 		authGroup.GET("/enterprise/oidc/:slug/callback", h.EnterpriseOIDCCallback)

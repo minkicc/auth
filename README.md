@@ -326,7 +326,7 @@ See [examples/plugins/http-claims-action](examples/plugins/http-claims-action/RE
 
 ### CIAM/IAM organization management
 
-After enabling the admin console, open the `Organizations` menu to manage B2B tenants. The admin UI can create and edit organizations, attach verified email domains, and assign existing users to organizations with lightweight role names.
+After enabling the admin console, open the `Organizations` menu to manage B2B tenants. The admin UI can create and edit organizations, attach verified email domains, assign existing users to organizations with lightweight role names, and configure Enterprise OIDC providers per organization.
 
 The organization ID or slug can be used in the `:id` path segment. Organizations are not hard-deleted in this first version; set their status to `inactive` when they should no longer be used.
 
@@ -338,8 +338,17 @@ Useful admin endpoints:
 - Domain update/delete: `PATCH /admin-api/organizations/:id/domains/:domain`, `DELETE /admin-api/organizations/:id/domains/:domain`
 - Organization memberships: `GET /admin-api/organizations/:id/memberships`, `POST /admin-api/organizations/:id/memberships`
 - Membership update/delete: `PATCH /admin-api/organizations/:id/memberships/:user_id`, `DELETE /admin-api/organizations/:id/memberships/:user_id`
+- Organization identity providers: `GET /admin-api/organizations/:id/identity-providers`, `POST /admin-api/organizations/:id/identity-providers`
+- Identity provider update/delete: `PATCH /admin-api/organizations/:id/identity-providers/:provider_id`, `DELETE /admin-api/organizations/:id/identity-providers/:provider_id`
 
 When a user has an active organization membership and the downstream OIDC client requests `profile`, MKAuth can include `org_id`, `org_slug`, and `org_roles` in the ID Token and `/oauth2/userinfo`.
+
+Enterprise OIDC can now be managed in two ways:
+
+- Static bootstrap via `iam.enterprise_oidc` in YAML
+- Runtime management from the admin console under `Organizations -> Enterprise OIDC`
+
+Providers created from the admin console are stored in the database, their client secret is not echoed back by the admin API, and saving changes triggers an in-process reload so the enterprise login routes become available immediately without restarting MKAuth.
 
 ### Inbound SCIM provisioning
 

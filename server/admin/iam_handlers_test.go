@@ -12,6 +12,7 @@ import (
 	"gorm.io/gorm"
 
 	"minki.cc/mkauth/server/auth"
+	"minki.cc/mkauth/server/config"
 	"minki.cc/mkauth/server/iam"
 )
 
@@ -112,6 +113,101 @@ func TestOrganizationAdminHandlersManageDomainsAndMemberships(t *testing.T) {
 	}
 	if listBody.Total != 1 || len(listBody.Organizations) != 1 {
 		t.Fatalf("unexpected organization list: %#v", listBody)
+	}
+}
+
+func TestOrganizationAdminHandlersManageIdentityProviders(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("failed to open sqlite: %v", err)
+	}
+	if err := iam.NewService(db).AutoMigrate(); err != nil {
+		t.Fatalf("failed to migrate iam tables: %v", err)
+	}
+
+	manager, err := iam.NewEnterpriseOIDCManager(config.IAMConfig{}, db, nil)
+	if err != nil {
+		t.Fatalf("failed to create enterprise oidc manager: %v", err)
+	}
+
+	server := &AdminServer{db: db, enterpriseOIDC: manager}
+	router := gin.New()
+	router.POST("/organizations", server.handleCreateOrganization)
+	router.GET("/organizations/:id/identity-providers", server.handleListOrganizationIdentityProviders)
+	router.POST("/organizations/:id/identity-providers", server.handleCreateOrganizationIdentityProvider)
+	router.PATCH("/organizations/:id/identity-providers/:provider_id", server.handleUpdateOrganizationIdentityProvider)
+	router.DELETE("/organizations/:id/identity-providers/:provider_id", server.handleDeleteOrganizationIdentityProvider)
+
+	createOrgResp := performJSON(t, router, http.MethodPost, "/organizations", map[string]any{
+		"slug": "acme",
+		"name": "Acme Inc",
+	})
+	if createOrgResp.Code != http.StatusCreated {
+		t.Fatalf("expected create organization status 201, got %d: %s", createOrgResp.Code, createOrgResp.Body.String())
+	}
+
+	createProviderResp := performJSON(t, router, http.MethodPost, "/organizations/acme/identity-providers", map[string]any{
+		"name":          "Acme Workforce",
+		"slug":          "acme-workforce",
+		"issuer":        "https://login.acme.test",
+		"client_id":     "acme-client",
+		"client_secret": "super-secret",
+		"redirect_uri":  "https://auth.example.com/api/enterprise/oidc/acme-workforce/callback",
+		"scopes":        []string{"openid", "profile", "email"},
+	})
+	if createProviderResp.Code != http.StatusCreated {
+		t.Fatalf("expected create identity provider status 201, got %d: %s", createProviderResp.Code, createProviderResp.Body.String())
+	}
+	var createProviderBody struct {
+		IdentityProvider organizationIdentityProviderView `json:"identity_provider"`
+	}
+	if err := json.Unmarshal(createProviderResp.Body.Bytes(), &createProviderBody); err != nil {
+		t.Fatalf("failed to decode identity provider body: %v", err)
+	}
+	if createProviderBody.IdentityProvider.IdentityProviderID == "" {
+		t.Fatalf("expected identity provider id, got %#v", createProviderBody.IdentityProvider)
+	}
+	if !createProviderBody.IdentityProvider.Config.ClientSecretConfigured {
+		t.Fatalf("expected client secret configured flag")
+	}
+	if !manager.HasProviders() {
+		t.Fatalf("expected enterprise oidc manager to reload created provider")
+	}
+
+	listResp := performJSON(t, router, http.MethodGet, "/organizations/acme/identity-providers", nil)
+	if listResp.Code != http.StatusOK {
+		t.Fatalf("expected list identity providers status 200, got %d: %s", listResp.Code, listResp.Body.String())
+	}
+	var listBody struct {
+		IdentityProviders []organizationIdentityProviderView `json:"identity_providers"`
+	}
+	if err := json.Unmarshal(listResp.Body.Bytes(), &listBody); err != nil {
+		t.Fatalf("failed to decode list body: %v", err)
+	}
+	if len(listBody.IdentityProviders) != 1 || listBody.IdentityProviders[0].Slug != "acme-workforce" {
+		t.Fatalf("unexpected identity provider list: %#v", listBody.IdentityProviders)
+	}
+
+	updateResp := performJSON(t, router, http.MethodPatch, "/organizations/acme/identity-providers/"+createProviderBody.IdentityProvider.IdentityProviderID, map[string]any{
+		"name":         "Acme Workforce",
+		"slug":         "acme-workforce",
+		"enabled":      false,
+		"issuer":       "https://login.acme.test",
+		"client_id":    "acme-client",
+		"redirect_uri": "https://auth.example.com/api/enterprise/oidc/acme-workforce/callback",
+		"scopes":       []string{"openid", "email", "profile"},
+	})
+	if updateResp.Code != http.StatusOK {
+		t.Fatalf("expected update identity provider status 200, got %d: %s", updateResp.Code, updateResp.Body.String())
+	}
+	if manager.HasProviders() {
+		t.Fatalf("expected disabled identity provider to be removed from runtime manager")
+	}
+
+	deleteResp := performJSON(t, router, http.MethodDelete, "/organizations/acme/identity-providers/"+createProviderBody.IdentityProvider.IdentityProviderID, nil)
+	if deleteResp.Code != http.StatusOK {
+		t.Fatalf("expected delete identity provider status 200, got %d: %s", deleteResp.Code, deleteResp.Body.String())
 	}
 }
 

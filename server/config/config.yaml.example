@@ -46,6 +46,8 @@ oidc:
         - "email"
 
 iam:
+  # Optional static bootstrap. You can also create Enterprise OIDC providers
+  # later from the admin console under Organizations -> Enterprise OIDC.
   enterprise_oidc:
     - slug: "acme"
       name: "Acme Workforce"

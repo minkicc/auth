@@ -18,7 +18,7 @@ Implemented:
 - Installable plugin runtime with local ZIP packages, catalog installation, URL installation, preview, config schema, signatures, audit log, backups, restore, and in-process reload.
 - `enterprise_oidc` as the first upstream enterprise identity connector.
 - Organization claim injection into ID Token and `/oauth2/userinfo`.
-- Admin API and admin console page for organization, domain, and membership management.
+- Admin API and admin console page for organization, domain, membership, and Enterprise OIDC identity provider management.
 - Inbound SCIM Users and Groups MVP for enterprise directory provisioning into an organization.
 
 Not implemented yet:
@@ -245,6 +245,7 @@ The admin console now includes an `Organizations` page for B2B tenant operations
 - Add existing users as organization members.
 - Update membership status and lightweight role names.
 - Remove organization memberships.
+- Create, update, enable, disable, and delete Enterprise OIDC identity providers per organization.
 
 The admin API accepts either organization ID or slug in the `:id` path segment:
 
@@ -260,6 +261,10 @@ The admin API accepts either organization ID or slug in the `:id` path segment:
 - `POST /admin-api/organizations/:id/memberships`
 - `PATCH /admin-api/organizations/:id/memberships/:user_id`
 - `DELETE /admin-api/organizations/:id/memberships/:user_id`
+- `GET /admin-api/organizations/:id/identity-providers`
+- `POST /admin-api/organizations/:id/identity-providers`
+- `PATCH /admin-api/organizations/:id/identity-providers/:provider_id`
+- `DELETE /admin-api/organizations/:id/identity-providers/:provider_id`
 
 Organizations are not hard-deleted in this MVP. Use `inactive` status to disable an organization without destroying tenant history.
 
@@ -310,7 +315,9 @@ This is still a lightweight role-mapping layer, not a full group/RBAC policy eng
 
 ## Enterprise OIDC MVP
 
-The first upstream identity connector is `enterprise_oidc`. Configure providers under `iam.enterprise_oidc`:
+The first upstream identity connector is `enterprise_oidc`. Providers can be bootstrapped statically from `iam.enterprise_oidc` or managed dynamically from the admin console.
+
+Static bootstrap example:
 
 ```yaml
 iam:
@@ -335,6 +342,13 @@ Runtime endpoints:
 - `GET /api/enterprise/oidc/:slug/callback`
 
 The login endpoint accepts an optional `return_uri` query parameter. Use a relative URL such as `/oauth2/authorize?...` when enterprise SSO should resume an existing downstream OIDC authorization request after MKAuth creates the browser session.
+
+Runtime admin behavior:
+
+1. The admin console stores Enterprise OIDC providers in `organization_identity_providers`.
+2. The client secret stays in stored config but is not echoed back by the admin API.
+3. Saving or deleting a provider triggers an in-process `EnterpriseOIDCManager.Reload()`.
+4. Enterprise OIDC routes are registered whenever the manager exists, so newly added providers become reachable without restarting the service.
 
 The callback flow:
 

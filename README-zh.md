@@ -332,7 +332,7 @@ go run ./pluginsign sign -manifest ../examples/plugins/http-claims-action/mkauth
 
 ### CIAM/IAM 组织管理
 
-启用管理后台后，可以在 `组织管理` 菜单里维护 B2B 租户。当前后台已经支持创建和编辑组织、绑定邮箱域名、把已有用户加入组织，并给成员配置轻量角色名。
+启用管理后台后，可以在 `组织管理` 菜单里维护 B2B 租户。当前后台已经支持创建和编辑组织、绑定邮箱域名、把已有用户加入组织、给成员配置轻量角色名，并且可以直接给组织配置 Enterprise OIDC 上游登录源。
 
 下面接口里的 `:id` 可以传组织 ID，也可以传组织 slug。第一版暂不提供组织硬删除，暂时不用的组织建议把状态改成 `inactive`。
 
@@ -344,8 +344,17 @@ go run ./pluginsign sign -manifest ../examples/plugins/http-claims-action/mkauth
 - 域名更新/删除：`PATCH /admin-api/organizations/:id/domains/:domain`、`DELETE /admin-api/organizations/:id/domains/:domain`
 - 组织成员：`GET /admin-api/organizations/:id/memberships`、`POST /admin-api/organizations/:id/memberships`
 - 成员更新/删除：`PATCH /admin-api/organizations/:id/memberships/:user_id`、`DELETE /admin-api/organizations/:id/memberships/:user_id`
+- 组织身份源：`GET /admin-api/organizations/:id/identity-providers`、`POST /admin-api/organizations/:id/identity-providers`
+- 身份源更新/删除：`PATCH /admin-api/organizations/:id/identity-providers/:provider_id`、`DELETE /admin-api/organizations/:id/identity-providers/:provider_id`
 
 当用户存在 active 组织成员关系，并且下游 OIDC 客户端请求了 `profile` scope 时，MKAuth 可以在 ID Token 和 `/oauth2/userinfo` 中返回 `org_id`、`org_slug`、`org_roles`。
+
+Enterprise OIDC 现在支持两种维护方式：
+
+- 通过 `iam.enterprise_oidc` 做 YAML 静态引导
+- 通过后台 `组织管理 -> 企业登录` 做运行时维护
+
+后台创建的 Enterprise OIDC 配置会落库保存，客户端 secret 不会被后台 API 回显，保存后会直接触发进程内 reload，因此新增或禁用企业登录源不需要重启 MKAuth。
 
 ### Inbound SCIM 同步
 
