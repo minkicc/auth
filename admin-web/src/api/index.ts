@@ -176,6 +176,26 @@ export interface OrganizationMembership {
   updated_at: string
 }
 
+export interface OrganizationIdentityProviderConfig {
+  issuer: string
+  client_id: string
+  redirect_uri: string
+  scopes: string[]
+  client_secret_configured: boolean
+}
+
+export interface OrganizationIdentityProvider {
+  identity_provider_id: string
+  organization_id: string
+  provider_type: 'oidc' | string
+  name: string
+  slug: string
+  enabled: boolean
+  config: OrganizationIdentityProviderConfig
+  created_at: string
+  updated_at: string
+}
+
 export interface OrganizationListResponse {
   organizations: Organization[]
   total: number
@@ -409,6 +429,46 @@ class ServerApi {
   // 删除组织成员
   deleteOrganizationMembership(id: string, userId: string): Promise<{ message: string }> {
     return api.delete(`/organizations/${id}/memberships/${encodeURIComponent(userId)}`).then(res => res.data)
+  }
+
+  // 获取组织身份提供方
+  getOrganizationIdentityProviders(id: string): Promise<{ identity_providers: OrganizationIdentityProvider[] }> {
+    return api.get(`/organizations/${id}/identity-providers`).then(res => res.data)
+  }
+
+  // 创建组织身份提供方
+  createOrganizationIdentityProvider(id: string, payload: {
+    provider_type?: string
+    name: string
+    slug: string
+    enabled?: boolean
+    issuer: string
+    client_id: string
+    client_secret?: string
+    redirect_uri: string
+    scopes?: string[]
+  }): Promise<{ identity_provider: OrganizationIdentityProvider }> {
+    return api.post(`/organizations/${id}/identity-providers`, payload).then(res => res.data)
+  }
+
+  // 更新组织身份提供方
+  updateOrganizationIdentityProvider(id: string, providerId: string, payload: {
+    provider_type?: string
+    name: string
+    slug: string
+    enabled?: boolean
+    issuer: string
+    client_id: string
+    client_secret?: string
+    redirect_uri: string
+    scopes?: string[]
+  }): Promise<{ identity_provider: OrganizationIdentityProvider }> {
+    return api.patch(`/organizations/${id}/identity-providers/${encodeURIComponent(providerId)}`, payload).then(res => res.data)
+  }
+
+  // 删除组织身份提供方
+  deleteOrganizationIdentityProvider(id: string, providerId: string): Promise<{ message: string }> {
+    return api.delete(`/organizations/${id}/identity-providers/${encodeURIComponent(providerId)}`).then(res => res.data)
   }
 
   // 获取插件列表

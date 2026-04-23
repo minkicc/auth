@@ -5,7 +5,7 @@
         <div class="card-header">
           <div>
             <h2>组织管理</h2>
-            <p>管理 B2B CIAM 的租户、企业域名和组织成员，为 Enterprise OIDC、HRD 和 SCIM 做准备。</p>
+            <p>管理 B2B CIAM 的租户、企业域名、组织成员和 Enterprise OIDC 登录源。</p>
           </div>
           <el-button type="primary" @click="openOrgDialog()">新建组织</el-button>
         </div>
@@ -95,7 +95,7 @@
     <el-dialog
       v-model="manageDialogVisible"
       :title="`管理组织 ${activeOrg?.name || activeOrg?.slug || ''}`"
-      width="900px"
+      width="960px"
     >
       <el-tabs v-model="activeTab">
         <el-tab-pane label="域名" name="domains">
@@ -163,7 +163,120 @@
             </el-table-column>
           </el-table>
         </el-tab-pane>
+
+        <el-tab-pane label="企业登录" name="identity-providers">
+          <div class="identity-provider-header">
+            <div>
+              <h3>Enterprise OIDC</h3>
+              <p>为组织配置上游企业 IdP，保存后会立即刷新运行时，无需修改 YAML 或重启服务。</p>
+            </div>
+            <el-button type="primary" :disabled="!activeOrg" @click="openIdentityProviderDialog()">新建 Enterprise OIDC</el-button>
+          </div>
+
+          <el-table
+            v-loading="detailLoading"
+            :data="identityProviders"
+            row-key="identity_provider_id"
+            empty-text="暂无企业登录源"
+          >
+            <el-table-column prop="name" label="名称" min-width="180" />
+            <el-table-column prop="slug" label="Slug" min-width="150" />
+            <el-table-column label="状态" width="120">
+              <template #default="{ row }">
+                <el-tag :type="row.enabled ? 'success' : 'info'" effect="plain">
+                  {{ row.enabled ? '启用中' : '已禁用' }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="Issuer" min-width="220">
+              <template #default="{ row }">
+                <span class="mono">{{ row.config?.issuer || '-' }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="Redirect URI" min-width="280">
+              <template #default="{ row }">
+                <span class="mono">{{ row.config?.redirect_uri || '-' }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="Scopes" min-width="180">
+              <template #default="{ row }">{{ row.config?.scopes?.join(', ') || '-' }}</template>
+            </el-table-column>
+            <el-table-column label="Secret" width="120">
+              <template #default="{ row }">
+                <el-tag :type="row.config?.client_secret_configured ? 'success' : 'warning'" effect="plain">
+                  {{ row.config?.client_secret_configured ? '已配置' : '未配置' }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="更新时间" min-width="170">
+              <template #default="{ row }">{{ formatDate(row.updated_at) }}</template>
+            </el-table-column>
+            <el-table-column label="操作" width="170" fixed="right">
+              <template #default="{ row }">
+                <el-button link type="primary" @click="openIdentityProviderDialog(row)">编辑</el-button>
+                <el-button link type="danger" @click="deleteIdentityProvider(row)">删除</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-tab-pane>
       </el-tabs>
+    </el-dialog>
+
+    <el-dialog
+      v-model="identityProviderDialogVisible"
+      :title="editingIdentityProvider ? '编辑 Enterprise OIDC' : '新建 Enterprise OIDC'"
+      width="640px"
+      append-to-body
+    >
+      <el-form label-position="top">
+        <el-form-item label="名称">
+          <el-input v-model="identityProviderForm.name" placeholder="Acme Workforce" />
+        </el-form-item>
+        <el-form-item label="Slug">
+          <el-input v-model="identityProviderForm.slug" placeholder="acme-workforce" />
+        </el-form-item>
+        <el-form-item label="启用">
+          <el-switch v-model="identityProviderForm.enabled" active-text="启用中" inactive-text="已禁用" />
+        </el-form-item>
+        <el-form-item label="Issuer">
+          <el-input v-model="identityProviderForm.issuer" placeholder="https://login.acme.com" />
+        </el-form-item>
+        <el-form-item label="Client ID">
+          <el-input v-model="identityProviderForm.client_id" placeholder="acme-client-id" />
+        </el-form-item>
+        <el-form-item label="Client Secret">
+          <el-input
+            v-model="identityProviderForm.client_secret"
+            type="password"
+            show-password
+            :placeholder="editingIdentityProvider ? '留空则保留现有 secret' : '请输入 client secret'"
+          />
+          <p v-if="editingIdentityProvider?.config?.client_secret_configured" class="form-hint">
+            当前已配置 secret，留空会继续沿用原值。
+          </p>
+        </el-form-item>
+        <el-form-item label="Redirect URI">
+          <el-input
+            v-model="identityProviderForm.redirect_uri"
+            placeholder="https://auth.example.com/api/enterprise/oidc/acme-workforce/callback"
+          />
+        </el-form-item>
+        <el-form-item label="Scopes">
+          <el-input
+            v-model="identityProviderForm.scopes_text"
+            type="textarea"
+            :rows="3"
+            placeholder="openid,profile,email"
+          />
+          <p class="form-hint">支持逗号或换行分隔，默认会补齐 `openid, profile, email`。</p>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="identityProviderDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="detailSaving === 'identity-provider'" @click="saveIdentityProvider">
+          保存
+        </el-button>
+      </template>
     </el-dialog>
   </div>
 </template>
@@ -176,6 +289,7 @@ import {
   serverApi,
   type Organization,
   type OrganizationDomain,
+  type OrganizationIdentityProvider,
   type OrganizationMembership
 } from '@/api'
 
@@ -204,8 +318,27 @@ const detailLoading = ref(false)
 const detailSaving = ref('')
 const domains = ref<OrganizationDomain[]>([])
 const memberships = ref<OrganizationMembership[]>([])
+const identityProviders = ref<OrganizationIdentityProvider[]>([])
 const domainForm = ref({ domain: '', verified: true })
 const memberForm = ref({ user_id: '', status: 'active', roles_text: '' })
+
+const identityProviderDialogVisible = ref(false)
+const editingIdentityProvider = ref<OrganizationIdentityProvider | null>(null)
+const identityProviderForm = ref(defaultIdentityProviderForm())
+
+function defaultIdentityProviderForm() {
+  return {
+    provider_type: 'oidc',
+    name: '',
+    slug: '',
+    enabled: true,
+    issuer: '',
+    client_id: '',
+    client_secret: '',
+    redirect_uri: '',
+    scopes_text: 'openid,profile,email'
+  }
+}
 
 const loadOrganizations = async () => {
   loading.value = true
@@ -273,6 +406,7 @@ const openManageDialog = async (org: Organization) => {
   activeOrg.value = org
   activeTab.value = 'domains'
   manageDialogVisible.value = true
+  identityProviderDialogVisible.value = false
   await loadOrganizationDetails()
 }
 
@@ -280,12 +414,14 @@ const loadOrganizationDetails = async () => {
   if (!activeOrg.value) return
   detailLoading.value = true
   try {
-    const [domainResponse, memberResponse] = await Promise.all([
+    const [domainResponse, memberResponse, identityProviderResponse] = await Promise.all([
       serverApi.getOrganizationDomains(activeOrg.value.organization_id),
-      serverApi.getOrganizationMemberships(activeOrg.value.organization_id)
+      serverApi.getOrganizationMemberships(activeOrg.value.organization_id),
+      serverApi.getOrganizationIdentityProviders(activeOrg.value.organization_id)
     ])
     domains.value = domainResponse.domains || []
     memberships.value = memberResponse.memberships || []
+    identityProviders.value = identityProviderResponse.identity_providers || []
   } catch (error: any) {
     ElMessage.error(error?.response?.data?.error || '加载组织详情失败')
   } finally {
@@ -377,6 +513,74 @@ const deleteMembership = async (userId: string) => {
   }
 }
 
+const openIdentityProviderDialog = (provider?: OrganizationIdentityProvider) => {
+  editingIdentityProvider.value = provider || null
+  identityProviderForm.value = {
+    provider_type: provider?.provider_type || 'oidc',
+    name: provider?.name || '',
+    slug: provider?.slug || '',
+    enabled: provider?.enabled ?? true,
+    issuer: provider?.config?.issuer || '',
+    client_id: provider?.config?.client_id || '',
+    client_secret: '',
+    redirect_uri: provider?.config?.redirect_uri || '',
+    scopes_text: provider?.config?.scopes?.join(',') || 'openid,profile,email'
+  }
+  identityProviderDialogVisible.value = true
+}
+
+const saveIdentityProvider = async () => {
+  if (!activeOrg.value) return
+  detailSaving.value = 'identity-provider'
+  try {
+    const payload = {
+      provider_type: identityProviderForm.value.provider_type,
+      name: identityProviderForm.value.name,
+      slug: identityProviderForm.value.slug,
+      enabled: identityProviderForm.value.enabled,
+      issuer: identityProviderForm.value.issuer,
+      client_id: identityProviderForm.value.client_id,
+      client_secret: identityProviderForm.value.client_secret || undefined,
+      redirect_uri: identityProviderForm.value.redirect_uri,
+      scopes: parseScopes(identityProviderForm.value.scopes_text)
+    }
+    if (editingIdentityProvider.value) {
+      await serverApi.updateOrganizationIdentityProvider(
+        activeOrg.value.organization_id,
+        editingIdentityProvider.value.identity_provider_id,
+        payload
+      )
+    } else {
+      await serverApi.createOrganizationIdentityProvider(activeOrg.value.organization_id, payload)
+    }
+    ElMessage.success('Enterprise OIDC 已保存')
+    identityProviderDialogVisible.value = false
+    editingIdentityProvider.value = null
+    identityProviderForm.value = defaultIdentityProviderForm()
+    await loadOrganizationDetails()
+  } catch (error: any) {
+    ElMessage.error(error?.response?.data?.error || '保存 Enterprise OIDC 失败')
+  } finally {
+    detailSaving.value = ''
+  }
+}
+
+const deleteIdentityProvider = async (provider: OrganizationIdentityProvider) => {
+  if (!activeOrg.value) return
+  try {
+    await ElMessageBox.confirm(`确定删除企业登录源 ${provider.name || provider.slug} 吗？`, '删除 Enterprise OIDC', { type: 'warning' })
+  } catch {
+    return
+  }
+  try {
+    await serverApi.deleteOrganizationIdentityProvider(activeOrg.value.organization_id, provider.identity_provider_id)
+    ElMessage.success('Enterprise OIDC 已删除')
+    await loadOrganizationDetails()
+  } catch (error: any) {
+    ElMessage.error(error?.response?.data?.error || '删除 Enterprise OIDC 失败')
+  }
+}
+
 const parseMetadata = (raw: string) => {
   raw = raw.trim()
   if (!raw) return {}
@@ -397,6 +601,14 @@ const formatMetadata = (raw?: string) => {
 }
 
 const parseRoles = (raw: string) => raw.split(',').map(item => item.trim()).filter(Boolean)
+
+const parseScopes = (raw: string) => {
+  const values = raw
+    .split(/[\n,]/)
+    .map(item => item.trim())
+    .filter(Boolean)
+  return values.length > 0 ? values : ['openid', 'profile', 'email']
+}
 
 const formatDate = (value?: string) => {
   if (!value) return '-'
@@ -451,6 +663,26 @@ onMounted(() => {
     align-items: stretch;
   }
 
+  .identity-provider-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 16px;
+
+    h3 {
+      margin: 0 0 6px;
+      font-size: 1rem;
+      font-weight: 600;
+    }
+
+    p {
+      margin: 0;
+      color: #64748b;
+      line-height: 1.5;
+    }
+  }
+
   .pagination-wrap {
     display: flex;
     justify-content: flex-end;
@@ -466,13 +698,26 @@ onMounted(() => {
     color: #64748b;
     font-size: 12px;
   }
+
+  .form-hint {
+    margin: 8px 0 0;
+    color: #64748b;
+    font-size: 12px;
+    line-height: 1.5;
+  }
+
+  .mono {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    word-break: break-all;
+  }
 }
 
 @media (max-width: 900px) {
   .organizations-page {
     .card-header,
     .toolbar,
-    .inline-form {
+    .inline-form,
+    .identity-provider-header {
       flex-direction: column;
       align-items: stretch;
     }
