@@ -13,7 +13,7 @@ Auth 是一个可独立部署的统一认证服务，提供账号密码、邮箱
 
 - 多种登录方式：账号、邮箱、手机号、Google、微信、微信小程序
 - OIDC Provider + JWT Access / ID Token
-- CIAM/IAM 基础能力：组织、外部身份映射、认证流程 Hook
+- CIAM/IAM 基础能力：组织、外部身份映射、认证流程 Hook、可安装插件
 - Redis 会话管理
 - 用户头像上传
 - 管理后台
@@ -225,6 +225,96 @@ redis:
 ```
 
 如果你没有配置 MySQL，Auth 现在会默认使用 SQLite 启动，并把数据写到 `data/auth.sqlite3`。你也可以显式设置 `db.driver: sqlite`，再通过 `db.sqlite_path` 自定义文件位置。
+
+### 插件运行时
+
+```yaml
+plugins:
+  enabled: true
+  directories:
+    - "plugins"
+  enabled_plugins: []
+  disabled_plugins: []
+  allowed_permissions:
+    - "hook:post_authenticate"
+    - "hook:before_token_issue"
+    - "hook:before_userinfo"
+    - "network:http_action"
+  require_signature: false
+  allow_private_networks: false
+  allowed_catalog_hosts:
+    - "plugins.example.com"
+  allowed_download_hosts:
+    - "plugins.example.com"
+    - "downloads.example.com"
+  allowed_action_hosts:
+    - "actions.example.com"
+  trusted_signers:
+    - id: "auth-dev"
+      algorithm: "ed25519"
+      public_key: "BASE64_ED25519_PUBLIC_KEY"
+  catalogs:
+    - id: "official"
+      name: "Official Plugin Catalog"
+      url: "https://plugins.example.com/auth/catalog.yaml"
+      enabled: true
+  http_actions:
+    - id: "claims-enricher"
+      name: "Claims Enricher"
+      enabled: false
+      events:
+        - "before_token_issue"
+        - "before_userinfo"
+      url: "https://actions.example.com/auth"
+      secret: "YOUR_ACTION_BEARER_SECRET"
+      timeout_ms: 3000
+      fail_open: false
+```
+
+现在支持两种插件交付方式：
+
+- 通过 `plugins.http_actions` 配置的远程 HTTP Action
+- 放在 `plugins.directories` 下、可直接安装的本地插件包
+
+另外还支持两种远程分发方式：
+
+- 通过 `plugins.catalogs` 配置的插件目录
+- 在后台直接填入 ZIP 下载地址做 URL 安装
+
+如果准备上线，建议同时配置：
+
+- `plugins.allowed_catalog_hosts`
+- `plugins.allowed_download_hosts`
+- `plugins.allowed_action_hosts`
+
+这些 host allowlist 支持精确 host、`host:port`、`.example.com` 和 `*.example.com`。catalog 里的插件下载地址默认只能指向“同 catalog host”或者显式允许的下载域。
+
+远程插件下载和插件 HTTP Action 默认都会拒绝回环、私网、链路本地、多播和未指定 IP 地址。生产环境建议保持 `allow_private_networks: false`，除非你的插件目录、ZIP 包或 HTTP Action 端点明确部署在可信私有网络里。
+
+对于本地插件，把包含 `auth-plugin.yaml` 的目录打成 ZIP，然后在后台插件页上传即可。`flow_action` 类型的本地插件可以在 manifest 里直接携带自己的 `http_action` 运行配置，因此不需要再额外修改主配置文件。
+
+本地插件 manifest 必须声明运行权限。HTTP Action 需要 `network:http_action`，每个 hook 事件都要声明对应的 `hook:<event>` 权限，例如 `hook:before_token_issue`。如果 `plugins.allowed_permissions` 非空，Auth 会拒绝申请了 allowlist 之外权限的插件。
+
+如果你希望只允许可信插件，可配置 `trusted_signers`，并开启 `require_signature: true`。Auth 会校验 `auth-plugin.sig` 对 manifest 原文的签名，并在后台展示签名状态和上传包的 SHA-256 指纹。
+
+仓库里已经附带了签名辅助工具，见 [tools](tools/README.md)：
+
+```bash
+cd tools
+go run ./pluginsign genkey -key-id auth-dev -out-private ./plugin-signing.key.pem -out-public ./plugin-signing.pub
+go run ./pluginsign sign -manifest ../examples/plugins/http-claims-action/auth-plugin.yaml -private-key ./plugin-signing.key.pem -key-id auth-dev
+```
+
+常用接口：
+
+- 公共插件发现：`GET /api/plugins`
+- 后台插件管理：`GET /admin-api/plugins`
+- 后台安装插件：`POST /admin-api/plugins/install`
+- 后台插件目录：`GET /admin-api/plugins/catalog`
+- 后台按目录安装：`POST /admin-api/plugins/install-catalog`
+- 后台 URL 安装：`POST /admin-api/plugins/install-url`
+
+一个完整的本地插件示例见 [examples/plugins/http-claims-action](examples/plugins/http-claims-action/README.md)，远程目录示例见 [examples/plugins/catalog.yaml](examples/plugins/catalog.yaml)。
 
 ### 存储
 

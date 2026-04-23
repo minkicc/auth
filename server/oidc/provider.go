@@ -44,6 +44,7 @@ type Provider struct {
 	accountAuth *auth.AccountAuth
 	sessionMgr  *auth.SessionManager
 	signer      *tokenSigner
+	hooks       *iam.HookRegistry
 }
 
 type tokenSigner struct {
@@ -129,6 +130,12 @@ func NewProvider(cfg config.OIDCConfig, db *gorm.DB, redis *auth.RedisStore, acc
 		sessionMgr:  auth.NewSessionManager(auth.NewSessionRedisStore(redis.GetClient())),
 		signer:      signer,
 	}, nil
+}
+
+func (p *Provider) SetHookRegistry(hooks *iam.HookRegistry) {
+	if p != nil {
+		p.hooks = hooks
+	}
 }
 
 func (p *Provider) RegisterRoutes(r *gin.Engine) {
@@ -349,6 +356,11 @@ func (p *Provider) userInfo(c *gin.Context) {
 			resp["email_verified"] = verified
 		}
 	}
+	if err := p.runHook(c, iam.HookBeforeUserInfo, user, claims.ClientID, resp); err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": "access_denied"})
+		return
+	}
+	resp["sub"] = user.UserID
 
 	c.JSON(http.StatusOK, resp)
 }
@@ -430,7 +442,12 @@ func (p *Provider) signIDToken(c *gin.Context, user *auth.User, client config.OI
 			claims.EmailVerified = &verified
 		}
 	}
-	return p.signer.sign(claims)
+	claimMap := idTokenClaimMap(claims)
+	if err := p.runHook(c, iam.HookBeforeTokenIssue, user, client.ClientID, claimMap); err != nil {
+		return "", err
+	}
+	protectIDTokenClaims(claimMap, claims)
+	return p.signer.sign(jwt.MapClaims(claimMap))
 }
 
 func (p *Provider) ParseAccessToken(token string) (*AccessTokenClaims, error) {
@@ -448,6 +465,86 @@ func (p *Provider) ParseAccessToken(token string) (*AccessTokenClaims, error) {
 		return nil, errors.New("invalid token")
 	}
 	return claims, nil
+}
+
+func (p *Provider) runHook(c *gin.Context, event iam.HookEvent, user *auth.User, clientID string, claims map[string]any) error {
+	if p == nil || p.hooks == nil {
+		return nil
+	}
+	return p.hooks.Run(c.Request.Context(), event, &iam.HookContext{
+		User:      user,
+		ClientID:  clientID,
+		Claims:    claims,
+		IP:        c.ClientIP(),
+		UserAgent: c.Request.UserAgent(),
+		Metadata: map[string]string{
+			"path":   c.Request.URL.Path,
+			"method": c.Request.Method,
+		},
+	})
+}
+
+func idTokenClaimMap(claims idTokenClaims) map[string]any {
+	result := map[string]any{
+		"iss": claims.Issuer,
+		"sub": claims.Subject,
+		"aud": []string(claims.Audience),
+	}
+	if claims.IssuedAt != nil {
+		result["iat"] = claims.IssuedAt.Unix()
+	}
+	if claims.ExpiresAt != nil {
+		result["exp"] = claims.ExpiresAt.Unix()
+	}
+	if claims.NotBefore != nil {
+		result["nbf"] = claims.NotBefore.Unix()
+	}
+	if claims.ID != "" {
+		result["jti"] = claims.ID
+	}
+	if claims.Nonce != "" {
+		result["nonce"] = claims.Nonce
+	}
+	if claims.PreferredUsername != "" {
+		result["preferred_username"] = claims.PreferredUsername
+	}
+	if claims.Name != "" {
+		result["name"] = claims.Name
+	}
+	if claims.Picture != "" {
+		result["picture"] = claims.Picture
+	}
+	if claims.Email != "" {
+		result["email"] = claims.Email
+	}
+	if claims.EmailVerified != nil {
+		result["email_verified"] = *claims.EmailVerified
+	}
+	if claims.OrgID != "" {
+		result["org_id"] = claims.OrgID
+	}
+	if claims.OrgSlug != "" {
+		result["org_slug"] = claims.OrgSlug
+	}
+	if len(claims.OrgRoles) > 0 {
+		result["org_roles"] = claims.OrgRoles
+	}
+	return result
+}
+
+func protectIDTokenClaims(claimMap map[string]any, claims idTokenClaims) {
+	claimMap["iss"] = claims.Issuer
+	claimMap["sub"] = claims.Subject
+	claimMap["aud"] = []string(claims.Audience)
+	if claims.IssuedAt != nil {
+		claimMap["iat"] = claims.IssuedAt.Unix()
+	}
+	if claims.ExpiresAt != nil {
+		claimMap["exp"] = claims.ExpiresAt.Unix()
+	}
+	if claims.Nonce != "" {
+		claimMap["nonce"] = claims.Nonce
+	}
 }
 
 func (p *Provider) currentUser(c *gin.Context) (*auth.User, error) {

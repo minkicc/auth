@@ -22,6 +22,7 @@ type Config struct {
 	Redis          RedisConfig      `json:"redis" yaml:"redis"`
 	OIDC           OIDCConfig       `json:"oidc" yaml:"oidc"`
 	IAM            IAMConfig        `json:"iam" yaml:"iam"`
+	Plugins        PluginsConfig    `json:"plugins" yaml:"plugins"`
 	Admin          AdminConfig      `json:"auth_admin" yaml:"auth_admin"`
 	Storage        storage.Config   `json:"storage" yaml:"storage"`
 	TrustedClients []TrustedClient  `json:"auth_trusted_clients" yaml:"auth_trusted_clients"` // 受信任的第三方客户端配置
@@ -64,6 +65,48 @@ type EnterpriseOIDCProviderConfig struct {
 	ClientSecret   string   `json:"client_secret" yaml:"client_secret"`
 	RedirectURI    string   `json:"redirect_uri" yaml:"redirect_uri"`
 	Scopes         []string `json:"scopes" yaml:"scopes"`
+}
+
+// PluginsConfig enables installable manifest plugins and configurable runtime actions.
+type PluginsConfig struct {
+	Enabled              bool                  `json:"enabled" yaml:"enabled"`
+	Directories          []string              `json:"directories" yaml:"directories"`
+	EnabledPlugins       []string              `json:"enabled_plugins" yaml:"enabled_plugins"`
+	DisabledPlugins      []string              `json:"disabled_plugins" yaml:"disabled_plugins"`
+	AllowedPermissions   []string              `json:"allowed_permissions" yaml:"allowed_permissions"`
+	RequireSignature     bool                  `json:"require_signature" yaml:"require_signature"`
+	AllowPrivateNetworks bool                  `json:"allow_private_networks" yaml:"allow_private_networks"`
+	AllowedCatalogHosts  []string              `json:"allowed_catalog_hosts" yaml:"allowed_catalog_hosts"`
+	AllowedDownloadHosts []string              `json:"allowed_download_hosts" yaml:"allowed_download_hosts"`
+	AllowedActionHosts   []string              `json:"allowed_action_hosts" yaml:"allowed_action_hosts"`
+	TrustedSigners       []PluginSignerConfig  `json:"trusted_signers" yaml:"trusted_signers"`
+	Catalogs             []PluginCatalogConfig `json:"catalogs" yaml:"catalogs"`
+	HTTPActions          []HTTPActionConfig    `json:"http_actions" yaml:"http_actions"`
+}
+
+type PluginSignerConfig struct {
+	ID        string `json:"id" yaml:"id"`
+	Algorithm string `json:"algorithm" yaml:"algorithm"`
+	PublicKey string `json:"public_key" yaml:"public_key"`
+}
+
+type PluginCatalogConfig struct {
+	ID      string `json:"id" yaml:"id"`
+	Name    string `json:"name" yaml:"name"`
+	URL     string `json:"url" yaml:"url"`
+	Enabled bool   `json:"enabled" yaml:"enabled"`
+}
+
+// HTTPActionConfig describes a remotely executed flow/action plugin.
+type HTTPActionConfig struct {
+	ID        string   `json:"id" yaml:"id"`
+	Name      string   `json:"name" yaml:"name"`
+	Enabled   bool     `json:"enabled" yaml:"enabled"`
+	Events    []string `json:"events" yaml:"events"`
+	URL       string   `json:"url" yaml:"url"`
+	Secret    string   `json:"secret" yaml:"secret"`
+	TimeoutMS int      `json:"timeout_ms" yaml:"timeout_ms"`
+	FailOpen  bool     `json:"fail_open" yaml:"fail_open"`
 }
 
 // GoogleConfig Google OAuth configuration
