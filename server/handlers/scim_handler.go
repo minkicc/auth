@@ -25,6 +25,7 @@ import (
 
 const (
 	scimUserSchema          = "urn:ietf:params:scim:schemas:core:2.0:User"
+	scimGroupSchema         = "urn:ietf:params:scim:schemas:core:2.0:Group"
 	scimPatchSchema         = "urn:ietf:params:scim:api:messages:2.0:PatchOp"
 	scimListResponseSchema  = "urn:ietf:params:scim:api:messages:2.0:ListResponse"
 	scimErrorSchema         = "urn:ietf:params:scim:api:messages:2.0:Error"
@@ -162,6 +163,12 @@ func (h *SCIMHandler) RegisterRoutes(group *gin.RouterGroup) {
 	protected.PUT("/Users/:id", h.handleReplaceSCIMUser)
 	protected.PATCH("/Users/:id", h.handlePatchSCIMUser)
 	protected.DELETE("/Users/:id", h.handleDeleteSCIMUser)
+	protected.GET("/Groups", h.handleListSCIMGroups)
+	protected.POST("/Groups", h.handleCreateSCIMGroup)
+	protected.GET("/Groups/:id", h.handleGetSCIMGroup)
+	protected.PUT("/Groups/:id", h.handleReplaceSCIMGroup)
+	protected.PATCH("/Groups/:id", h.handlePatchSCIMGroup)
+	protected.DELETE("/Groups/:id", h.handleDeleteSCIMGroup)
 }
 
 func (h *SCIMHandler) handleServiceProviderConfig(c *gin.Context) {
@@ -180,15 +187,21 @@ func (h *SCIMHandler) handleServiceProviderConfig(c *gin.Context) {
 func (h *SCIMHandler) handleResourceTypes(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"schemas":      []string{scimListResponseSchema},
-		"totalResults": 1,
+		"totalResults": 2,
 		"startIndex":   1,
-		"itemsPerPage": 1,
+		"itemsPerPage": 2,
 		"Resources": []gin.H{{
 			"id":          "User",
 			"name":        "User",
 			"endpoint":    "/Users",
 			"schema":      scimUserSchema,
 			"description": "MKAuth provisioned user",
+		}, {
+			"id":          "Group",
+			"name":        "Group",
+			"endpoint":    "/Groups",
+			"schema":      scimGroupSchema,
+			"description": "MKAuth provisioned organization group",
 		}},
 	})
 }
@@ -196,13 +209,17 @@ func (h *SCIMHandler) handleResourceTypes(c *gin.Context) {
 func (h *SCIMHandler) handleSchemas(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"schemas":      []string{scimListResponseSchema},
-		"totalResults": 1,
+		"totalResults": 2,
 		"startIndex":   1,
-		"itemsPerPage": 1,
+		"itemsPerPage": 2,
 		"Resources": []gin.H{{
 			"id":          scimUserSchema,
 			"name":        "User",
 			"description": "SCIM core user schema subset supported by MKAuth",
+		}, {
+			"id":          scimGroupSchema,
+			"name":        "Group",
+			"description": "SCIM core group schema subset supported by MKAuth",
 		}},
 	})
 }
@@ -488,6 +505,9 @@ func (h *SCIMHandler) provisionSCIMUser(client config.SCIMInboundConfig, req sci
 			}
 		}
 		if err := upsertSCIMMembership(tx, client.OrganizationID, identity.UserID, active, rolesJSON, now); err != nil {
+			return err
+		}
+		if err := h.recalculateSCIMGroupRoles(tx, client, []string{identity.UserID}, now); err != nil {
 			return err
 		}
 		result = scimProvisionResult{User: user, Identity: identity, Created: created}

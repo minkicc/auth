@@ -31,6 +31,8 @@ func (s *Service) AutoMigrate() error {
 		&OrganizationIdentityProvider{},
 		&ExternalIdentity{},
 		&OrganizationMembership{},
+		&OrganizationGroup{},
+		&OrganizationGroupMember{},
 	)
 }
 
@@ -44,6 +46,10 @@ func (s *Service) GenerateIdentityProviderID() (string, error) {
 
 func (s *Service) GenerateExternalIdentityID() (string, error) {
 	return s.generateUniqueID(ExternalIdentityIDPrefix, &ExternalIdentity{}, "external_identity_id")
+}
+
+func (s *Service) GenerateOrganizationGroupID() (string, error) {
+	return s.generateUniqueID(OrganizationGroupIDPrefix, &OrganizationGroup{}, "group_id")
 }
 
 func (s *Service) generateUniqueID(prefix string, model any, column string) (string, error) {

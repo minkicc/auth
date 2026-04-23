@@ -13,7 +13,7 @@ It is a good fit when:
 
 - Multiple login providers
 - OIDC provider + JWT access and ID tokens
-- CIAM/IAM foundation for organizations, organization admin management, inbound SCIM user provisioning, external identities, flow hooks, and installable plugins
+- CIAM/IAM foundation for organizations, organization admin management, inbound SCIM user/group provisioning, external identities, flow hooks, and installable plugins
 - Redis-backed session management
 - Avatar upload
 - Admin console
@@ -341,9 +341,9 @@ Useful admin endpoints:
 
 When a user has an active organization membership and the downstream OIDC client requests `profile`, MKAuth can include `org_id`, `org_slug`, and `org_roles` in the ID Token and `/oauth2/userinfo`.
 
-### Inbound SCIM user provisioning
+### Inbound SCIM provisioning
 
-MKAuth can expose a SCIM 2.0 Users endpoint so enterprise directories such as Okta, Entra ID, or Google Workspace can provision users into an organization.
+MKAuth can expose SCIM 2.0 Users and Groups endpoints so enterprise directories such as Okta, Entra ID, or Google Workspace can provision users and group-derived roles into an organization.
 
 Configure one inbound SCIM connection per enterprise directory:
 
@@ -375,10 +375,12 @@ Supported SCIM endpoints:
 - Discovery: `GET /api/scim/v2/ServiceProviderConfig`, `GET /api/scim/v2/ResourceTypes`, `GET /api/scim/v2/Schemas`
 - User list/create: `GET /api/scim/v2/Users`, `POST /api/scim/v2/Users`
 - User read/replace/patch/delete: `GET /api/scim/v2/Users/:id`, `PUT /api/scim/v2/Users/:id`, `PATCH /api/scim/v2/Users/:id`, `DELETE /api/scim/v2/Users/:id`
+- Group list/create: `GET /api/scim/v2/Groups`, `POST /api/scim/v2/Groups`
+- Group read/replace/patch/delete: `GET /api/scim/v2/Groups/:id`, `PUT /api/scim/v2/Groups/:id`, `PATCH /api/scim/v2/Groups/:id`, `DELETE /api/scim/v2/Groups/:id`
 
-The first SCIM version supports Users only. It creates or updates MKAuth users, links them through `external_identities` with `provider_type=scim`, and syncs organization membership status plus lightweight role names. `DELETE /Users/:id` and `active=false` disable the MKAuth user and mark the organization membership as disabled.
+SCIM Users creates or updates MKAuth users, links them through `external_identities` with `provider_type=scim`, and syncs organization membership status plus lightweight role names. `DELETE /Users/:id` and `active=false` disable the MKAuth user and mark the organization membership as disabled.
 
-SCIM Groups are not implemented yet; add them next if you need enterprise group-to-role synchronization.
+SCIM Groups map enterprise directory groups to lightweight organization roles. Group `displayName` is normalized into a role name, for example `Engineering Team` becomes `engineering-team`. When group members change or a group is deleted, MKAuth recalculates only the roles managed by SCIM groups and preserves other manually assigned roles.
 
 ### Storage
 

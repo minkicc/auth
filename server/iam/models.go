@@ -34,10 +34,11 @@ const (
 )
 
 const (
-	OrganizationIDPrefix     = "org_"
-	IdentityProviderIDPrefix = "idp_"
-	ExternalIdentityIDPrefix = "ext_"
-	readableRandomIDLength   = 16
+	OrganizationIDPrefix      = "org_"
+	IdentityProviderIDPrefix  = "idp_"
+	ExternalIdentityIDPrefix  = "ext_"
+	OrganizationGroupIDPrefix = "grp_"
+	readableRandomIDLength    = 16
 )
 
 // Organization represents a customer, workspace, or enterprise tenant.
@@ -101,4 +102,26 @@ type OrganizationMembership struct {
 	RolesJSON      string           `json:"roles_json,omitempty" gorm:"type:text"`
 	CreatedAt      time.Time        `json:"created_at"`
 	UpdatedAt      time.Time        `json:"updated_at"`
+}
+
+// OrganizationGroup maps an upstream directory group to a lightweight organization role.
+type OrganizationGroup struct {
+	GroupID        string               `json:"group_id" gorm:"primaryKey;size:32"`
+	OrganizationID string               `json:"organization_id" gorm:"index;not null;size:32;uniqueIndex:idx_organization_group_external"`
+	ProviderType   IdentityProviderType `json:"provider_type" gorm:"size:32;not null;uniqueIndex:idx_organization_group_external"`
+	ProviderID     string               `json:"provider_id" gorm:"size:80;not null;uniqueIndex:idx_organization_group_external"`
+	ExternalID     string               `json:"external_id" gorm:"size:255;not null;uniqueIndex:idx_organization_group_external"`
+	DisplayName    string               `json:"display_name" gorm:"size:120;not null"`
+	RoleName       string               `json:"role_name" gorm:"size:64;not null"`
+	CreatedAt      time.Time            `json:"created_at"`
+	UpdatedAt      time.Time            `json:"updated_at"`
+}
+
+// OrganizationGroupMember stores SCIM-managed group membership for role recalculation.
+type OrganizationGroupMember struct {
+	OrganizationID string    `json:"organization_id" gorm:"primaryKey;size:32"`
+	GroupID        string    `json:"group_id" gorm:"primaryKey;size:32"`
+	UserID         string    `json:"user_id" gorm:"primaryKey;size:32"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
 }
