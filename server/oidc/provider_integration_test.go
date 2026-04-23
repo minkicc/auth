@@ -18,6 +18,7 @@ import (
 
 	"minki.cc/mkauth/server/auth"
 	"minki.cc/mkauth/server/config"
+	"minki.cc/mkauth/server/iam"
 )
 
 const (
@@ -60,6 +61,9 @@ func newIntegrationEnv(t *testing.T) *integrationEnv {
 	})
 	if err := accountAuth.AutoMigrate(); err != nil {
 		t.Fatalf("failed to migrate account tables: %v", err)
+	}
+	if err := iam.NewService(db).AutoMigrate(); err != nil {
+		t.Fatalf("failed to migrate iam tables: %v", err)
 	}
 
 	cfg := config.OIDCConfig{
@@ -126,6 +130,36 @@ func (e *integrationEnv) createBrowserSessionCookie(t *testing.T, userID string)
 		Name:  auth.OIDCSessionCookieName,
 		Value: browserSessionID,
 		Path:  "/",
+	}
+}
+
+func (e *integrationEnv) createOrganizationMembership(t *testing.T, userID string) {
+	t.Helper()
+
+	rolesJSON, err := json.Marshal([]string{"owner", "billing_admin"})
+	if err != nil {
+		t.Fatalf("failed to marshal organization roles: %v", err)
+	}
+	now := time.Now()
+	if err := e.db.Create(&iam.Organization{
+		OrganizationID: "org_test000000000000",
+		Slug:           "acme",
+		Name:           "Acme",
+		Status:         iam.OrganizationStatusActive,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}).Error; err != nil {
+		t.Fatalf("failed to create organization: %v", err)
+	}
+	if err := e.db.Create(&iam.OrganizationMembership{
+		OrganizationID: "org_test000000000000",
+		UserID:         userID,
+		Status:         iam.MembershipStatusActive,
+		RolesJSON:      string(rolesJSON),
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}).Error; err != nil {
+		t.Fatalf("failed to create organization membership: %v", err)
 	}
 }
 
@@ -196,6 +230,7 @@ func TestAuthorizeReusesBrowserSessionAndTokenExchangeSucceeds(t *testing.T) {
 	defer env.Close()
 
 	user := env.createAccountUser(t, "demo")
+	env.createOrganizationMembership(t, user.UserID)
 	sessionCookie := env.createBrowserSessionCookie(t, user.UserID)
 
 	authorizeURL := "/oauth2/authorize?client_id=demo-spa" +
@@ -287,6 +322,15 @@ func TestAuthorizeReusesBrowserSessionAndTokenExchangeSucceeds(t *testing.T) {
 	if idTokenClaims.PreferredUsername != "demo" {
 		t.Fatalf("expected id token preferred_username demo, got %q", idTokenClaims.PreferredUsername)
 	}
+	if idTokenClaims.OrgID != "org_test000000000000" {
+		t.Fatalf("expected id token org_id org_test000000000000, got %q", idTokenClaims.OrgID)
+	}
+	if idTokenClaims.OrgSlug != "acme" {
+		t.Fatalf("expected id token org_slug acme, got %q", idTokenClaims.OrgSlug)
+	}
+	if !stringSliceEqual(idTokenClaims.OrgRoles, []string{"owner", "billing_admin"}) {
+		t.Fatalf("expected id token org_roles owner/billing_admin, got %#v", idTokenClaims.OrgRoles)
+	}
 
 	userInfoResp := performBearerRequest(t, env.router, http.MethodGet, "/oauth2/userinfo", accessToken)
 	if userInfoResp.Code != http.StatusOK {
@@ -307,6 +351,28 @@ func TestAuthorizeReusesBrowserSessionAndTokenExchangeSucceeds(t *testing.T) {
 	if userInfoBody["preferred_username"] != "demo" {
 		t.Fatalf("expected userinfo preferred_username demo, got %#v", userInfoBody["preferred_username"])
 	}
+	if userInfoBody["org_id"] != "org_test000000000000" {
+		t.Fatalf("expected userinfo org_id org_test000000000000, got %#v", userInfoBody["org_id"])
+	}
+	if userInfoBody["org_slug"] != "acme" {
+		t.Fatalf("expected userinfo org_slug acme, got %#v", userInfoBody["org_slug"])
+	}
+	userInfoRoles, ok := userInfoBody["org_roles"].([]interface{})
+	if !ok || len(userInfoRoles) != 2 || userInfoRoles[0] != "owner" || userInfoRoles[1] != "billing_admin" {
+		t.Fatalf("expected userinfo org_roles owner/billing_admin, got %#v", userInfoBody["org_roles"])
+	}
+}
+
+func stringSliceEqual(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for i := range left {
+		if left[i] != right[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func TestAuthorizeDisabledUserReturnsAccessDeniedAndClearsBrowserSession(t *testing.T) {

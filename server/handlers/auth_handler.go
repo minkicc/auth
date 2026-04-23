@@ -13,6 +13,7 @@ import (
 	"minki.cc/mkauth/server/auth"
 	"minki.cc/mkauth/server/auth/storage"
 	"minki.cc/mkauth/server/config"
+	"minki.cc/mkauth/server/iam"
 	"minki.cc/mkauth/server/middleware"
 	"minki.cc/mkauth/server/oidc"
 )
@@ -32,6 +33,7 @@ type AuthHandler struct {
 	avatarService   *auth.AvatarService
 	avatarHandler   *AvatarHandler
 	oidcProvider    *oidc.Provider
+	enterpriseOIDC  *iam.EnterpriseOIDCManager
 	config          *config.Config
 	logger          *log.Logger
 }
@@ -57,6 +59,7 @@ func NewAuthHandler(
 	storage *storage.StorageClient,
 	avatarService *auth.AvatarService,
 	oidcProvider *oidc.Provider,
+	enterpriseOIDC *iam.EnterpriseOIDCManager,
 	config *config.Config) *AuthHandler {
 	return &AuthHandler{
 		useAccountAuth:  useAccountAuth,
@@ -72,6 +75,7 @@ func NewAuthHandler(
 		avatarService:   avatarService,
 		avatarHandler:   NewAvatarHandler(accountAuth, avatarService),
 		oidcProvider:    oidcProvider,
+		enterpriseOIDC:  enterpriseOIDC,
 		config:          config,
 		logger:          log.New(os.Stdout, "[AUTH] ", log.LstdFlags|log.Lshortfile),
 	}
@@ -121,6 +125,12 @@ func (h *AuthHandler) RegisterRoutes(authGroup *gin.RouterGroup, cfg *config.Con
 
 	if h.weixinMiniLogin != nil {
 		authGroup.GET("/weixin/miniprogram", h.WeixinMiniLogin)
+	}
+
+	if h.enterpriseOIDC != nil && h.enterpriseOIDC.HasProviders() {
+		authGroup.GET("/enterprise/oidc/providers", h.GetEnterpriseOIDCProviders)
+		authGroup.GET("/enterprise/oidc/:slug/login", h.EnterpriseOIDCLogin)
+		authGroup.GET("/enterprise/oidc/:slug/callback", h.EnterpriseOIDCCallback)
 	}
 
 	// Phone login related routes
@@ -186,6 +196,10 @@ func (h *AuthHandler) GetSupportedProviders(c *gin.Context) {
 	// Add WeChat Mini Program login method
 	if h.weixinMiniLogin != nil {
 		providers = append(providers, "weixin_mini")
+	}
+
+	if h.enterpriseOIDC != nil && h.enterpriseOIDC.HasProviders() {
+		providers = append(providers, "enterprise_oidc")
 	}
 
 	// Add phone login method

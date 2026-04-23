@@ -21,6 +21,7 @@ type Config struct {
 	Database       DatabaseConfig   `json:"db" yaml:"db"`
 	Redis          RedisConfig      `json:"redis" yaml:"redis"`
 	OIDC           OIDCConfig       `json:"oidc" yaml:"oidc"`
+	IAM            IAMConfig        `json:"iam" yaml:"iam"`
 	Admin          AdminConfig      `json:"auth_admin" yaml:"auth_admin"`
 	Storage        storage.Config   `json:"storage" yaml:"storage"`
 	TrustedClients []TrustedClient  `json:"auth_trusted_clients" yaml:"auth_trusted_clients"` // 受信任的第三方客户端配置
@@ -46,6 +47,23 @@ type AuthConfig struct {
 	WeixinMini       WeixinMiniConfig `json:"weixin_mini" yaml:"weixin_mini"`
 	Smtp             SmtpConfig       `json:"smtp" yaml:"smtp"`
 	SMS              SMSConfig        `json:"sms" yaml:"sms"` // New: SMS configuration
+}
+
+// IAMConfig contains optional CIAM/IAM extensions.
+type IAMConfig struct {
+	EnterpriseOIDC []EnterpriseOIDCProviderConfig `json:"enterprise_oidc" yaml:"enterprise_oidc"`
+}
+
+// EnterpriseOIDCProviderConfig describes an upstream enterprise OIDC provider.
+type EnterpriseOIDCProviderConfig struct {
+	Slug           string   `json:"slug" yaml:"slug"`
+	Name           string   `json:"name" yaml:"name"`
+	OrganizationID string   `json:"organization_id" yaml:"organization_id"`
+	Issuer         string   `json:"issuer" yaml:"issuer"`
+	ClientID       string   `json:"client_id" yaml:"client_id"`
+	ClientSecret   string   `json:"client_secret" yaml:"client_secret"`
+	RedirectURI    string   `json:"redirect_uri" yaml:"redirect_uri"`
+	Scopes         []string `json:"scopes" yaml:"scopes"`
 }
 
 // GoogleConfig Google OAuth configuration

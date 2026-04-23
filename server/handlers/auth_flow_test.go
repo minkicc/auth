@@ -150,6 +150,7 @@ func newAuthTestEnv(t *testing.T) *authTestEnv {
 		nil,
 		nil,
 		nil,
+		nil,
 		cfg,
 	)
 

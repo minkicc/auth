@@ -121,13 +121,13 @@
     </div>
     
     <!-- 社交登录 -->
-    <div v-if="(hasGoogleLogin || hasWeixinLogin) && (hasAccountLogin || hasEmailLogin || hasPhoneLogin)" 
+    <div v-if="hasSocialLogin && hasPrimaryLogin"
          class="divider"
     >
       {{ $t('common.or') }}
     </div>
     
-    <div v-if="hasGoogleLogin || hasWeixinLogin" class="social-login">
+    <div v-if="hasSocialLogin" class="social-login">
       <div class="social-buttons">
         <GoogleLogin 
           v-if="hasGoogleLogin" 
@@ -138,6 +138,20 @@
           v-if="hasWeixinLogin" 
           @login-error="handleLoginError"
         />
+        <div v-if="hasEnterpriseOIDCLogin" class="enterprise-login-list">
+          <button
+            v-for="provider in enterpriseOIDCProviders"
+            :key="provider.slug"
+            class="enterprise-login-btn"
+            type="button"
+            @click="handleEnterpriseOIDCLogin(provider.slug)"
+          >
+            <span class="enterprise-login-mark">SSO</span>
+            <span class="enterprise-login-text">
+              {{ $t('auth.loginWithEnterprise', { name: provider.name }) }}
+            </span>
+          </button>
+        </div>
       </div>
     </div>
 
@@ -148,7 +162,7 @@
   </div>
 
   <!-- 仅社交登录容器 -->
-  <div v-if="hasGoogleLogin && !shouldShowLoginForm" class="social-buttons2">
+  <div v-if="hasSocialLogin && !shouldShowLoginForm" class="social-buttons2">
     <GoogleLogin 
       v-if="hasGoogleLogin" 
       @login-error="handleLoginError"
@@ -158,6 +172,23 @@
       v-if="hasWeixinLogin" 
       @login-error="handleLoginError"
     />
+    <div v-if="hasEnterpriseOIDCLogin" class="enterprise-login-list">
+      <button
+        v-for="provider in enterpriseOIDCProviders"
+        :key="provider.slug"
+        class="enterprise-login-btn"
+        type="button"
+        @click="handleEnterpriseOIDCLogin(provider.slug)"
+      >
+        <span class="enterprise-login-mark">SSO</span>
+        <span class="enterprise-login-text">
+          {{ $t('auth.loginWithEnterprise', { name: provider.name }) }}
+        </span>
+      </button>
+    </div>
+    <div v-if="errorMessage" class="error-message">
+      {{ errorMessage }}
+    </div>
   </div>
 </template>
 
@@ -177,7 +208,8 @@ import WeixinLogin from '@/components/auth/WeixinLogin.vue'
 import AccountRegister from '@/components/auth/AccountRegister.vue'
 import EmailRegister from '@/components/auth/EmailRegister.vue'
 import PhoneRegister from '@/components/auth/PhoneRegister.vue'
-import { AuthProvider, serverApi } from '@/api/serverApi'
+import { serverApi } from '@/api/serverApi'
+import type { AuthProvider, EnterpriseOIDCProvider } from '@/api/serverApi'
 
 
 const { t } = useI18n()
@@ -190,6 +222,7 @@ const loginType = ref<'account' | 'email' | 'phone'>('account')
 const registerType = ref<'account' | 'email' | 'phone'>('account')
 const errorMessage = ref('')
 const shouldShowLoginForm = ref(false)
+const enterpriseOIDCProviders = ref<EnterpriseOIDCProvider[]>([])
 
 // 登录方式检查
 const hasProvider = (provider: AuthProvider) => context.hasProvider(provider)
@@ -198,9 +231,13 @@ const hasEmailLogin = hasProvider('email')
 const hasPhoneLogin = hasProvider('phone')
 const hasGoogleLogin = hasProvider('google')
 const hasWeixinLogin = hasProvider('weixin')
+const hasEnterpriseOIDCLogin = hasProvider('enterprise_oidc')
 
 
 // 计算属性
+const hasPrimaryLogin = computed(() => hasAccountLogin || hasEmailLogin || hasPhoneLogin)
+const hasSocialLogin = computed(() => hasGoogleLogin || hasWeixinLogin || hasEnterpriseOIDCLogin)
+
 const hasMultipleLoginMethods = computed(() => {
   let count = 0
   if (hasProvider('account')) count++
@@ -239,6 +276,28 @@ const handleWechatLogin = async () => {
   }
 }
 
+const loadEnterpriseOIDCProviders = async () => {
+  if (!hasEnterpriseOIDCLogin) {
+    enterpriseOIDCProviders.value = []
+    return
+  }
+  try {
+    enterpriseOIDCProviders.value = await serverApi.fetchEnterpriseOIDCProviders()
+  } catch (error) {
+    console.error(t('errors.enterpriseOIDCProvidersFailed'), error)
+    throw error
+  }
+}
+
+const handleEnterpriseOIDCLogin = (slug: string) => {
+  try {
+    serverApi.startEnterpriseOIDCLogin(slug)
+  } catch (error) {
+    console.error(t('errors.enterpriseOIDCLoginFailed'), error)
+    errorMessage.value = t('errors.enterpriseOIDCLoginFailed')
+  }
+}
+
 
 // 生命周期钩子
 onMounted(async () => {
@@ -258,14 +317,16 @@ onMounted(async () => {
       activeTab.value = 'register'
     }
 
+    await loadEnterpriseOIDCProviders()
+
     // 如果只有微信登录
-    if (!hasAccountLogin && !hasEmailLogin && !hasPhoneLogin && !hasGoogleLogin && hasWeixinLogin) {
+    if (!hasAccountLogin && !hasEmailLogin && !hasPhoneLogin && !hasGoogleLogin && !hasEnterpriseOIDCLogin && hasWeixinLogin) {
       handleWechatLogin()
       return
     }
     
-    // 如果只有社交登录
-    if (!hasAccountLogin && !hasEmailLogin && !hasPhoneLogin) {
+    // 如果只有社交/企业 SSO 登录
+    if (!hasPrimaryLogin.value) {
       return
     }
     
@@ -496,6 +557,54 @@ input.error {
   flex-direction: column;
   gap: 16px;
   width: 100%;
+}
+
+.enterprise-login-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+
+.enterprise-login-btn {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid #c9d7df;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #f7fbfd 0%, #eef6fa 100%);
+  color: #113f54;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.enterprise-login-btn:hover {
+  border-color: #1890ff;
+  box-shadow: 0 8px 18px rgba(17, 63, 84, 0.12);
+  transform: translateY(-1px);
+}
+
+.enterprise-login-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 28px;
+  border-radius: 8px;
+  background: #113f54;
+  color: #ffffff;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  flex-shrink: 0;
+}
+
+.enterprise-login-text {
+  min-width: 0;
+  text-align: left;
 }
 
 /* 错误信息样式 */

@@ -35,6 +35,7 @@ import (
 	"minki.cc/mkauth/server/auth/storage"
 	"minki.cc/mkauth/server/config"
 	"minki.cc/mkauth/server/handlers"
+	"minki.cc/mkauth/server/iam"
 	"minki.cc/mkauth/server/middleware"
 	"minki.cc/mkauth/server/oidc"
 )
@@ -117,6 +118,9 @@ func collectAllowedOrigins(cfg *config.Config) []string {
 		for _, redirectURI := range client.RedirectURIs {
 			addOrigin(redirectURI)
 		}
+	}
+	for _, provider := range cfg.IAM.EnterpriseOIDC {
+		addOrigin(provider.RedirectURI)
 	}
 
 	allowedOrigins := make([]string, 0, len(origins))
@@ -212,6 +216,10 @@ func main() {
 	// Execute database migration, ensure all tables are created
 	if err := accountAuth.AutoMigrate(); err != nil {
 		log.Fatalf("Database migration failed: %v", err)
+	}
+	iamService := iam.NewService(globalDB)
+	if err := iamService.AutoMigrate(); err != nil {
+		log.Fatalf("IAM foundation migration failed: %v", err)
 	}
 
 	// Set Gin mode
@@ -460,6 +468,11 @@ func initAuthHandler(cfg *config.Config, accountAuth *auth.AccountAuth, oidcProv
 	// Initialize session manager
 	sessionMgr := auth.NewSessionManager(auth.NewSessionRedisStore(globalRedisStore.GetClient()))
 
+	enterpriseOIDC, err := iam.NewEnterpriseOIDCManager(cfg.IAM, globalDB, avatarService)
+	if err != nil {
+		return fmt.Errorf("failed to initialize enterprise OIDC: %v", err)
+	}
+
 	// Initialize auth handler
 	*handler = handlers.NewAuthHandler(
 		containsProvider(cfg.Auth.EnabledProviders, "account"),
@@ -474,6 +487,7 @@ func initAuthHandler(cfg *config.Config, accountAuth *auth.AccountAuth, oidcProv
 		storageClient,
 		avatarService,
 		oidcProvider,
+		enterpriseOIDC,
 		cfg,
 	)
 

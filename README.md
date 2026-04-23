@@ -13,12 +13,15 @@ It is a good fit when:
 
 - Multiple login providers
 - OIDC provider + JWT access and ID tokens
+- CIAM/IAM foundation for organizations, external identities, and flow hooks
 - Redis-backed session management
 - Avatar upload
 - Admin console
 - User activity statistics
 - Go SDK
 - Docker / Docker Compose deployment
+
+For the CIAM/IAM extension roadmap, see [docs/ciam-iam-plugin-architecture.md](docs/ciam-iam-plugin-architecture.md).
 
 ## Repository Layout
 
@@ -362,6 +365,9 @@ If your app is on another domain or you want a standard third-party login contra
 
 Common endpoints:
 - `GET /api/providers`
+- `GET /api/enterprise/oidc/providers`
+- `GET /api/enterprise/oidc/:slug/login`
+- `GET /api/enterprise/oidc/:slug/callback`
 - `POST /api/account/register`
 - `POST /api/account/login`
 - `POST /api/email/login`
@@ -369,6 +375,8 @@ Common endpoints:
 - `GET /api/browser-session`
 - `POST /api/logout`
 - `GET /api/user`
+
+When CIAM/IAM organization data exists and the downstream OIDC client requests `profile`, MKAuth can also include `org_id`, `org_slug`, and `org_roles` in the ID Token and `/oauth2/userinfo`.
 
 Example account login request:
 

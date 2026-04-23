@@ -7,6 +7,7 @@ import (
 	"crypto/subtle"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -25,6 +26,7 @@ import (
 	"minki.cc/mkauth/server/auth"
 	"minki.cc/mkauth/server/common"
 	"minki.cc/mkauth/server/config"
+	"minki.cc/mkauth/server/iam"
 )
 
 const (
@@ -70,13 +72,22 @@ type AccessTokenClaims struct {
 }
 
 type idTokenClaims struct {
-	Nonce             string `json:"nonce,omitempty"`
-	PreferredUsername string `json:"preferred_username,omitempty"`
-	Name              string `json:"name,omitempty"`
-	Picture           string `json:"picture,omitempty"`
-	Email             string `json:"email,omitempty"`
-	EmailVerified     *bool  `json:"email_verified,omitempty"`
+	Nonce             string   `json:"nonce,omitempty"`
+	PreferredUsername string   `json:"preferred_username,omitempty"`
+	Name              string   `json:"name,omitempty"`
+	Picture           string   `json:"picture,omitempty"`
+	Email             string   `json:"email,omitempty"`
+	EmailVerified     *bool    `json:"email_verified,omitempty"`
+	OrgID             string   `json:"org_id,omitempty"`
+	OrgSlug           string   `json:"org_slug,omitempty"`
+	OrgRoles          []string `json:"org_roles,omitempty"`
 	jwt.RegisteredClaims
+}
+
+type organizationClaims struct {
+	OrgID    string
+	OrgSlug  string
+	OrgRoles []string
 }
 
 func NewProvider(cfg config.OIDCConfig, db *gorm.DB, redis *auth.RedisStore, accountAuth *auth.AccountAuth) (*Provider, error) {
@@ -143,7 +154,7 @@ func (p *Provider) discovery(c *gin.Context) {
 		"subject_types_supported":               []string{"public"},
 		"id_token_signing_alg_values_supported": []string{"RS256"},
 		"scopes_supported":                      defaultScopes,
-		"claims_supported":                      []string{"sub", "preferred_username", "name", "picture", "email", "email_verified"},
+		"claims_supported":                      []string{"sub", "preferred_username", "name", "picture", "email", "email_verified", "org_id", "org_slug", "org_roles"},
 		"grant_types_supported":                 []string{"authorization_code"},
 		"token_endpoint_auth_methods_supported": []string{"client_secret_basic", "client_secret_post", "none"},
 		"code_challenge_methods_supported":      []string{"S256"},
@@ -320,6 +331,16 @@ func (p *Provider) userInfo(c *gin.Context) {
 		if user.Avatar != "" {
 			resp["picture"] = user.Avatar
 		}
+		orgClaims := p.lookupOrganizationClaims(user.UserID)
+		if orgClaims.OrgID != "" {
+			resp["org_id"] = orgClaims.OrgID
+		}
+		if orgClaims.OrgSlug != "" {
+			resp["org_slug"] = orgClaims.OrgSlug
+		}
+		if len(orgClaims.OrgRoles) > 0 {
+			resp["org_roles"] = orgClaims.OrgRoles
+		}
 	}
 	if containsString(scopes, "email") {
 		email, verified := p.lookupEmail(user.UserID)
@@ -397,6 +418,10 @@ func (p *Provider) signIDToken(c *gin.Context, user *auth.User, client config.OI
 		claims.PreferredUsername = p.accountAuth.PreferredUsername(user)
 		claims.Name = user.Nickname
 		claims.Picture = user.Avatar
+		orgClaims := p.lookupOrganizationClaims(user.UserID)
+		claims.OrgID = orgClaims.OrgID
+		claims.OrgSlug = orgClaims.OrgSlug
+		claims.OrgRoles = orgClaims.OrgRoles
 	}
 	if containsString(scopes, "email") {
 		email, verified := p.lookupEmail(user.UserID)
@@ -625,6 +650,61 @@ func (p *Provider) lookupEmail(userID string) (string, bool) {
 	}
 
 	return "", false
+}
+
+func (p *Provider) lookupOrganizationClaims(userID string) organizationClaims {
+	if p.db == nil || userID == "" || !p.db.Migrator().HasTable(&iam.OrganizationMembership{}) {
+		return organizationClaims{}
+	}
+
+	var membership iam.OrganizationMembership
+	err := p.db.
+		Where("user_id = ? AND status = ?", userID, iam.MembershipStatusActive).
+		Order("created_at ASC").
+		First(&membership).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return organizationClaims{}
+		}
+		return organizationClaims{}
+	}
+
+	claims := organizationClaims{
+		OrgID:    membership.OrganizationID,
+		OrgRoles: parseOrganizationRoles(membership.RolesJSON),
+	}
+
+	if p.db.Migrator().HasTable(&iam.Organization{}) {
+		var org iam.Organization
+		if err := p.db.First(&org, "organization_id = ?", membership.OrganizationID).Error; err == nil {
+			claims.OrgSlug = org.Slug
+		}
+	}
+
+	return claims
+}
+
+func parseOrganizationRoles(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+
+	var roles []string
+	if err := json.Unmarshal([]byte(raw), &roles); err != nil {
+		return nil
+	}
+	filtered := roles[:0]
+	for _, role := range roles {
+		role = strings.TrimSpace(role)
+		if role != "" {
+			filtered = append(filtered, role)
+		}
+	}
+	if len(filtered) == 0 {
+		return nil
+	}
+	return filtered
 }
 
 func (p *Provider) codeTTL() time.Duration {
