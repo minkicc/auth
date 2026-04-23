@@ -144,6 +144,45 @@ export interface UserSessionsResponse {
   jwt_sessions: JWTSessionData[]
 }
 
+export interface Organization {
+  organization_id: string
+  slug: string
+  name: string
+  display_name?: string
+  status: 'active' | 'inactive' | string
+  metadata_json?: string
+  created_at: string
+  updated_at: string
+}
+
+export interface OrganizationDomain {
+  domain: string
+  organization_id: string
+  verified: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface OrganizationMembership {
+  organization_id: string
+  user_id: string
+  status: 'active' | 'invited' | 'disabled' | string
+  roles: string[]
+  username?: string
+  nickname?: string
+  avatar?: string
+  user_status?: string
+  created_at: string
+  updated_at: string
+}
+
+export interface OrganizationListResponse {
+  organizations: Organization[]
+  total: number
+  page: number
+  page_size: number
+}
+
 export interface PluginInfo {
   id: string
   name: string
@@ -315,6 +354,61 @@ class ServerApi {
   // 终止用户所有会话
   terminateAllUserSessions(userId: string): Promise<{ message: string }> {
     return api.delete(`/user/${userId}/sessions`).then(res => res.data)
+  }
+
+  // 获取组织列表
+  getOrganizations(params: { page?: number, size?: number, status?: string, search?: string }): Promise<OrganizationListResponse> {
+    return api.get('/organizations', { params }).then(res => res.data)
+  }
+
+  // 创建组织
+  createOrganization(payload: { slug: string, name: string, display_name?: string, status?: string, metadata?: Record<string, any> }): Promise<{ organization: Organization }> {
+    return api.post('/organizations', payload).then(res => res.data)
+  }
+
+  // 更新组织
+  updateOrganization(id: string, payload: { slug: string, name: string, display_name?: string, status?: string, metadata?: Record<string, any> }): Promise<{ organization: Organization }> {
+    return api.patch(`/organizations/${id}`, payload).then(res => res.data)
+  }
+
+  // 获取组织域名
+  getOrganizationDomains(id: string): Promise<{ domains: OrganizationDomain[] }> {
+    return api.get(`/organizations/${id}/domains`).then(res => res.data)
+  }
+
+  // 添加组织域名
+  createOrganizationDomain(id: string, payload: { domain: string, verified?: boolean }): Promise<{ domain: OrganizationDomain }> {
+    return api.post(`/organizations/${id}/domains`, payload).then(res => res.data)
+  }
+
+  // 更新组织域名
+  updateOrganizationDomain(id: string, domain: string, payload: { verified: boolean }): Promise<{ domain: OrganizationDomain }> {
+    return api.patch(`/organizations/${id}/domains/${encodeURIComponent(domain)}`, payload).then(res => res.data)
+  }
+
+  // 删除组织域名
+  deleteOrganizationDomain(id: string, domain: string): Promise<{ message: string }> {
+    return api.delete(`/organizations/${id}/domains/${encodeURIComponent(domain)}`).then(res => res.data)
+  }
+
+  // 获取组织成员
+  getOrganizationMemberships(id: string): Promise<{ memberships: OrganizationMembership[] }> {
+    return api.get(`/organizations/${id}/memberships`).then(res => res.data)
+  }
+
+  // 添加/更新组织成员
+  upsertOrganizationMembership(id: string, payload: { user_id: string, status?: string, roles?: string[] }): Promise<{ membership: OrganizationMembership }> {
+    return api.post(`/organizations/${id}/memberships`, payload).then(res => res.data)
+  }
+
+  // 更新组织成员
+  updateOrganizationMembership(id: string, userId: string, payload: { status?: string, roles?: string[] }): Promise<{ membership: OrganizationMembership }> {
+    return api.patch(`/organizations/${id}/memberships/${encodeURIComponent(userId)}`, payload).then(res => res.data)
+  }
+
+  // 删除组织成员
+  deleteOrganizationMembership(id: string, userId: string): Promise<{ message: string }> {
+    return api.delete(`/organizations/${id}/memberships/${encodeURIComponent(userId)}`).then(res => res.data)
   }
 
   // 获取插件列表

@@ -13,7 +13,7 @@ It is a good fit when:
 
 - Multiple login providers
 - OIDC provider + JWT access and ID tokens
-- CIAM/IAM foundation for organizations, external identities, flow hooks, and installable plugins
+- CIAM/IAM foundation for organizations, organization admin management, external identities, flow hooks, and installable plugins
 - Redis-backed session management
 - Avatar upload
 - Admin console
@@ -323,6 +323,23 @@ Useful endpoints:
 - Admin plugin config update: `PATCH /admin-api/plugins/:id/config`
 
 See [examples/plugins/http-claims-action](examples/plugins/http-claims-action/README.md) for a self-contained local plugin example, and [examples/plugins/catalog.yaml](examples/plugins/catalog.yaml) for a catalog example.
+
+### CIAM/IAM organization management
+
+After enabling the admin console, open the `Organizations` menu to manage B2B tenants. The admin UI can create and edit organizations, attach verified email domains, and assign existing users to organizations with lightweight role names.
+
+The organization ID or slug can be used in the `:id` path segment. Organizations are not hard-deleted in this first version; set their status to `inactive` when they should no longer be used.
+
+Useful admin endpoints:
+
+- Organization list/create: `GET /admin-api/organizations`, `POST /admin-api/organizations`
+- Organization detail/update: `GET /admin-api/organizations/:id`, `PATCH /admin-api/organizations/:id`
+- Organization domains: `GET /admin-api/organizations/:id/domains`, `POST /admin-api/organizations/:id/domains`
+- Domain update/delete: `PATCH /admin-api/organizations/:id/domains/:domain`, `DELETE /admin-api/organizations/:id/domains/:domain`
+- Organization memberships: `GET /admin-api/organizations/:id/memberships`, `POST /admin-api/organizations/:id/memberships`
+- Membership update/delete: `PATCH /admin-api/organizations/:id/memberships/:user_id`, `DELETE /admin-api/organizations/:id/memberships/:user_id`
+
+When a user has an active organization membership and the downstream OIDC client requests `profile`, MKAuth can include `org_id`, `org_slug`, and `org_roles` in the ID Token and `/oauth2/userinfo`.
 
 ### Storage
 

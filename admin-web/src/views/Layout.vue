@@ -49,6 +49,10 @@
               <el-icon><User /></el-icon>
               <span>{{ $t('layout.menu.users') }}</span>
             </el-menu-item>
+            <el-menu-item index="/organizations">
+              <el-icon><OfficeBuilding /></el-icon>
+              <span>{{ $t('layout.menu.organizations') }}</span>
+            </el-menu-item>
             <el-menu-item index="/activity">
               <el-icon><DataLine /></el-icon>
               <span>{{ $t('layout.menu.activity') }}</span>
@@ -81,7 +85,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { DataLine, House, Setting, User, UserFilled } from '@element-plus/icons-vue'
+import { DataLine, House, OfficeBuilding, Setting, User, UserFilled } from '@element-plus/icons-vue'
 import { context } from '@/context'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import { ElMessageBox } from 'element-plus/es/components/message-box/index'

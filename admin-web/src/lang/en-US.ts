@@ -194,6 +194,7 @@ export default {
     menu: {
       dashboard: 'Dashboard',
       users: 'User Management',
+      organizations: 'Organizations',
       activity: 'Activity',
       settings: 'System Settings',
     }

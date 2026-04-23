@@ -9,6 +9,25 @@ MKAuth's current core is an OIDC-first authentication service. The CIAM/IAM path
 - Make custom business logic possible through hooks/actions without requiring custom forks.
 - Avoid runtime Go shared-object plugins because they are brittle across platforms, build modes, and container targets.
 
+## Current Implementation Status
+
+Implemented:
+
+- Foundation tables for organizations, organization domains, enterprise identity provider shells, external identities, and organization memberships.
+- Flow hook boundaries for `post_authenticate`, `before_token_issue`, and `before_userinfo`.
+- Installable plugin runtime with local ZIP packages, catalog installation, URL installation, preview, config schema, signatures, audit log, backups, restore, and in-process reload.
+- `enterprise_oidc` as the first upstream enterprise identity connector.
+- Organization claim injection into ID Token and `/oauth2/userinfo`.
+- Admin API and admin console page for organization, domain, and membership management.
+
+Not implemented yet:
+
+- Inbound SCIM.
+- Enterprise SAML.
+- LDAP federation or sync.
+- Full role/group/RBAC policy enforcement.
+- Explicit organization selection for users who belong to multiple organizations.
+
 ## Plugin Types
 
 ### Identity Connectors
@@ -217,6 +236,33 @@ The first foundation adds these tables:
 
 This is additive and does not change the current `users.user_id` subject contract.
 
+## Organization Admin MVP
+
+The admin console now includes an `Organizations` page for B2B tenant operations:
+
+- Create and update organizations.
+- Attach, verify, update, and delete organization domains.
+- Add existing users as organization members.
+- Update membership status and lightweight role names.
+- Remove organization memberships.
+
+The admin API accepts either organization ID or slug in the `:id` path segment:
+
+- `GET /admin-api/organizations`
+- `POST /admin-api/organizations`
+- `GET /admin-api/organizations/:id`
+- `PATCH /admin-api/organizations/:id`
+- `GET /admin-api/organizations/:id/domains`
+- `POST /admin-api/organizations/:id/domains`
+- `PATCH /admin-api/organizations/:id/domains/:domain`
+- `DELETE /admin-api/organizations/:id/domains/:domain`
+- `GET /admin-api/organizations/:id/memberships`
+- `POST /admin-api/organizations/:id/memberships`
+- `PATCH /admin-api/organizations/:id/memberships/:user_id`
+- `DELETE /admin-api/organizations/:id/memberships/:user_id`
+
+Organizations are not hard-deleted in this MVP. Use `inactive` status to disable an organization without destroying tenant history.
+
 ## Enterprise OIDC MVP
 
 The first upstream identity connector is `enterprise_oidc`. Configure providers under `iam.enterprise_oidc`:
@@ -266,11 +312,12 @@ The first version selects the earliest active organization membership. A future 
 
 ## Recommended Delivery Order
 
-1. Add the foundation tables and hook boundary.
-2. Implement `enterprise_oidc` as the first upstream enterprise connector.
-3. Add claim mapping for organization and membership claims.
-4. Add inbound SCIM for user and group provisioning.
-5. Add SAML and LDAP connectors after the OIDC path is stable.
+1. Add the foundation tables and hook boundary. Done.
+2. Implement `enterprise_oidc` as the first upstream enterprise connector. Done.
+3. Add claim mapping for organization and membership claims. Done.
+4. Add organization admin APIs and UI. Done.
+5. Add inbound SCIM for user and group provisioning.
+6. Add SAML and LDAP connectors after the OIDC path is stable.
 
 ## Non-Goals For The First Version
 

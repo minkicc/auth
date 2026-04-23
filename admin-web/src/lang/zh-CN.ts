@@ -195,6 +195,7 @@ export default {
     menu: {
       dashboard: '仪表盘',
       users: '用户管理',
+      organizations: '组织管理',
       activity: '活跃情况',
       settings: '系统设置',
     }
