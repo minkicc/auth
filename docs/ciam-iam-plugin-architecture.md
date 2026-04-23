@@ -144,7 +144,8 @@ Runtime behavior:
 5. MKAuth appends plugin management operations to `mkauth-plugin.audit.jsonl` in the plugin directory.
 6. Replace and uninstall operations create rollback snapshots under `.mkauth-plugin-backups`; restore revalidates signature, permissions, and host policy before activation.
 7. Catalog listing responses are annotated with local install state, installed version, installed package SHA-256, and whether an update appears available.
-8. The registry and hook runtime reload in place, so new plugins can start participating in `post_authenticate`, `before_token_issue`, and `before_userinfo` without a process restart.
+8. Replace/update operations preserve the plugin's enabled/disabled state and saved config keys that still exist in the new manifest.
+9. The registry and hook runtime reload in place, so new plugins can start participating in `post_authenticate`, `before_token_issue`, and `before_userinfo` without a process restart.
 
 Signature behavior:
 

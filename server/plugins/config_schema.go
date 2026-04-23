@@ -202,3 +202,21 @@ func hasConfiguredPluginConfig(manifest Manifest, state *State) bool {
 	}
 	return false
 }
+
+func filterPluginConfig(manifest Manifest, values map[string]string) map[string]string {
+	if len(values) == 0 || len(manifest.ConfigSchema) == 0 {
+		return nil
+	}
+	schema := configSchemaMap(manifest.ConfigSchema)
+	filtered := map[string]string{}
+	for key, value := range values {
+		key = strings.TrimSpace(strings.ToLower(key))
+		if _, ok := schema[key]; ok {
+			filtered[key] = strings.TrimSpace(value)
+		}
+	}
+	if len(filtered) == 0 {
+		return nil
+	}
+	return filtered
+}
