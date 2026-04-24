@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -82,13 +83,15 @@ type idTokenClaims struct {
 	OrgID             string   `json:"org_id,omitempty"`
 	OrgSlug           string   `json:"org_slug,omitempty"`
 	OrgRoles          []string `json:"org_roles,omitempty"`
+	OrgGroups         []string `json:"org_groups,omitempty"`
 	jwt.RegisteredClaims
 }
 
 type organizationClaims struct {
-	OrgID    string
-	OrgSlug  string
-	OrgRoles []string
+	OrgID     string
+	OrgSlug   string
+	OrgRoles  []string
+	OrgGroups []string
 }
 
 func NewProvider(cfg config.OIDCConfig, db *gorm.DB, redis *auth.RedisStore, accountAuth *auth.AccountAuth) (*Provider, error) {
@@ -161,7 +164,7 @@ func (p *Provider) discovery(c *gin.Context) {
 		"subject_types_supported":               []string{"public"},
 		"id_token_signing_alg_values_supported": []string{"RS256"},
 		"scopes_supported":                      defaultScopes,
-		"claims_supported":                      []string{"sub", "preferred_username", "name", "picture", "email", "email_verified", "org_id", "org_slug", "org_roles"},
+		"claims_supported":                      []string{"sub", "preferred_username", "name", "picture", "email", "email_verified", "org_id", "org_slug", "org_roles", "org_groups"},
 		"grant_types_supported":                 []string{"authorization_code"},
 		"token_endpoint_auth_methods_supported": []string{"client_secret_basic", "client_secret_post", "none"},
 		"code_challenge_methods_supported":      []string{"S256"},
@@ -354,6 +357,9 @@ func (p *Provider) userInfo(c *gin.Context) {
 		if len(orgClaims.OrgRoles) > 0 {
 			resp["org_roles"] = orgClaims.OrgRoles
 		}
+		if len(orgClaims.OrgGroups) > 0 {
+			resp["org_groups"] = orgClaims.OrgGroups
+		}
 	}
 	if containsString(scopes, "email") {
 		email, verified := p.lookupEmail(user.UserID)
@@ -440,6 +446,7 @@ func (p *Provider) signIDToken(c *gin.Context, user *auth.User, client config.OI
 		claims.OrgID = orgClaims.OrgID
 		claims.OrgSlug = orgClaims.OrgSlug
 		claims.OrgRoles = orgClaims.OrgRoles
+		claims.OrgGroups = orgClaims.OrgGroups
 	}
 	if containsString(scopes, "email") {
 		email, verified := p.lookupEmail(user.UserID)
@@ -534,6 +541,9 @@ func idTokenClaimMap(claims idTokenClaims) map[string]any {
 	}
 	if len(claims.OrgRoles) > 0 {
 		result["org_roles"] = claims.OrgRoles
+	}
+	if len(claims.OrgGroups) > 0 {
+		result["org_groups"] = claims.OrgGroups
 	}
 	return result
 }
@@ -783,6 +793,16 @@ func (p *Provider) lookupOrganizationClaims(userID string) organizationClaims {
 			claims.OrgSlug = org.Slug
 		}
 	}
+	if p.db.Migrator().HasTable(&iam.OrganizationGroup{}) && p.db.Migrator().HasTable(&iam.OrganizationGroupMember{}) {
+		var groups []string
+		if err := p.db.Table("organization_groups").
+			Select("organization_groups.display_name").
+			Joins("JOIN organization_group_members ON organization_group_members.group_id = organization_groups.group_id AND organization_group_members.organization_id = organization_groups.organization_id").
+			Where("organization_groups.organization_id = ? AND organization_group_members.user_id = ?", membership.OrganizationID, userID).
+			Pluck("organization_groups.display_name", &groups).Error; err == nil {
+			claims.OrgGroups = uniqueSortedStrings(groups)
+		}
+	}
 
 	return claims
 }
@@ -808,6 +828,31 @@ func parseOrganizationRoles(raw string) []string {
 		return nil
 	}
 	return filtered
+}
+
+func uniqueSortedStrings(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		key := strings.ToLower(value)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		result = append(result, value)
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	sort.Strings(result)
+	return result
 }
 
 func (p *Provider) codeTTL() time.Duration {

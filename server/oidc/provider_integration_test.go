@@ -164,6 +164,34 @@ func (e *integrationEnv) createOrganizationMembership(t *testing.T, userID strin
 	}
 }
 
+func (e *integrationEnv) createOrganizationGroup(t *testing.T, userID, displayName, roleName string) {
+	t.Helper()
+
+	now := time.Now()
+	if err := e.db.Create(&iam.OrganizationGroup{
+		GroupID:        "grp_test000000000000",
+		OrganizationID: "org_test000000000000",
+		ProviderType:   iam.IdentityProviderTypeManual,
+		ProviderID:     iam.ManualOrganizationGroupProvider,
+		ExternalID:     "grp_test000000000000",
+		DisplayName:    displayName,
+		RoleName:       roleName,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}).Error; err != nil {
+		t.Fatalf("failed to create organization group: %v", err)
+	}
+	if err := e.db.Create(&iam.OrganizationGroupMember{
+		OrganizationID: "org_test000000000000",
+		GroupID:        "grp_test000000000000",
+		UserID:         userID,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}).Error; err != nil {
+		t.Fatalf("failed to create organization group member: %v", err)
+	}
+}
+
 func (e *integrationEnv) parseIDToken(t *testing.T, token string) *idTokenClaims {
 	t.Helper()
 
@@ -232,6 +260,7 @@ func TestAuthorizeReusesBrowserSessionAndTokenExchangeSucceeds(t *testing.T) {
 
 	user := env.createAccountUser(t, "demo")
 	env.createOrganizationMembership(t, user.UserID)
+	env.createOrganizationGroup(t, user.UserID, "Platform Team", "platform-team")
 	hookRegistry, err := iam.NewHookRegistry(iam.HookFunc{
 		HookName: "test-claims",
 		Fn: func(ctx context.Context, event iam.HookEvent, data *iam.HookContext) error {
@@ -348,6 +377,9 @@ func TestAuthorizeReusesBrowserSessionAndTokenExchangeSucceeds(t *testing.T) {
 	if !stringSliceEqual(idTokenClaims.OrgRoles, []string{"owner", "billing_admin"}) {
 		t.Fatalf("expected id token org_roles owner/billing_admin, got %#v", idTokenClaims.OrgRoles)
 	}
+	if !stringSliceEqual(idTokenClaims.OrgGroups, []string{"Platform Team"}) {
+		t.Fatalf("expected id token org_groups Platform Team, got %#v", idTokenClaims.OrgGroups)
+	}
 	idTokenMap := parseIDTokenMap(t, env.provider, idToken)
 	if idTokenMap["department"] != "engineering" {
 		t.Fatalf("expected custom id token department claim from hook, got %#v", idTokenMap["department"])
@@ -381,6 +413,10 @@ func TestAuthorizeReusesBrowserSessionAndTokenExchangeSucceeds(t *testing.T) {
 	userInfoRoles, ok := userInfoBody["org_roles"].([]interface{})
 	if !ok || len(userInfoRoles) != 2 || userInfoRoles[0] != "owner" || userInfoRoles[1] != "billing_admin" {
 		t.Fatalf("expected userinfo org_roles owner/billing_admin, got %#v", userInfoBody["org_roles"])
+	}
+	userInfoGroups, ok := userInfoBody["org_groups"].([]interface{})
+	if !ok || len(userInfoGroups) != 1 || userInfoGroups[0] != "Platform Team" {
+		t.Fatalf("expected userinfo org_groups Platform Team, got %#v", userInfoBody["org_groups"])
 	}
 	if userInfoBody["userinfo_source"] != "hook" {
 		t.Fatalf("expected custom userinfo claim from hook, got %#v", userInfoBody["userinfo_source"])

@@ -231,6 +231,118 @@ func TestOrganizationAdminHandlersManageIdentityProviders(t *testing.T) {
 	}
 }
 
+func TestOrganizationAdminHandlersManageGroups(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("failed to open sqlite: %v", err)
+	}
+	if err := db.AutoMigrate(&auth.User{}); err != nil {
+		t.Fatalf("failed to migrate users: %v", err)
+	}
+	if err := iam.NewService(db).AutoMigrate(); err != nil {
+		t.Fatalf("failed to migrate iam tables: %v", err)
+	}
+	for _, user := range []auth.User{
+		{UserID: "usr_group_1", Password: "hash", Status: auth.UserStatusActive, Nickname: "Ada"},
+		{UserID: "usr_group_2", Password: "hash", Status: auth.UserStatusActive, Nickname: "Linus"},
+	} {
+		if err := db.Create(&user).Error; err != nil {
+			t.Fatalf("failed to create user %s: %v", user.UserID, err)
+		}
+	}
+
+	server := &AdminServer{db: db}
+	router := gin.New()
+	router.POST("/organizations", server.handleCreateOrganization)
+	router.GET("/organizations/:id/groups", server.handleListOrganizationGroups)
+	router.POST("/organizations/:id/groups", server.handleCreateOrganizationGroup)
+	router.GET("/organizations/:id/groups/:group_id", server.handleGetOrganizationGroup)
+	router.PATCH("/organizations/:id/groups/:group_id", server.handleUpdateOrganizationGroup)
+	router.DELETE("/organizations/:id/groups/:group_id", server.handleDeleteOrganizationGroup)
+
+	createOrgResp := performJSON(t, router, http.MethodPost, "/organizations", map[string]any{
+		"slug": "acme",
+		"name": "Acme Inc",
+	})
+	if createOrgResp.Code != http.StatusCreated {
+		t.Fatalf("expected create organization status 201, got %d: %s", createOrgResp.Code, createOrgResp.Body.String())
+	}
+	var createOrgBody struct {
+		Organization iam.Organization `json:"organization"`
+	}
+	if err := json.Unmarshal(createOrgResp.Body.Bytes(), &createOrgBody); err != nil {
+		t.Fatalf("failed to decode create organization body: %v", err)
+	}
+
+	createGroupResp := performJSON(t, router, http.MethodPost, "/organizations/acme/groups", map[string]any{
+		"display_name": "Platform Team",
+		"role_name":    "platform-team",
+		"user_ids":     []string{"usr_group_1"},
+	})
+	if createGroupResp.Code != http.StatusCreated {
+		t.Fatalf("expected create group status 201, got %d: %s", createGroupResp.Code, createGroupResp.Body.String())
+	}
+	var createGroupBody struct {
+		Group organizationGroupView `json:"group"`
+	}
+	if err := json.Unmarshal(createGroupResp.Body.Bytes(), &createGroupBody); err != nil {
+		t.Fatalf("failed to decode create group body: %v", err)
+	}
+	if createGroupBody.Group.GroupID == "" || createGroupBody.Group.MemberCount != 1 || !createGroupBody.Group.Editable {
+		t.Fatalf("unexpected create group response: %#v", createGroupBody.Group)
+	}
+	if len(createGroupBody.Group.Members) != 1 || createGroupBody.Group.Members[0].Nickname != "Ada" {
+		t.Fatalf("expected create group members to include Ada, got %#v", createGroupBody.Group.Members)
+	}
+
+	var membership1 iam.OrganizationMembership
+	if err := db.First(&membership1, "organization_id = ? AND user_id = ?", createOrgBody.Organization.OrganizationID, "usr_group_1").Error; err != nil {
+		t.Fatalf("failed to load auto-created organization membership: %v", err)
+	}
+	if roles := parseRolesJSON(membership1.RolesJSON); len(roles) != 1 || roles[0] != "platform-team" {
+		t.Fatalf("expected platform-team role from manual group, got %#v", roles)
+	}
+
+	getGroupResp := performJSON(t, router, http.MethodGet, "/organizations/acme/groups/"+createGroupBody.Group.GroupID, nil)
+	if getGroupResp.Code != http.StatusOK {
+		t.Fatalf("expected get group status 200, got %d: %s", getGroupResp.Code, getGroupResp.Body.String())
+	}
+
+	updateGroupResp := performJSON(t, router, http.MethodPatch, "/organizations/acme/groups/"+createGroupBody.Group.GroupID, map[string]any{
+		"display_name": "Platform Core",
+		"role_name":    "platform-core",
+		"user_ids":     []string{"usr_group_2"},
+	})
+	if updateGroupResp.Code != http.StatusOK {
+		t.Fatalf("expected update group status 200, got %d: %s", updateGroupResp.Code, updateGroupResp.Body.String())
+	}
+	if err := db.First(&membership1, "organization_id = ? AND user_id = ?", createOrgBody.Organization.OrganizationID, "usr_group_1").Error; err != nil {
+		t.Fatalf("failed to reload first membership: %v", err)
+	}
+	if roles := parseRolesJSON(membership1.RolesJSON); len(roles) != 0 {
+		t.Fatalf("expected first user roles to be removed after group update, got %#v", roles)
+	}
+	var membership2 iam.OrganizationMembership
+	if err := db.First(&membership2, "organization_id = ? AND user_id = ?", createOrgBody.Organization.OrganizationID, "usr_group_2").Error; err != nil {
+		t.Fatalf("failed to load second membership: %v", err)
+	}
+	if roles := parseRolesJSON(membership2.RolesJSON); len(roles) != 1 || roles[0] != "platform-core" {
+		t.Fatalf("expected second user to receive platform-core role, got %#v", roles)
+	}
+
+	deleteGroupResp := performJSON(t, router, http.MethodDelete, "/organizations/acme/groups/"+createGroupBody.Group.GroupID, nil)
+	if deleteGroupResp.Code != http.StatusOK {
+		t.Fatalf("expected delete group status 200, got %d: %s", deleteGroupResp.Code, deleteGroupResp.Body.String())
+	}
+	if err := db.First(&membership2, "organization_id = ? AND user_id = ?", createOrgBody.Organization.OrganizationID, "usr_group_2").Error; err != nil {
+		t.Fatalf("failed to reload second membership after delete: %v", err)
+	}
+	if roles := parseRolesJSON(membership2.RolesJSON); len(roles) != 0 {
+		t.Fatalf("expected second user roles to be removed after deleting group, got %#v", roles)
+	}
+}
+
 func performJSON(t *testing.T, router *gin.Engine, method, path string, body any) *httptest.ResponseRecorder {
 	t.Helper()
 	var payload []byte

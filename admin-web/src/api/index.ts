@@ -176,6 +176,29 @@ export interface OrganizationMembership {
   updated_at: string
 }
 
+export interface OrganizationGroupMember {
+  user_id: string
+  username?: string
+  nickname?: string
+  avatar?: string
+  user_status?: string
+}
+
+export interface OrganizationGroup {
+  group_id: string
+  organization_id: string
+  provider_type: string
+  provider_id?: string
+  external_id?: string
+  display_name: string
+  role_name: string
+  editable: boolean
+  member_count: number
+  members?: OrganizationGroupMember[]
+  created_at: string
+  updated_at: string
+}
+
 export interface OrganizationIdentityProviderConfig {
   issuer?: string
   client_id?: string
@@ -442,6 +465,39 @@ class ServerApi {
   // 删除组织成员
   deleteOrganizationMembership(id: string, userId: string): Promise<{ message: string }> {
     return api.delete(`/organizations/${id}/memberships/${encodeURIComponent(userId)}`).then(res => res.data)
+  }
+
+  // 获取组织组列表
+  getOrganizationGroups(id: string): Promise<{ groups: OrganizationGroup[] }> {
+    return api.get(`/organizations/${id}/groups`).then(res => res.data)
+  }
+
+  // 获取组织组详情
+  getOrganizationGroup(id: string, groupId: string): Promise<{ group: OrganizationGroup }> {
+    return api.get(`/organizations/${id}/groups/${encodeURIComponent(groupId)}`).then(res => res.data)
+  }
+
+  // 创建组织组
+  createOrganizationGroup(id: string, payload: {
+    display_name: string
+    role_name?: string
+    user_ids?: string[]
+  }): Promise<{ group: OrganizationGroup }> {
+    return api.post(`/organizations/${id}/groups`, payload).then(res => res.data)
+  }
+
+  // 更新组织组
+  updateOrganizationGroup(id: string, groupId: string, payload: {
+    display_name: string
+    role_name?: string
+    user_ids?: string[]
+  }): Promise<{ group: OrganizationGroup }> {
+    return api.patch(`/organizations/${id}/groups/${encodeURIComponent(groupId)}`, payload).then(res => res.data)
+  }
+
+  // 删除组织组
+  deleteOrganizationGroup(id: string, groupId: string): Promise<{ message: string }> {
+    return api.delete(`/organizations/${id}/groups/${encodeURIComponent(groupId)}`).then(res => res.data)
   }
 
   // 获取组织身份提供方
