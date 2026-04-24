@@ -364,6 +364,8 @@ Enterprise OIDC 现在支持两种维护方式：
 
 如果下游 OIDC 应用已经知道用户的企业邮箱，也可以直接在 `/oauth2/authorize` 上带 `login_hint=user@example.com`。MKAuth 现在会把这个 hint 透传到登录页，并自动触发对应的 Enterprise OIDC 发现流程。
 
+如果下游 OIDC 应用拿不到完整邮箱、只知道企业域名，也可以在 `/oauth2/authorize` 上带 `domain_hint=example.com`。MKAuth 也会透传这个 hint，并自动执行基于域名的 Enterprise OIDC 发现。
+
 ### Inbound SCIM 同步
 
 MKAuth 可以暴露 SCIM 2.0 Users 和 Groups 接口，让 Okta、Entra ID、Google Workspace 这类企业目录把用户和组同步到指定组织。

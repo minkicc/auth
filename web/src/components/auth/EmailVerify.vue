@@ -128,6 +128,7 @@ const goToRegister = () => {
       ...(serverApi.clientId ? { client_id: serverApi.clientId } : {}),
       ...(serverApi.redirectUri ? { redirect_uri: serverApi.redirectUri } : {}),
       ...(serverApi.loginHint ? { login_hint: serverApi.loginHint } : {}),
+      ...(serverApi.domainHint ? { domain_hint: serverApi.domainHint } : {}),
     },
   })
 }
@@ -139,6 +140,7 @@ const goToLogin = () => {
       ...(serverApi.clientId ? { client_id: serverApi.clientId } : {}),
       ...(serverApi.redirectUri ? { redirect_uri: serverApi.redirectUri } : {}),
       ...(serverApi.loginHint ? { login_hint: serverApi.loginHint } : {}),
+      ...(serverApi.domainHint ? { domain_hint: serverApi.domainHint } : {}),
     },
   })
 }
@@ -152,8 +154,9 @@ onMounted(() => {
       ? route.query.redirect_url
       : undefined
   const loginHint = typeof route.query.login_hint === 'string' ? route.query.login_hint : undefined
+  const domainHint = typeof route.query.domain_hint === 'string' ? route.query.domain_hint : undefined
 
-  serverApi.updateAuthData(clientId, redirectUri, loginHint)
+  serverApi.updateAuthData(clientId, redirectUri, loginHint, domainHint)
   
   if (!token) {
     loading.value = false

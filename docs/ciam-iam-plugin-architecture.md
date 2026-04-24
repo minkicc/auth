@@ -358,6 +358,7 @@ HRD behavior:
 3. The matched active organization is resolved to one or more runtime Enterprise OIDC providers.
 4. The login page auto-redirects when exactly one provider is matched, or narrows the provider list when multiple providers are available for that organization.
 5. When a downstream OIDC client sends `login_hint`, MKAuth forwards it into the login page and reuses it to trigger HRD automatically.
+6. When a downstream OIDC client sends `domain_hint`, MKAuth can skip the email requirement and trigger HRD directly from the hinted organization domain.
 
 The callback flow:
 

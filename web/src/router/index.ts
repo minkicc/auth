@@ -24,7 +24,8 @@ const routes = [
           ? to.query.redirect_url
           : undefined
       const login_hint = typeof to.query.login_hint === 'string' ? to.query.login_hint : undefined
-      serverApi.updateAuthData(client_id, redirect_uri, login_hint)
+      const domain_hint = typeof to.query.domain_hint === 'string' ? to.query.domain_hint : undefined
+      serverApi.updateAuthData(client_id, redirect_uri, login_hint, domain_hint)
     }
   },
   {
@@ -44,7 +45,8 @@ const routes = [
           ? to.query.redirect_url
           : undefined
       const login_hint = typeof to.query.login_hint === 'string' ? to.query.login_hint : undefined
-      serverApi.updateAuthData(client_id, redirect_uri, login_hint)
+      const domain_hint = typeof to.query.domain_hint === 'string' ? to.query.domain_hint : undefined
+      serverApi.updateAuthData(client_id, redirect_uri, login_hint, domain_hint)
     }
   },
   {

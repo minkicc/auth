@@ -336,6 +336,55 @@ func TestEnterpriseOIDCDiscoverByEmailReturnsNoProviderWhenDomainMissing(t *test
 	}
 }
 
+func TestEnterpriseOIDCDiscoverByDomain(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file:enterprise-oidc-discover-domain?mode=memory&cache=shared"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("failed to open sqlite: %v", err)
+	}
+	if err := NewService(db).AutoMigrate(); err != nil {
+		t.Fatalf("failed to migrate iam tables: %v", err)
+	}
+	if err := db.Create(&Organization{
+		OrganizationID: "org_globex000000000",
+		Slug:           "globex",
+		Name:           "Globex Corp",
+		Status:         OrganizationStatusActive,
+	}).Error; err != nil {
+		t.Fatalf("failed to create organization: %v", err)
+	}
+	if err := db.Create(&OrganizationDomain{
+		Domain:         "globex.com",
+		OrganizationID: "org_globex000000000",
+		Verified:       true,
+	}).Error; err != nil {
+		t.Fatalf("failed to create organization domain: %v", err)
+	}
+
+	manager, err := NewEnterpriseOIDCManager(config.IAMConfig{EnterpriseOIDC: []config.EnterpriseOIDCProviderConfig{{
+		Slug:           "globex-sso",
+		Name:           "Globex Workforce",
+		OrganizationID: "org_globex000000000",
+		Issuer:         "https://login.globex.test",
+		ClientID:       "globex-client",
+		ClientSecret:   "globex-secret",
+		RedirectURI:    "https://auth.example.com/api/enterprise/oidc/globex-sso/callback",
+	}}}, db, nil)
+	if err != nil {
+		t.Fatalf("failed to create enterprise oidc manager: %v", err)
+	}
+
+	result, err := manager.DiscoverByDomain("Globex.COM")
+	if err != nil {
+		t.Fatalf("failed to discover enterprise oidc by domain: %v", err)
+	}
+	if result.Status != EnterpriseOIDCDiscoveryMatched {
+		t.Fatalf("expected matched status, got %q", result.Status)
+	}
+	if result.Domain != "globex.com" || len(result.Providers) != 1 || result.Providers[0].Slug != "globex-sso" {
+		t.Fatalf("unexpected discovery result: %#v", result)
+	}
+}
+
 type fakeEnterpriseUser struct {
 	Subject           string
 	Email             string

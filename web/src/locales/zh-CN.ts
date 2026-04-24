@@ -159,6 +159,7 @@ export default {
     enterpriseOIDCDiscoveryFailed: '企业邮箱发现失败，请稍后再试',
     enterpriseEmailRequired: '请输入企业邮箱',
     enterpriseEmailDomainNotFound: '没有找到与该邮箱域名匹配的企业登录源',
+    enterpriseDomainNotFound: '没有找到与该企业域名匹配的企业登录源',
     enterpriseOrganizationInactive: '该企业组织当前不可用，请联系管理员',
     enterpriseOIDCNotConfigured: '该企业已命中，但尚未配置可用的企业登录源',
   },

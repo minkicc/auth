@@ -32,8 +32,9 @@ func (h *AuthHandler) GetEnterpriseOIDCProviders(c *gin.Context) {
 
 func (h *AuthHandler) DiscoverEnterpriseOIDC(c *gin.Context) {
 	email := strings.TrimSpace(c.Query("email"))
-	if email == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "email is required"})
+	domain := strings.TrimSpace(c.Query("domain"))
+	if email == "" && domain == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "email or domain is required"})
 		return
 	}
 
@@ -41,15 +42,28 @@ func (h *AuthHandler) DiscoverEnterpriseOIDC(c *gin.Context) {
 		c.JSON(http.StatusOK, iam.EnterpriseOIDCDiscoveryResult{
 			Status:    iam.EnterpriseOIDCDiscoveryNoProvider,
 			Email:     strings.ToLower(email),
+			Domain:    strings.ToLower(domain),
 			Providers: []iam.EnterpriseOIDCProviderSummary{},
 		})
 		return
 	}
 
-	result, err := h.enterpriseOIDC.DiscoverByEmail(email)
+	var (
+		result iam.EnterpriseOIDCDiscoveryResult
+		err    error
+	)
+	if email != "" {
+		result, err = h.enterpriseOIDC.DiscoverByEmail(email)
+	} else {
+		result, err = h.enterpriseOIDC.DiscoverByDomain(domain)
+	}
 	if err != nil {
 		if errors.Is(err, iam.ErrInvalidEnterpriseOIDCEmail) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "email is invalid"})
+			return
+		}
+		if errors.Is(err, iam.ErrInvalidEnterpriseOIDCDomain) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "domain is invalid"})
 			return
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})

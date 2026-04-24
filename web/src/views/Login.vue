@@ -370,6 +370,41 @@ const canUseEnterpriseLoginHint = (value: string) => {
   return trimmed.includes('@') && !trimmed.startsWith('@') && !trimmed.endsWith('@')
 }
 
+const canUseEnterpriseDomainHint = (value: string) => {
+  const trimmed = value.trim().toLowerCase()
+  return trimmed.includes('.') && !trimmed.includes('@') && !trimmed.startsWith('.') && !trimmed.endsWith('.')
+}
+
+const applyEnterpriseOIDCDiscoveryResponse = (response: EnterpriseOIDCDiscoveryResponse) => {
+  switch (response.status) {
+    case 'matched':
+      if (response.providers.length === 1) {
+        enterpriseDiscoveryMessage.value = t('auth.enterpriseDiscoveryMatched', {
+          name: enterpriseDiscoveryOrganizationName(response)
+        })
+        handleEnterpriseOIDCLogin(response.providers[0].slug)
+        return
+      }
+      discoveredEnterpriseOIDCProviders.value = response.providers
+      enterpriseDiscoveryMessage.value = t('auth.enterpriseDiscoveryMultiple', {
+        name: enterpriseDiscoveryOrganizationName(response)
+      })
+      return
+    case 'domain_not_found':
+      errorMessage.value = t('errors.enterpriseDomainNotFound')
+      return
+    case 'organization_inactive':
+      errorMessage.value = t('errors.enterpriseOrganizationInactive')
+      return
+    case 'no_provider':
+      errorMessage.value = t('errors.enterpriseOIDCNotConfigured')
+      return
+    default:
+      errorMessage.value = t('errors.enterpriseOIDCDiscoveryFailed')
+      return
+  }
+}
+
 const handleEnterpriseOIDCDiscovery = async () => {
   const email = enterpriseEmail.value.trim()
   if (!email) {
@@ -384,33 +419,23 @@ const handleEnterpriseOIDCDiscovery = async () => {
 
   try {
     const response = await serverApi.discoverEnterpriseOIDCByEmail(email)
-    switch (response.status) {
-      case 'matched':
-        if (response.providers.length === 1) {
-          enterpriseDiscoveryMessage.value = t('auth.enterpriseDiscoveryMatched', {
-            name: enterpriseDiscoveryOrganizationName(response)
-          })
-          handleEnterpriseOIDCLogin(response.providers[0].slug)
-          return
-        }
-        discoveredEnterpriseOIDCProviders.value = response.providers
-        enterpriseDiscoveryMessage.value = t('auth.enterpriseDiscoveryMultiple', {
-          name: enterpriseDiscoveryOrganizationName(response)
-        })
-        return
-      case 'domain_not_found':
-        errorMessage.value = t('errors.enterpriseEmailDomainNotFound')
-        return
-      case 'organization_inactive':
-        errorMessage.value = t('errors.enterpriseOrganizationInactive')
-        return
-      case 'no_provider':
-        errorMessage.value = t('errors.enterpriseOIDCNotConfigured')
-        return
-      default:
-        errorMessage.value = t('errors.enterpriseOIDCDiscoveryFailed')
-        return
-    }
+    applyEnterpriseOIDCDiscoveryResponse(response)
+  } catch (error) {
+    errorMessage.value = getApiErrorMessage(error, t('errors.enterpriseOIDCDiscoveryFailed'))
+  } finally {
+    enterpriseDiscoveryLoading.value = false
+  }
+}
+
+const handleEnterpriseOIDCDomainDiscovery = async (domain: string) => {
+  enterpriseDiscoveryLoading.value = true
+  errorMessage.value = ''
+  enterpriseDiscoveryMessage.value = ''
+  discoveredEnterpriseOIDCProviders.value = []
+
+  try {
+    const response = await serverApi.discoverEnterpriseOIDCByDomain(domain)
+    applyEnterpriseOIDCDiscoveryResponse(response)
   } catch (error) {
     errorMessage.value = getApiErrorMessage(error, t('errors.enterpriseOIDCDiscoveryFailed'))
   } finally {
@@ -453,6 +478,11 @@ onMounted(async () => {
     if (hasEnterpriseOIDCLogin && canUseEnterpriseLoginHint(loginHint)) {
       enterpriseEmail.value = loginHint
       await handleEnterpriseOIDCDiscovery()
+    } else {
+      const domainHint = serverApi.domainHint.trim()
+      if (hasEnterpriseOIDCLogin && canUseEnterpriseDomainHint(domainHint)) {
+        await handleEnterpriseOIDCDomainDiscovery(domainHint)
+      }
     }
 
     // 如果只有微信登录

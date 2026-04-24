@@ -125,6 +125,7 @@ class ServerApi {
     clientId: string = ''
     redirectUri: string = ''
     loginHint: string = ''
+    domainHint: string = ''
 
     private redirectStorageKey(clientId: string): string {
         return `mkauth:redirect:${clientId}`
@@ -132,6 +133,10 @@ class ServerApi {
 
     private loginHintStorageKey(clientId: string): string {
         return `mkauth:login_hint:${clientId}`
+    }
+
+    private domainHintStorageKey(clientId: string): string {
+        return `mkauth:domain_hint:${clientId}`
     }
 
     private appBaseURL(): URL {
@@ -187,6 +192,10 @@ class ServerApi {
         return typeof loginHint === 'string' ? loginHint.trim() : ''
     }
 
+    private sanitizeDomainHint(domainHint?: string | null): string {
+        return typeof domainHint === 'string' ? domainHint.trim().toLowerCase() : ''
+    }
+
     private extractLoginHintFromRedirectUri(redirectUri?: string | null): string {
         const sanitizedRedirectUri = this.sanitizeRedirectUri(redirectUri)
         if (!sanitizedRedirectUri) {
@@ -201,6 +210,25 @@ class ServerApi {
                 return ''
             }
             return this.sanitizeLoginHint(url.searchParams.get('login_hint'))
+        } catch {
+            return ''
+        }
+    }
+
+    private extractDomainHintFromRedirectUri(redirectUri?: string | null): string {
+        const sanitizedRedirectUri = this.sanitizeRedirectUri(redirectUri)
+        if (!sanitizedRedirectUri) {
+            return ''
+        }
+
+        try {
+            const url = new URL(sanitizedRedirectUri)
+            const normalizedPath = this.normalizePath(url.pathname)
+            const isAuthorizePath = normalizedPath === '/oauth2/authorize' || normalizedPath.endsWith('/oauth2/authorize')
+            if (!isAuthorizePath) {
+                return ''
+            }
+            return this.sanitizeDomainHint(url.searchParams.get('domain_hint'))
         } catch {
             return ''
         }
@@ -247,13 +275,15 @@ class ServerApi {
         this.handleLoginRedirect() // 重定向到应用
     }
 
-    updateAuthData(clientId: string, redirectUri?: string, loginHint?: string) {
+    updateAuthData(clientId: string, redirectUri?: string, loginHint?: string, domainHint?: string) {
         serverApi.clientId = clientId
-        if (redirectUri !== undefined || loginHint !== undefined) {
+        if (redirectUri !== undefined || loginHint !== undefined || domainHint !== undefined) {
             const sanitizedRedirectUri = this.sanitizeRedirectUri(redirectUri)
             const sanitizedLoginHint = this.sanitizeLoginHint(loginHint) || this.extractLoginHintFromRedirectUri(sanitizedRedirectUri)
+            const sanitizedDomainHint = this.sanitizeDomainHint(domainHint) || this.extractDomainHintFromRedirectUri(sanitizedRedirectUri)
             serverApi.redirectUri = sanitizedRedirectUri
             serverApi.loginHint = sanitizedLoginHint
+            serverApi.domainHint = sanitizedDomainHint
             if (clientId) {
                 if (sanitizedRedirectUri) {
                     sessionStorage.setItem(this.redirectStorageKey(clientId), sanitizedRedirectUri)
@@ -265,6 +295,11 @@ class ServerApi {
                 } else {
                     sessionStorage.removeItem(this.loginHintStorageKey(clientId))
                 }
+                if (sanitizedDomainHint) {
+                    sessionStorage.setItem(this.domainHintStorageKey(clientId), sanitizedDomainHint)
+                } else {
+                    sessionStorage.removeItem(this.domainHintStorageKey(clientId))
+                }
             }
             return
         }
@@ -272,21 +307,28 @@ class ServerApi {
         if (clientId) {
             const storedRedirectUri = sessionStorage.getItem(this.redirectStorageKey(clientId)) || ''
             const storedLoginHint = sessionStorage.getItem(this.loginHintStorageKey(clientId)) || ''
+            const storedDomainHint = sessionStorage.getItem(this.domainHintStorageKey(clientId)) || ''
             const sanitizedRedirectUri = this.sanitizeRedirectUri(storedRedirectUri)
             const sanitizedLoginHint = this.sanitizeLoginHint(storedLoginHint) || this.extractLoginHintFromRedirectUri(sanitizedRedirectUri)
+            const sanitizedDomainHint = this.sanitizeDomainHint(storedDomainHint) || this.extractDomainHintFromRedirectUri(sanitizedRedirectUri)
             serverApi.redirectUri = sanitizedRedirectUri
             serverApi.loginHint = sanitizedLoginHint
+            serverApi.domainHint = sanitizedDomainHint
             if (!sanitizedRedirectUri) {
                 sessionStorage.removeItem(this.redirectStorageKey(clientId))
             }
             if (!sanitizedLoginHint) {
                 sessionStorage.removeItem(this.loginHintStorageKey(clientId))
             }
+            if (!sanitizedDomainHint) {
+                sessionStorage.removeItem(this.domainHintStorageKey(clientId))
+            }
             return
         }
 
         serverApi.redirectUri = ''
         serverApi.loginHint = ''
+        serverApi.domainHint = ''
     }
 
     hasBusinessConnection(): boolean {
@@ -317,6 +359,17 @@ class ServerApi {
     async discoverEnterpriseOIDCByEmail(email: string): Promise<EnterpriseOIDCDiscoveryResponse> {
         const response = await axios.get('/enterprise/oidc/discover', {
             params: { email }
+        })
+        const data = response.data || {}
+        return {
+            ...data,
+            providers: data.providers || []
+        }
+    }
+
+    async discoverEnterpriseOIDCByDomain(domain: string): Promise<EnterpriseOIDCDiscoveryResponse> {
+        const response = await axios.get('/enterprise/oidc/discover', {
+            params: { domain }
         })
         const data = response.data || {}
         return {

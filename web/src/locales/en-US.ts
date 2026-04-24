@@ -159,6 +159,7 @@ export default {
     enterpriseOIDCDiscoveryFailed: 'Failed to discover enterprise login from email',
     enterpriseEmailRequired: 'Enter your work email',
     enterpriseEmailDomainNotFound: 'No enterprise login was found for that email domain',
+    enterpriseDomainNotFound: 'No enterprise login was found for that organization domain',
     enterpriseOrganizationInactive: 'This organization is currently inactive. Contact your administrator.',
     enterpriseOIDCNotConfigured: 'The organization was matched, but no enterprise login is configured yet',
   },
