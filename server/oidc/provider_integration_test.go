@@ -504,3 +504,46 @@ func TestAuthorizeRedirectsToLoginWithLoginHint(t *testing.T) {
 		t.Fatalf("expected nested authorize redirect_uri to retain login_hint, got %q", redirectURL.Query().Get("login_hint"))
 	}
 }
+
+func TestAuthorizeRedirectsToLoginWithDomainHint(t *testing.T) {
+	env := newIntegrationEnv(t)
+	defer env.Close()
+
+	authorizeURL := "/oauth2/authorize?client_id=demo-spa" +
+		"&redirect_uri=" + url.QueryEscape(testRedirectURI) +
+		"&response_type=code" +
+		"&scope=" + url.QueryEscape("openid profile") +
+		"&code_challenge=" + testCodeChallenge +
+		"&code_challenge_method=S256" +
+		"&state=domain-state" +
+		"&domain_hint=" + url.QueryEscape("example.com")
+
+	authorizeResp := performRequest(t, env.router, http.MethodGet, authorizeURL, nil, nil)
+	if authorizeResp.Code != http.StatusFound {
+		t.Fatalf("expected authorize status 302, got %d with body %s", authorizeResp.Code, authorizeResp.Body.String())
+	}
+
+	location := authorizeResp.Header().Get("Location")
+	loginLocation, err := url.Parse(location)
+	if err != nil {
+		t.Fatalf("failed to parse login redirect location %q: %v", location, err)
+	}
+	if loginLocation.Path != "/login" {
+		t.Fatalf("expected redirect to /login, got %s", location)
+	}
+	if loginLocation.Query().Get("domain_hint") != "example.com" {
+		t.Fatalf("expected domain_hint to round-trip, got %q", loginLocation.Query().Get("domain_hint"))
+	}
+
+	redirectValue := loginLocation.Query().Get("redirect_uri")
+	if redirectValue == "" {
+		t.Fatalf("expected redirect_uri in login redirect")
+	}
+	redirectURL, err := url.Parse(redirectValue)
+	if err != nil {
+		t.Fatalf("failed to parse nested redirect_uri %q: %v", redirectValue, err)
+	}
+	if redirectURL.Query().Get("domain_hint") != "example.com" {
+		t.Fatalf("expected nested authorize redirect_uri to retain domain_hint, got %q", redirectURL.Query().Get("domain_hint"))
+	}
+}

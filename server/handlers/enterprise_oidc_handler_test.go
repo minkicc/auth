@@ -170,3 +170,62 @@ func TestDiscoverEnterpriseOIDCRejectsInvalidEmail(t *testing.T) {
 		t.Fatalf("expected status 400, got %d with body %s", recorder.Code, recorder.Body.String())
 	}
 }
+
+func TestDiscoverEnterpriseOIDCByDomain(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	db, err := gorm.Open(sqlite.Open("file:enterprise-oidc-handler-domain?mode=memory&cache=shared"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("failed to open sqlite: %v", err)
+	}
+	if err := iam.NewService(db).AutoMigrate(); err != nil {
+		t.Fatalf("failed to migrate iam tables: %v", err)
+	}
+	if err := db.Create(&iam.Organization{
+		OrganizationID: "org_globex000000000",
+		Slug:           "globex",
+		Name:           "Globex Corp",
+		Status:         iam.OrganizationStatusActive,
+	}).Error; err != nil {
+		t.Fatalf("failed to create organization: %v", err)
+	}
+	if err := db.Create(&iam.OrganizationDomain{
+		Domain:         "globex.com",
+		OrganizationID: "org_globex000000000",
+		Verified:       true,
+	}).Error; err != nil {
+		t.Fatalf("failed to create organization domain: %v", err)
+	}
+
+	manager, err := iam.NewEnterpriseOIDCManager(config.IAMConfig{EnterpriseOIDC: []config.EnterpriseOIDCProviderConfig{{
+		Slug:           "globex",
+		Name:           "Globex Workforce",
+		OrganizationID: "org_globex000000000",
+		Issuer:         "https://login.globex.test",
+		ClientID:       "globex-client",
+		ClientSecret:   "globex-secret",
+		RedirectURI:    "https://auth.example.com/api/enterprise/oidc/globex/callback",
+	}}}, db, nil)
+	if err != nil {
+		t.Fatalf("failed to create enterprise oidc manager: %v", err)
+	}
+
+	h := &AuthHandler{enterpriseOIDC: manager}
+	router := gin.New()
+	router.GET("/enterprise/oidc/discover", h.DiscoverEnterpriseOIDC)
+
+	req := httptest.NewRequest(http.MethodGet, "/enterprise/oidc/discover?domain=globex.com", nil)
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	var body iam.EnterpriseOIDCDiscoveryResult
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("failed to decode discovery response: %v", err)
+	}
+	if body.Status != iam.EnterpriseOIDCDiscoveryMatched || body.Domain != "globex.com" || len(body.Providers) != 1 {
+		t.Fatalf("unexpected domain discovery body: %#v", body)
+	}
+}

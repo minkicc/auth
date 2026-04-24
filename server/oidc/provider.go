@@ -204,6 +204,9 @@ func (p *Provider) authorize(c *gin.Context) {
 		if loginHint := strings.TrimSpace(c.Query("login_hint")); loginHint != "" {
 			loginURL += "&login_hint=" + url.QueryEscape(loginHint)
 		}
+		if domainHint := strings.TrimSpace(c.Query("domain_hint")); domainHint != "" {
+			loginURL += "&domain_hint=" + url.QueryEscape(domainHint)
+		}
 		c.Redirect(http.StatusFound, loginURL)
 		return
 	}

@@ -37,6 +37,7 @@ const defaultEnterpriseOIDCTimeout = 10 * time.Second
 var defaultEnterpriseOIDCScopes = []string{"openid", "profile", "email"}
 
 var ErrInvalidEnterpriseOIDCEmail = errors.New("enterprise oidc discovery email is invalid")
+var ErrInvalidEnterpriseOIDCDomain = errors.New("enterprise oidc discovery domain is invalid")
 
 type EnterpriseOIDCDiscoveryStatus string
 
@@ -295,8 +296,22 @@ func (m *EnterpriseOIDCManager) DiscoverByEmail(email string) (EnterpriseOIDCDis
 	if err != nil {
 		return result, err
 	}
-	result.Domain = domain
+	return m.discoverByDomain(domain, result)
+}
 
+func (m *EnterpriseOIDCManager) DiscoverByDomain(domain string) (EnterpriseOIDCDiscoveryResult, error) {
+	result := EnterpriseOIDCDiscoveryResult{
+		Providers: []EnterpriseOIDCProviderSummary{},
+	}
+	normalizedDomain, err := normalizeEnterpriseOIDCDomain(domain)
+	if err != nil {
+		return result, err
+	}
+	return m.discoverByDomain(normalizedDomain, result)
+}
+
+func (m *EnterpriseOIDCManager) discoverByDomain(domain string, result EnterpriseOIDCDiscoveryResult) (EnterpriseOIDCDiscoveryResult, error) {
+	result.Domain = domain
 	if m == nil || m.db == nil {
 		result.Status = EnterpriseOIDCDiscoveryNoProvider
 		return result, nil
@@ -814,25 +829,29 @@ func normalizeEnterpriseOIDCEmailDomain(raw string) (string, error) {
 	if at <= 0 || at == len(raw)-1 {
 		return "", ErrInvalidEnterpriseOIDCEmail
 	}
-	return normalizeEnterpriseOIDCDomain(raw[at+1:])
+	domain, err := normalizeEnterpriseOIDCDomain(raw[at+1:])
+	if err != nil {
+		return "", ErrInvalidEnterpriseOIDCEmail
+	}
+	return domain, nil
 }
 
 func normalizeEnterpriseOIDCDomain(raw string) (string, error) {
 	domain := strings.TrimSpace(strings.ToLower(raw))
 	domain = strings.TrimSuffix(domain, ".")
 	if domain == "" {
-		return "", ErrInvalidEnterpriseOIDCEmail
+		return "", ErrInvalidEnterpriseOIDCDomain
 	}
 	if strings.Contains(domain, "://") || strings.ContainsAny(domain, "/@") || len(domain) > 253 || !strings.Contains(domain, ".") {
-		return "", ErrInvalidEnterpriseOIDCEmail
+		return "", ErrInvalidEnterpriseOIDCDomain
 	}
 	for _, label := range strings.Split(domain, ".") {
 		if label == "" || len(label) > 63 || strings.HasPrefix(label, "-") || strings.HasSuffix(label, "-") {
-			return "", ErrInvalidEnterpriseOIDCEmail
+			return "", ErrInvalidEnterpriseOIDCDomain
 		}
 		for _, ch := range label {
 			if (ch < 'a' || ch > 'z') && (ch < '0' || ch > '9') && ch != '-' {
-				return "", ErrInvalidEnterpriseOIDCEmail
+				return "", ErrInvalidEnterpriseOIDCDomain
 			}
 		}
 	}
