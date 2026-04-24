@@ -220,6 +220,16 @@ func (p *Provider) authorize(c *gin.Context) {
 		return
 	}
 
+	if p.requiresOrganizationSelection(user.UserID, c.Query("org_hint")) {
+		if c.Query("prompt") == "none" {
+			p.redirectAuthorizeError(c, redirectURI, "interaction_required", c.Query("state"))
+			return
+		}
+		chooserURL := "/select-organization?client_id=" + url.QueryEscape(client.ClientID) + "&redirect_uri=" + url.QueryEscape(p.currentRequestURL(c))
+		c.Redirect(http.StatusFound, chooserURL)
+		return
+	}
+
 	selectedOrgID, ok := p.resolveAuthorizeOrganization(c, user.UserID, redirectURI)
 	if !ok {
 		return
@@ -665,6 +675,22 @@ func (p *Provider) resolveAuthorizeOrganization(c *gin.Context, userID, redirect
 		return "", false
 	}
 	return orgClaims.OrgID, true
+}
+
+func (p *Provider) requiresOrganizationSelection(userID, orgHint string) bool {
+	if strings.TrimSpace(orgHint) != "" || p.db == nil || userID == "" || !p.db.Migrator().HasTable(&iam.OrganizationMembership{}) {
+		return false
+	}
+
+	var memberships []iam.OrganizationMembership
+	if err := p.db.
+		Where("user_id = ? AND status = ?", userID, iam.MembershipStatusActive).
+		Order("created_at ASC").
+		Limit(2).
+		Find(&memberships).Error; err != nil {
+		return false
+	}
+	return len(memberships) > 1
 }
 
 func (p *Provider) authenticateClient(c *gin.Context) (config.OIDCClientConfig, bool) {
