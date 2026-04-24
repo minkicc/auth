@@ -167,10 +167,10 @@
         <el-tab-pane label="企业登录" name="identity-providers">
           <div class="identity-provider-header">
             <div>
-              <h3>Enterprise OIDC</h3>
-              <p>为组织配置上游企业 IdP，保存后会立即刷新运行时，无需修改 YAML 或重启服务。</p>
+              <h3>企业登录源</h3>
+              <p>为组织配置上游企业 IdP，支持 Enterprise OIDC 和 Enterprise SAML，保存后会立即刷新运行时。</p>
             </div>
-            <el-button type="primary" :disabled="!activeOrg" @click="openIdentityProviderDialog()">新建 Enterprise OIDC</el-button>
+            <el-button type="primary" :disabled="!activeOrg" @click="openIdentityProviderDialog()">新建企业登录源</el-button>
           </div>
 
           <el-table
@@ -181,6 +181,11 @@
           >
             <el-table-column prop="name" label="名称" min-width="180" />
             <el-table-column prop="slug" label="Slug" min-width="150" />
+            <el-table-column label="类型" width="120">
+              <template #default="{ row }">
+                <el-tag effect="plain">{{ row.provider_type?.toUpperCase() || 'OIDC' }}</el-tag>
+              </template>
+            </el-table-column>
             <el-table-column label="状态" width="120">
               <template #default="{ row }">
                 <el-tag :type="row.enabled ? 'success' : 'info'" effect="plain">
@@ -200,23 +205,35 @@
             <el-table-column label="优先级" width="110">
               <template #default="{ row }">{{ row.priority ?? 100 }}</template>
             </el-table-column>
-            <el-table-column label="Issuer" min-width="220">
+            <el-table-column label="Issuer / Metadata" min-width="220">
               <template #default="{ row }">
-                <span class="mono">{{ row.config?.issuer || '-' }}</span>
+                <span class="mono">{{ row.provider_type === 'saml' ? (row.config?.idp_metadata_url || '-') : (row.config?.issuer || '-') }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="Redirect URI" min-width="280">
+            <el-table-column label="Redirect / ACS" min-width="280">
               <template #default="{ row }">
-                <span class="mono">{{ row.config?.redirect_uri || '-' }}</span>
+                <span class="mono">{{ row.provider_type === 'saml' ? (row.config?.acs_url || '-') : (row.config?.redirect_uri || '-') }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="Scopes" min-width="180">
-              <template #default="{ row }">{{ row.config?.scopes?.join(', ') || '-' }}</template>
-            </el-table-column>
-            <el-table-column label="Secret" width="120">
+            <el-table-column label="配置摘要" min-width="200">
               <template #default="{ row }">
-                <el-tag :type="row.config?.client_secret_configured ? 'success' : 'warning'" effect="plain">
-                  {{ row.config?.client_secret_configured ? '已配置' : '未配置' }}
+                <span v-if="row.provider_type === 'saml'">
+                  {{ row.config?.entity_id || row.config?.name_id_format || '-' }}
+                </span>
+                <span v-else>{{ row.config?.scopes?.join(', ') || '-' }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="配置" width="120">
+              <template #default="{ row }">
+                <el-tag
+                  :type="row.provider_type === 'saml'
+                    ? (row.config?.idp_metadata_xml_configured ? 'success' : 'info')
+                    : (row.config?.client_secret_configured ? 'success' : 'warning')"
+                  effect="plain"
+                >
+                  {{ row.provider_type === 'saml'
+                    ? (row.config?.idp_metadata_xml_configured ? '内置元数据' : 'URL 元数据')
+                    : (row.config?.client_secret_configured ? '已配置' : '未配置') }}
                 </el-tag>
               </template>
             </el-table-column>
@@ -236,11 +253,17 @@
 
     <el-dialog
       v-model="identityProviderDialogVisible"
-      :title="editingIdentityProvider ? '编辑 Enterprise OIDC' : '新建 Enterprise OIDC'"
+      :title="editingIdentityProvider ? '编辑企业登录源' : '新建企业登录源'"
       width="640px"
       append-to-body
     >
       <el-form label-position="top">
+        <el-form-item label="类型">
+          <el-select v-model="identityProviderForm.provider_type" class="full-width">
+            <el-option label="Enterprise OIDC" value="oidc" />
+            <el-option label="Enterprise SAML" value="saml" />
+          </el-select>
+        </el-form-item>
         <el-form-item label="名称">
           <el-input v-model="identityProviderForm.name" placeholder="Acme Workforce" />
         </el-form-item>
@@ -262,38 +285,78 @@
           <el-switch v-model="identityProviderForm.auto_redirect" active-text="自动跳转" inactive-text="手动选择" />
           <p class="form-hint">命中该组织且存在多个登录源时，会优先直跳当前优先提供方。建议同一组织只启用一个自动跳转源。</p>
         </el-form-item>
-        <el-form-item label="Issuer">
-          <el-input v-model="identityProviderForm.issuer" placeholder="https://login.acme.com" />
-        </el-form-item>
-        <el-form-item label="Client ID">
-          <el-input v-model="identityProviderForm.client_id" placeholder="acme-client-id" />
-        </el-form-item>
-        <el-form-item label="Client Secret">
-          <el-input
-            v-model="identityProviderForm.client_secret"
-            type="password"
-            show-password
-            :placeholder="editingIdentityProvider ? '留空则保留现有 secret' : '请输入 client secret'"
-          />
-          <p v-if="editingIdentityProvider?.config?.client_secret_configured" class="form-hint">
-            当前已配置 secret，留空会继续沿用原值。
-          </p>
-        </el-form-item>
-        <el-form-item label="Redirect URI">
-          <el-input
-            v-model="identityProviderForm.redirect_uri"
-            placeholder="https://auth.example.com/api/enterprise/oidc/acme-workforce/callback"
-          />
-        </el-form-item>
-        <el-form-item label="Scopes">
-          <el-input
-            v-model="identityProviderForm.scopes_text"
-            type="textarea"
-            :rows="3"
-            placeholder="openid,profile,email"
-          />
-          <p class="form-hint">支持逗号或换行分隔，默认会补齐 `openid, profile, email`。</p>
-        </el-form-item>
+        <template v-if="identityProviderForm.provider_type === 'oidc'">
+          <el-form-item label="Issuer">
+            <el-input v-model="identityProviderForm.issuer" placeholder="https://login.acme.com" />
+          </el-form-item>
+          <el-form-item label="Client ID">
+            <el-input v-model="identityProviderForm.client_id" placeholder="acme-client-id" />
+          </el-form-item>
+          <el-form-item label="Client Secret">
+            <el-input
+              v-model="identityProviderForm.client_secret"
+              type="password"
+              show-password
+              :placeholder="editingIdentityProvider ? '留空则保留现有 secret' : '请输入 client secret'"
+            />
+            <p v-if="editingIdentityProvider?.provider_type === 'oidc' && editingIdentityProvider?.config?.client_secret_configured" class="form-hint">
+              当前已配置 secret，留空会继续沿用原值。
+            </p>
+          </el-form-item>
+          <el-form-item label="Redirect URI">
+            <el-input
+              v-model="identityProviderForm.redirect_uri"
+              placeholder="https://auth.example.com/api/enterprise/oidc/acme-workforce/callback"
+            />
+          </el-form-item>
+          <el-form-item label="Scopes">
+            <el-input
+              v-model="identityProviderForm.scopes_text"
+              type="textarea"
+              :rows="3"
+              placeholder="openid,profile,email"
+            />
+            <p class="form-hint">支持逗号或换行分隔，默认会补齐 `openid, profile, email`。</p>
+          </el-form-item>
+        </template>
+        <template v-else>
+          <el-form-item label="IdP Metadata URL">
+            <el-input v-model="identityProviderForm.idp_metadata_url" placeholder="https://login.acme.com/metadata" />
+          </el-form-item>
+          <el-form-item label="IdP Metadata XML">
+            <el-input
+              v-model="identityProviderForm.idp_metadata_xml"
+              type="textarea"
+              :rows="4"
+              placeholder="<EntityDescriptor ...>"
+            />
+            <p class="form-hint">可选。留空时会继续使用已有 XML；如果同时配置 URL，则优先使用 XML。</p>
+          </el-form-item>
+          <el-form-item label="Entity ID">
+            <el-input v-model="identityProviderForm.entity_id" placeholder="留空则默认使用 metadata 地址" />
+          </el-form-item>
+          <el-form-item label="ACS URL">
+            <el-input v-model="identityProviderForm.acs_url" placeholder="留空则默认生成 /api/enterprise/saml/:slug/acs" />
+          </el-form-item>
+          <el-form-item label="NameID Format">
+            <el-input v-model="identityProviderForm.name_id_format" placeholder="urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress" />
+          </el-form-item>
+          <el-form-item label="Email Attribute">
+            <el-input v-model="identityProviderForm.email_attribute" placeholder="email 或 urn:oid:0.9.2342.19200300.100.1.3" />
+          </el-form-item>
+          <el-form-item label="Username Attribute">
+            <el-input v-model="identityProviderForm.username_attribute" placeholder="uid" />
+          </el-form-item>
+          <el-form-item label="Display Name Attribute">
+            <el-input v-model="identityProviderForm.display_name_attribute" placeholder="displayName" />
+          </el-form-item>
+          <el-form-item label="允许 IdP 发起">
+            <el-switch v-model="identityProviderForm.allow_idp_initiated" active-text="允许" inactive-text="仅 SP 发起" />
+          </el-form-item>
+          <el-form-item label="默认回跳地址">
+            <el-input v-model="identityProviderForm.default_redirect_uri" placeholder="/profile" />
+          </el-form-item>
+        </template>
       </el-form>
       <template #footer>
         <el-button @click="identityProviderDialogVisible = false">取消</el-button>
@@ -363,7 +426,17 @@ function defaultIdentityProviderForm() {
     client_id: '',
     client_secret: '',
     redirect_uri: '',
-    scopes_text: 'openid,profile,email'
+    scopes_text: 'openid,profile,email',
+    idp_metadata_url: '',
+    idp_metadata_xml: '',
+    entity_id: '',
+    acs_url: '',
+    name_id_format: '',
+    email_attribute: '',
+    username_attribute: '',
+    display_name_attribute: '',
+    allow_idp_initiated: false,
+    default_redirect_uri: '/profile'
   }
 }
 
@@ -554,7 +627,17 @@ const openIdentityProviderDialog = (provider?: OrganizationIdentityProvider) => 
     client_id: provider?.config?.client_id || '',
     client_secret: '',
     redirect_uri: provider?.config?.redirect_uri || '',
-    scopes_text: provider?.config?.scopes?.join(',') || 'openid,profile,email'
+    scopes_text: provider?.config?.scopes?.join(',') || 'openid,profile,email',
+    idp_metadata_url: provider?.config?.idp_metadata_url || '',
+    idp_metadata_xml: '',
+    entity_id: provider?.config?.entity_id || '',
+    acs_url: provider?.config?.acs_url || '',
+    name_id_format: provider?.config?.name_id_format || '',
+    email_attribute: provider?.config?.email_attribute || '',
+    username_attribute: provider?.config?.username_attribute || '',
+    display_name_attribute: provider?.config?.display_name_attribute || '',
+    allow_idp_initiated: provider?.config?.allow_idp_initiated ?? false,
+    default_redirect_uri: provider?.config?.default_redirect_uri || '/profile'
   }
   identityProviderDialogVisible.value = true
 }
@@ -575,7 +658,17 @@ const saveIdentityProvider = async () => {
       client_id: identityProviderForm.value.client_id,
       client_secret: identityProviderForm.value.client_secret || undefined,
       redirect_uri: identityProviderForm.value.redirect_uri,
-      scopes: parseScopes(identityProviderForm.value.scopes_text)
+      scopes: parseScopes(identityProviderForm.value.scopes_text),
+      idp_metadata_url: identityProviderForm.value.idp_metadata_url || undefined,
+      idp_metadata_xml: identityProviderForm.value.idp_metadata_xml || undefined,
+      entity_id: identityProviderForm.value.entity_id || undefined,
+      acs_url: identityProviderForm.value.acs_url || undefined,
+      name_id_format: identityProviderForm.value.name_id_format || undefined,
+      email_attribute: identityProviderForm.value.email_attribute || undefined,
+      username_attribute: identityProviderForm.value.username_attribute || undefined,
+      display_name_attribute: identityProviderForm.value.display_name_attribute || undefined,
+      allow_idp_initiated: identityProviderForm.value.allow_idp_initiated,
+      default_redirect_uri: identityProviderForm.value.default_redirect_uri || undefined
     }
     if (editingIdentityProvider.value) {
       await serverApi.updateOrganizationIdentityProvider(

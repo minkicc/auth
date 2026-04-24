@@ -34,6 +34,7 @@ const ADMIN_ROUTER_PATH = config.ADMIN_ROUTER_PATH
 // AdminServer Admin server
 type AdminServer struct {
 	config         *config.AdminConfig
+	publicBaseURL  string
 	db             *gorm.DB
 	router         *gin.Engine
 	server         *http.Server
@@ -42,10 +43,11 @@ type AdminServer struct {
 	sessionMgr     *auth.SessionManager
 	plugins        *plugins.Runtime
 	enterpriseOIDC *iam.EnterpriseOIDCManager
+	enterpriseSAML *iam.EnterpriseSAMLManager
 }
 
 // NewAdminServer Create admin server
-func NewAdminServer(cfg *config.Config, db *gorm.DB, logger *log.Logger, pluginRuntime *plugins.Runtime, enterpriseOIDC *iam.EnterpriseOIDCManager, webFilePath string, port int) *AdminServer {
+func NewAdminServer(cfg *config.Config, db *gorm.DB, logger *log.Logger, pluginRuntime *plugins.Runtime, enterpriseOIDC *iam.EnterpriseOIDCManager, enterpriseSAML *iam.EnterpriseSAMLManager, webFilePath string, port int) *AdminServer {
 	if !cfg.Admin.Enabled {
 		return nil
 	}
@@ -82,12 +84,14 @@ func NewAdminServer(cfg *config.Config, db *gorm.DB, logger *log.Logger, pluginR
 	// Create admin server
 	server := &AdminServer{
 		config:         &cfg.Admin,
+		publicBaseURL:  cfg.OIDC.Issuer,
 		db:             db,
 		logger:         logger,
 		redis:          redisStore,
 		sessionMgr:     sessionManager,
 		plugins:        pluginRuntime,
 		enterpriseOIDC: enterpriseOIDC,
+		enterpriseSAML: enterpriseSAML,
 	}
 
 	// Set Gin mode

@@ -177,17 +177,27 @@ export interface OrganizationMembership {
 }
 
 export interface OrganizationIdentityProviderConfig {
-  issuer: string
-  client_id: string
-  redirect_uri: string
-  scopes: string[]
-  client_secret_configured: boolean
+  issuer?: string
+  client_id?: string
+  redirect_uri?: string
+  scopes?: string[]
+  client_secret_configured?: boolean
+  idp_metadata_url?: string
+  idp_metadata_xml_configured?: boolean
+  entity_id?: string
+  acs_url?: string
+  name_id_format?: string
+  email_attribute?: string
+  username_attribute?: string
+  display_name_attribute?: string
+  allow_idp_initiated?: boolean
+  default_redirect_uri?: string
 }
 
 export interface OrganizationIdentityProvider {
   identity_provider_id: string
   organization_id: string
-  provider_type: 'oidc' | string
+  provider_type: 'oidc' | 'saml' | string
   name: string
   slug: string
   enabled: boolean
@@ -448,11 +458,21 @@ class ServerApi {
     priority?: number
     is_default?: boolean
     auto_redirect?: boolean
-    issuer: string
-    client_id: string
+    issuer?: string
+    client_id?: string
     client_secret?: string
-    redirect_uri: string
+    redirect_uri?: string
     scopes?: string[]
+    idp_metadata_url?: string
+    idp_metadata_xml?: string
+    entity_id?: string
+    acs_url?: string
+    name_id_format?: string
+    email_attribute?: string
+    username_attribute?: string
+    display_name_attribute?: string
+    allow_idp_initiated?: boolean
+    default_redirect_uri?: string
   }): Promise<{ identity_provider: OrganizationIdentityProvider }> {
     return api.post(`/organizations/${id}/identity-providers`, payload).then(res => res.data)
   }
@@ -466,11 +486,21 @@ class ServerApi {
     priority?: number
     is_default?: boolean
     auto_redirect?: boolean
-    issuer: string
-    client_id: string
+    issuer?: string
+    client_id?: string
     client_secret?: string
-    redirect_uri: string
+    redirect_uri?: string
     scopes?: string[]
+    idp_metadata_url?: string
+    idp_metadata_xml?: string
+    entity_id?: string
+    acs_url?: string
+    name_id_format?: string
+    email_attribute?: string
+    username_attribute?: string
+    display_name_attribute?: string
+    allow_idp_initiated?: boolean
+    default_redirect_uri?: string
   }): Promise<{ identity_provider: OrganizationIdentityProvider }> {
     return api.patch(`/organizations/${id}/identity-providers/${encodeURIComponent(providerId)}`, payload).then(res => res.data)
   }

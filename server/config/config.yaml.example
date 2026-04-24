@@ -46,8 +46,8 @@ oidc:
         - "email"
 
 iam:
-  # Optional static bootstrap. You can also create Enterprise OIDC providers
-  # later from the admin console under Organizations -> Enterprise OIDC.
+  # Optional static bootstrap. You can also create enterprise OIDC/SAML
+  # providers later from the admin console under Organizations -> Enterprise Login.
   enterprise_oidc:
     - slug: "acme"
       name: "Acme Workforce"
@@ -64,6 +64,24 @@ iam:
         - "openid"
         - "profile"
         - "email"
+  enterprise_saml:
+    - slug: "acme-saml"
+      name: "Acme SAML"
+      organization_id: "org_acme000000000000"
+      # Optional multi-IdP policy. Lower priority wins.
+      priority: 20
+      is_default: false
+      auto_redirect: false
+      idp_metadata_url: "https://idp.example.com/metadata"
+      # idp_metadata_xml: "<EntityDescriptor ...>...</EntityDescriptor>"
+      entity_id: "https://auth.example.com/api/enterprise/saml/acme-saml/metadata"
+      acs_url: "https://auth.example.com/api/enterprise/saml/acme-saml/acs"
+      name_id_format: "urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress"
+      email_attribute: "email"
+      username_attribute: "preferred_username"
+      display_name_attribute: "displayName"
+      allow_idp_initiated: false
+      default_redirect_uri: "https://app.example.com/login/callback"
   scim_inbound:
     - enabled: false
       slug: "acme-scim"

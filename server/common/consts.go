@@ -23,4 +23,5 @@ const (
 	RedisKeyOIDCAuthCode        = "auth_oidc_code:"
 	RedisKeyOIDCBrowserSession  = "auth_oidc_browser_session:"
 	RedisKeyEnterpriseOIDCState = "auth_enterprise_oidc_state:"
+	RedisKeyEnterpriseSAMLState = "auth_enterprise_saml_state:"
 )
