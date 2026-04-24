@@ -347,6 +347,8 @@ The admin UI can also manage manual organization groups. Group members automatic
 
 When a user has an active organization membership and the downstream OIDC client requests `profile`, MKAuth can include `org_id`, `org_slug`, `org_roles`, and `org_groups` in the ID Token and `/oauth2/userinfo`.
 
+If the same user belongs to multiple organizations, downstream OIDC clients can pass `org_hint=<organization_id_or_slug>` to `/oauth2/authorize`. MKAuth will then pin the authorization result, `id_token`, access token, and `/oauth2/userinfo` response to that organization context.
+
 Enterprise login can now be managed in two ways:
 
 - Static bootstrap via `iam.enterprise_oidc` and `iam.enterprise_saml` in YAML
@@ -375,6 +377,11 @@ The response includes the matched organization plus one or more enterprise ident
 If a downstream OIDC client already knows the user's work email, it can pass `login_hint=user@example.com` to `/oauth2/authorize`. MKAuth now forwards that hint to the login page and automatically triggers enterprise provider discovery from it.
 
 If the downstream OIDC client only knows the organization domain, it can instead pass `domain_hint=example.com` to `/oauth2/authorize`. MKAuth forwards that hint too and performs domain-based enterprise provider discovery automatically.
+
+If the downstream OIDC client already knows which organization context should be used for a multi-tenant user, it can also pass:
+
+- `org_hint=acme`
+- `org_hint=org_acme000000000000`
 
 ### Inbound SCIM provisioning
 
@@ -579,7 +586,7 @@ Common endpoints:
 - `POST /api/logout`
 - `GET /api/user`
 
-When CIAM/IAM organization data exists and the downstream OIDC client requests `profile`, MKAuth can also include `org_id`, `org_slug`, `org_roles`, and `org_groups` in the ID Token and `/oauth2/userinfo`.
+When CIAM/IAM organization data exists and the downstream OIDC client requests `profile`, MKAuth can also include `org_id`, `org_slug`, `org_roles`, and `org_groups` in the ID Token and `/oauth2/userinfo`. Multi-organization users can be pinned to a specific organization context through `org_hint` on `/oauth2/authorize`.
 
 Example account login request:
 

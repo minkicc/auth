@@ -353,6 +353,8 @@ go run ./pluginsign sign -manifest ../examples/plugins/http-claims-action/mkauth
 
 当用户存在 active 组织成员关系，并且下游 OIDC 客户端请求了 `profile` scope 时，MKAuth 可以在 ID Token 和 `/oauth2/userinfo` 中返回 `org_id`、`org_slug`、`org_roles`、`org_groups`。
 
+如果同一个用户属于多个组织，下游 OIDC 应用现在还可以在 `/oauth2/authorize` 上带 `org_hint=<组织ID或slug>`。MKAuth 会把这次授权、`id_token`、access token 以及 `/oauth2/userinfo` 都固定到指定组织上下文。
+
 企业登录源现在支持两种维护方式：
 
 - 通过 `iam.enterprise_oidc` 和 `iam.enterprise_saml` 做 YAML 静态引导
@@ -379,6 +381,11 @@ go run ./pluginsign sign -manifest ../examples/plugins/http-claims-action/mkauth
 如果下游 OIDC 应用已经知道用户的企业邮箱，也可以直接在 `/oauth2/authorize` 上带 `login_hint=user@example.com`。MKAuth 现在会把这个 hint 透传到登录页，并自动触发对应的企业身份源发现流程。
 
 如果下游 OIDC 应用拿不到完整邮箱、只知道企业域名，也可以在 `/oauth2/authorize` 上带 `domain_hint=example.com`。MKAuth 也会透传这个 hint，并自动执行基于域名的企业身份源发现。
+
+如果下游 OIDC 应用已经知道多组织用户应该进入哪个组织上下文，也可以直接传：
+
+- `org_hint=acme`
+- `org_hint=org_acme000000000000`
 
 ### Inbound SCIM 同步
 
@@ -583,7 +590,7 @@ curl -X POST http://localhost:8080/oauth2/token \
 - `POST /api/logout`
 - `GET /api/user`
 
-当存在 CIAM/IAM 组织成员数据，并且下游 OIDC 客户端请求了 `profile` scope 时，MKAuth 会在 ID Token 和 `/oauth2/userinfo` 中额外返回 `org_id`、`org_slug`、`org_roles`、`org_groups`。
+当存在 CIAM/IAM 组织成员数据，并且下游 OIDC 客户端请求了 `profile` scope 时，MKAuth 会在 ID Token 和 `/oauth2/userinfo` 中额外返回 `org_id`、`org_slug`、`org_roles`、`org_groups`。对于多组织用户，也可以通过 `/oauth2/authorize` 的 `org_hint` 把这次授权固定到指定组织。
 
 账号登录示例：
 

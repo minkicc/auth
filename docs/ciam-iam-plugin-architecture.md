@@ -21,6 +21,7 @@ Implemented:
 - HRD (Home Realm Discovery) from verified organization domains to Enterprise OIDC and Enterprise SAML providers.
 - Organization-level default provider, provider priority, and optional auto-redirect policy for enterprise provider discovery.
 - Organization claim injection into ID Token and `/oauth2/userinfo`, including `org_groups`.
+- Downstream OIDC organization pinning through `org_hint`.
 - Admin API and admin console page for organization, domain, membership, group, and enterprise identity provider management.
 - Inbound SCIM Users and Groups MVP for enterprise directory provisioning into an organization.
 
@@ -28,7 +29,7 @@ Not implemented yet:
 
 - LDAP federation or sync.
 - Full role/group/RBAC policy enforcement.
-- Explicit organization selection for users who belong to multiple organizations.
+- Interactive organization chooser for users who belong to multiple organizations.
 
 ## Plugin Types
 
@@ -433,7 +434,7 @@ When a user has an active organization membership and the downstream OIDC client
 - `org_roles`: role names from the active organization membership.
 - `org_groups`: display names of the active organization's assigned groups.
 
-The first version selects the earliest active organization membership. A future version should add explicit organization selection for users who belong to multiple organizations.
+By default, MKAuth selects the earliest active organization membership. Downstream OIDC clients can now override that by sending `org_hint=<organization_id_or_slug>` to `/oauth2/authorize`. A future version should add an interactive organization chooser for end users who belong to multiple organizations.
 
 ## Recommended Delivery Order
 
