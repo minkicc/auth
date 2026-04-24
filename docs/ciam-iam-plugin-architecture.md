@@ -442,6 +442,11 @@ iam:
       bind_dn: "cn=svc-bind,ou=system,dc=example,dc=com"
       bind_password: "YOUR_LDAP_BIND_PASSWORD"
       user_filter: "(&(objectClass=person)(uid={username}))"
+      group_member_attribute: "memberOf"
+      # group_base_dn: "ou=groups,dc=example,dc=com"
+      # group_filter: "(|(member={user_dn})(uniqueMember={user_dn})(memberUid={username}))"
+      group_identifier_attribute: "entryUUID"
+      group_name_attribute: "displayName"
       subject_attribute: "entryUUID"
       email_attribute: "mail"
       username_attribute: "uid"
@@ -461,7 +466,9 @@ Enterprise LDAP behavior:
 5. MKAuth links `(provider_type=ldap, provider_id=:slug, subject=...)` into `external_identities`.
 6. Creates a new internal `usr_...` user when no linked user exists.
 7. Adds an organization membership when the provider has `organization_id`.
-8. Reuses the existing MKAuth `oidc_session` browser session mechanism after directory login succeeds.
+8. Optionally syncs directory groups into `organization_groups` by reading `group_member_attribute` such as `memberOf`, or by searching `group_base_dn` with `group_filter`.
+9. Recalculates only LDAP-managed membership roles when directory group membership changes, preserving manually assigned or SCIM-managed roles.
+10. Reuses the existing MKAuth `oidc_session` browser session mechanism after directory login succeeds.
 
 ## Organization Claims
 

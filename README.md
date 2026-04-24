@@ -366,6 +366,8 @@ Each enterprise identity provider also supports lightweight multi-IdP policy fie
 
 Enterprise OIDC providers keep their `client_secret` stored but hidden from admin API responses. Enterprise SAML providers can be configured with either `idp_metadata_url` or inline `idp_metadata_xml`, together with optional attribute mapping fields such as `email_attribute`, `username_attribute`, and `display_name_attribute`.
 
+Enterprise LDAP/AD providers now also support lightweight group sync. MKAuth can read group DNs from `group_member_attribute` such as `memberOf`, or search under `group_base_dn` with `group_filter`, then map those directory groups into `organization_groups` plus managed `org_roles`.
+
 Providers created from the admin console are stored in the database, and saving changes triggers an in-process reload so enterprise login routes become available immediately without restarting MKAuth.
 
 When an organization has at least one verified domain plus enterprise identity providers, the end-user login page can now perform HRD (Home Realm Discovery) from a work email address. The recommended public discovery endpoint is:

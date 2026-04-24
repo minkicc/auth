@@ -95,6 +95,14 @@ iam:
       bind_dn: "cn=svc-bind,ou=system,dc=example,dc=com"
       bind_password: "YOUR_LDAP_BIND_PASSWORD"
       user_filter: "(&(objectClass=person)(uid={username}))"
+      # Optional LDAP group sync. By default MKAuth will read `memberOf`
+      # from the user entry when available. If your directory does not expose
+      # it, configure group_base_dn + group_filter for explicit group search.
+      group_member_attribute: "memberOf"
+      # group_base_dn: "ou=groups,dc=example,dc=com"
+      # group_filter: "(|(member={user_dn})(uniqueMember={user_dn})(memberUid={username}))"
+      group_identifier_attribute: "entryUUID"
+      group_name_attribute: "displayName"
       subject_attribute: "entryUUID"
       email_attribute: "mail"
       username_attribute: "uid"

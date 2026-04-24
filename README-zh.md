@@ -575,6 +575,8 @@ curl -X POST http://localhost:8080/oauth2/token \
 
 如果你的业务应用在另一个域名下，或者你希望拿到标准第三方登录协议，还是更推荐方式一，直接走 OIDC Authorization Code + PKCE。
 
+企业 LDAP/AD 登录源现在也支持轻量组同步。MKAuth 可以直接读取用户条目上的 `group_member_attribute`（默认适合 `memberOf` 这类属性），或者在 `group_base_dn` 下按 `group_filter` 搜索目录组，再把这些目录组映射为 `organization_groups` 和受管的 `org_roles`。
+
 常用接口：
 - `GET /api/providers`：查询当前启用的登录方式
 - `GET /api/enterprise/providers`：查询企业登录方式

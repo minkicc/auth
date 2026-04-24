@@ -52,9 +52,20 @@ func (s *Service) GenerateOrganizationGroupID() (string, error) {
 	return s.generateUniqueID(OrganizationGroupIDPrefix, &OrganizationGroup{}, "group_id")
 }
 
+func (s *Service) GenerateOrganizationGroupIDWithDB(db *gorm.DB) (string, error) {
+	return s.generateUniqueIDWithDB(db, OrganizationGroupIDPrefix, &OrganizationGroup{}, "group_id")
+}
+
 func (s *Service) generateUniqueID(prefix string, model any, column string) (string, error) {
+	return s.generateUniqueIDWithDB(s.db, prefix, model, column)
+}
+
+func (s *Service) generateUniqueIDWithDB(db *gorm.DB, prefix string, model any, column string) (string, error) {
 	if s == nil || s.db == nil {
 		return "", fmt.Errorf("iam service requires database")
+	}
+	if db == nil {
+		db = s.db
 	}
 
 	for attempts := 0; attempts < 10; attempts++ {
@@ -65,7 +76,7 @@ func (s *Service) generateUniqueID(prefix string, model any, column string) (str
 		id := prefix + suffix
 
 		var count int64
-		if err := s.db.Model(model).Where(column+" = ?", id).Count(&count).Error; err != nil {
+		if err := db.Model(model).Where(column+" = ?", id).Count(&count).Error; err != nil {
 			return "", err
 		}
 		if count == 0 {

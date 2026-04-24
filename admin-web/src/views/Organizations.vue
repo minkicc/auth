@@ -473,6 +473,28 @@
             />
             <p class="form-hint">支持使用 `{username}` 占位符，登录时会替换为用户输入并自动做 LDAP filter escaping。</p>
           </el-form-item>
+          <el-form-item label="Group Membership Attribute">
+            <el-input v-model="identityProviderForm.group_member_attribute" placeholder="memberOf" />
+            <p class="form-hint">默认使用 `memberOf`。如果用户条目里带目录组 DN，登录成功后会自动同步这些组。</p>
+          </el-form-item>
+          <el-form-item label="Group Search Base DN">
+            <el-input v-model="identityProviderForm.group_base_dn" placeholder="ou=groups,dc=acme,dc=com" />
+          </el-form-item>
+          <el-form-item label="Group Filter">
+            <el-input
+              v-model="identityProviderForm.group_filter"
+              type="textarea"
+              :rows="3"
+              placeholder="(|(member={user_dn})(uniqueMember={user_dn})(memberUid={username}))"
+            />
+            <p class="form-hint">可选，支持 `{user_dn}` 和 `{username}` 占位符；适合没有 `memberOf` 的目录。</p>
+          </el-form-item>
+          <el-form-item label="Group Identifier Attribute">
+            <el-input v-model="identityProviderForm.group_identifier_attribute" placeholder="entryUUID / objectGUID / gidNumber" />
+          </el-form-item>
+          <el-form-item label="Group Name Attribute">
+            <el-input v-model="identityProviderForm.group_name_attribute" placeholder="displayName / cn" />
+          </el-form-item>
           <el-form-item label="Subject Attribute">
             <el-input v-model="identityProviderForm.subject_attribute" placeholder="entryUUID / objectGUID / uid" />
           </el-form-item>
@@ -587,6 +609,11 @@ function defaultIdentityProviderForm() {
     bind_dn: '',
     bind_password: '',
     user_filter: '',
+    group_member_attribute: '',
+    group_base_dn: '',
+    group_filter: '',
+    group_identifier_attribute: '',
+    group_name_attribute: '',
     start_tls: false,
     insecure_skip_verify: false,
     subject_attribute: '',
@@ -866,6 +893,11 @@ const openIdentityProviderDialog = (provider?: OrganizationIdentityProvider) => 
     bind_dn: provider?.config?.bind_dn || '',
     bind_password: '',
     user_filter: provider?.config?.user_filter || '',
+    group_member_attribute: provider?.config?.group_member_attribute || '',
+    group_base_dn: provider?.config?.group_base_dn || '',
+    group_filter: provider?.config?.group_filter || '',
+    group_identifier_attribute: provider?.config?.group_identifier_attribute || '',
+    group_name_attribute: provider?.config?.group_name_attribute || '',
     start_tls: provider?.config?.start_tls ?? false,
     insecure_skip_verify: provider?.config?.insecure_skip_verify ?? false,
     subject_attribute: provider?.config?.subject_attribute || '',
@@ -905,6 +937,11 @@ const saveIdentityProvider = async () => {
       bind_dn: identityProviderForm.value.bind_dn || undefined,
       bind_password: identityProviderForm.value.bind_password || undefined,
       user_filter: identityProviderForm.value.user_filter || undefined,
+      group_member_attribute: identityProviderForm.value.group_member_attribute || undefined,
+      group_base_dn: identityProviderForm.value.group_base_dn || undefined,
+      group_filter: identityProviderForm.value.group_filter || undefined,
+      group_identifier_attribute: identityProviderForm.value.group_identifier_attribute || undefined,
+      group_name_attribute: identityProviderForm.value.group_name_attribute || undefined,
       start_tls: identityProviderForm.value.start_tls,
       insecure_skip_verify: identityProviderForm.value.insecure_skip_verify,
       subject_attribute: identityProviderForm.value.subject_attribute || undefined,
@@ -1018,7 +1055,7 @@ const identityProviderSummary = (provider: OrganizationIdentityProvider) => {
     return provider.config?.entity_id || provider.config?.name_id_format || '-'
   }
   if (provider.provider_type === 'ldap') {
-    return provider.config?.subject_attribute || provider.config?.user_filter || '-'
+    return provider.config?.group_member_attribute || provider.config?.subject_attribute || provider.config?.user_filter || '-'
   }
   return provider.config?.scopes?.join(', ') || '-'
 }

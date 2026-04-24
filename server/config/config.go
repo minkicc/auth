@@ -106,6 +106,11 @@ type EnterpriseLDAPProviderConfig struct {
 	BindDN               string `json:"bind_dn" yaml:"bind_dn"`
 	BindPassword         string `json:"bind_password" yaml:"bind_password"`
 	UserFilter           string `json:"user_filter" yaml:"user_filter"`
+	GroupBaseDN          string `json:"group_base_dn" yaml:"group_base_dn"`
+	GroupFilter          string `json:"group_filter" yaml:"group_filter"`
+	GroupMemberAttribute string `json:"group_member_attribute" yaml:"group_member_attribute"`
+	GroupIdentifierAttr  string `json:"group_identifier_attribute" yaml:"group_identifier_attribute"`
+	GroupNameAttribute   string `json:"group_name_attribute" yaml:"group_name_attribute"`
 	StartTLS             bool   `json:"start_tls" yaml:"start_tls"`
 	InsecureSkipVerify   bool   `json:"insecure_skip_verify" yaml:"insecure_skip_verify"`
 	SubjectAttribute     string `json:"subject_attribute" yaml:"subject_attribute"`

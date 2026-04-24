@@ -73,7 +73,11 @@ func TestEnterpriseLDAPLoginCreatesBrowserSession(t *testing.T) {
 			Name:              "Ada Lovelace",
 			PreferredUsername: "ada",
 			DN:                "uid=ada,ou=people,dc=globex,dc=test",
-			ProfileJSON:       `{"source":"ldap"}`,
+			Groups: []iam.EnterpriseLDAPGroupInfo{
+				{ExternalID: "grp-engineering", DisplayName: "Engineering Team"},
+				{ExternalID: "grp-ops", DisplayName: "Ops Oncall"},
+			},
+			ProfileJSON: `{"source":"ldap"}`,
 		},
 	}
 	ldapManager, err := iam.NewEnterpriseLDAPManagerWithAuthenticator(config.IAMConfig{EnterpriseLDAP: []config.EnterpriseLDAPProviderConfig{{
@@ -89,6 +93,9 @@ func TestEnterpriseLDAPLoginCreatesBrowserSession(t *testing.T) {
 		EmailAttribute:       "mail",
 		UsernameAttribute:    "uid",
 		DisplayNameAttribute: "displayName",
+		GroupMemberAttribute: "memberOf",
+		GroupIdentifierAttr:  "entryUUID",
+		GroupNameAttribute:   "displayName",
 	}}}, db, nil, authenticator)
 	if err != nil {
 		t.Fatalf("failed to create enterprise ldap manager: %v", err)
@@ -155,6 +162,19 @@ func TestEnterpriseLDAPLoginCreatesBrowserSession(t *testing.T) {
 	}
 	if membership.Status != iam.MembershipStatusActive {
 		t.Fatalf("unexpected membership status: %#v", membership)
+	}
+	if membership.RolesJSON != `["engineering-team","ops-oncall"]` {
+		t.Fatalf("unexpected membership roles: %#v", membership)
+	}
+
+	var groups []iam.OrganizationGroup
+	if err := db.Where("organization_id = ? AND provider_type = ? AND provider_id = ?", "org_globex000000000", iam.IdentityProviderTypeLDAP, "globex-ldap").
+		Order("external_id ASC").
+		Find(&groups).Error; err != nil {
+		t.Fatalf("expected ldap organization groups: %v", err)
+	}
+	if len(groups) != 2 || groups[0].RoleName != "engineering-team" || groups[1].RoleName != "ops-oncall" {
+		t.Fatalf("unexpected ldap groups: %#v", groups)
 	}
 }
 

@@ -44,6 +44,11 @@ type organizationIdentityProviderPayload struct {
 	BindDN               string   `json:"bind_dn"`
 	BindPassword         string   `json:"bind_password"`
 	UserFilter           string   `json:"user_filter"`
+	GroupBaseDN          string   `json:"group_base_dn"`
+	GroupFilter          string   `json:"group_filter"`
+	GroupMemberAttribute string   `json:"group_member_attribute"`
+	GroupIdentifierAttr  string   `json:"group_identifier_attribute"`
+	GroupNameAttribute   string   `json:"group_name_attribute"`
 	StartTLS             *bool    `json:"start_tls"`
 	InsecureSkipVerify   *bool    `json:"insecure_skip_verify"`
 	SubjectAttribute     string   `json:"subject_attribute"`
@@ -70,6 +75,11 @@ type organizationIdentityProviderConfigView struct {
 	BindDN                   string   `json:"bind_dn"`
 	BindPasswordConfigured   bool     `json:"bind_password_configured"`
 	UserFilter               string   `json:"user_filter"`
+	GroupBaseDN              string   `json:"group_base_dn"`
+	GroupFilter              string   `json:"group_filter"`
+	GroupMemberAttribute     string   `json:"group_member_attribute"`
+	GroupIdentifierAttr      string   `json:"group_identifier_attribute"`
+	GroupNameAttribute       string   `json:"group_name_attribute"`
 	StartTLS                 bool     `json:"start_tls"`
 	InsecureSkipVerify       bool     `json:"insecure_skip_verify"`
 	SubjectAttribute         string   `json:"subject_attribute"`
@@ -416,6 +426,11 @@ func (s *AdminServer) organizationIdentityProviderFromPayload(organizationID str
 			BindDN:               strings.TrimSpace(req.BindDN),
 			BindPassword:         bindPassword,
 			UserFilter:           strings.TrimSpace(req.UserFilter),
+			GroupBaseDN:          strings.TrimSpace(req.GroupBaseDN),
+			GroupFilter:          strings.TrimSpace(req.GroupFilter),
+			GroupMemberAttribute: strings.TrimSpace(req.GroupMemberAttribute),
+			GroupIdentifierAttr:  strings.TrimSpace(req.GroupIdentifierAttr),
+			GroupNameAttribute:   strings.TrimSpace(req.GroupNameAttribute),
 			StartTLS:             startTLS,
 			InsecureSkipVerify:   insecureSkipVerify,
 			SubjectAttribute:     strings.TrimSpace(req.SubjectAttribute),
@@ -433,6 +448,11 @@ func (s *AdminServer) organizationIdentityProviderFromPayload(organizationID str
 			BindDN:               providerConfig.BindDN,
 			BindPassword:         providerConfig.BindPassword,
 			UserFilter:           providerConfig.UserFilter,
+			GroupBaseDN:          providerConfig.GroupBaseDN,
+			GroupFilter:          providerConfig.GroupFilter,
+			GroupMemberAttribute: providerConfig.GroupMemberAttribute,
+			GroupIdentifierAttr:  providerConfig.GroupIdentifierAttr,
+			GroupNameAttribute:   providerConfig.GroupNameAttribute,
 			StartTLS:             providerConfig.StartTLS,
 			InsecureSkipVerify:   providerConfig.InsecureSkipVerify,
 			SubjectAttribute:     providerConfig.SubjectAttribute,
@@ -582,6 +602,11 @@ func organizationIdentityProviderToView(record iam.OrganizationIdentityProvider)
 			BindDN:                 strings.TrimSpace(storedConfig.BindDN),
 			BindPasswordConfigured: strings.TrimSpace(storedConfig.BindPassword) != "",
 			UserFilter:             strings.TrimSpace(storedConfig.UserFilter),
+			GroupBaseDN:            strings.TrimSpace(storedConfig.GroupBaseDN),
+			GroupFilter:            strings.TrimSpace(storedConfig.GroupFilter),
+			GroupMemberAttribute:   strings.TrimSpace(storedConfig.GroupMemberAttribute),
+			GroupIdentifierAttr:    strings.TrimSpace(storedConfig.GroupIdentifierAttr),
+			GroupNameAttribute:     strings.TrimSpace(storedConfig.GroupNameAttribute),
 			StartTLS:               storedConfig.StartTLS,
 			InsecureSkipVerify:     storedConfig.InsecureSkipVerify,
 			SubjectAttribute:       strings.TrimSpace(storedConfig.SubjectAttribute),

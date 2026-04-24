@@ -374,20 +374,25 @@ func TestOrganizationAdminHandlersManageLDAPIdentityProviders(t *testing.T) {
 	}
 
 	createProviderResp := performJSON(t, router, http.MethodPost, "/organizations/globex/identity-providers", map[string]any{
-		"provider_type":          "ldap",
-		"name":                   "Globex Directory",
-		"slug":                   "globex-ldap",
-		"priority":               5,
-		"is_default":             true,
-		"url":                    "ldaps://ldap.globex.test:636",
-		"base_dn":                "dc=globex,dc=test",
-		"bind_dn":                "cn=svc-bind,dc=globex,dc=test",
-		"bind_password":          "super-secret",
-		"user_filter":            "(&(objectClass=person)(uid={username}))",
-		"subject_attribute":      "entryUUID",
-		"email_attribute":        "mail",
-		"username_attribute":     "uid",
-		"display_name_attribute": "displayName",
+		"provider_type":              "ldap",
+		"name":                       "Globex Directory",
+		"slug":                       "globex-ldap",
+		"priority":                   5,
+		"is_default":                 true,
+		"url":                        "ldaps://ldap.globex.test:636",
+		"base_dn":                    "dc=globex,dc=test",
+		"bind_dn":                    "cn=svc-bind,dc=globex,dc=test",
+		"bind_password":              "super-secret",
+		"user_filter":                "(&(objectClass=person)(uid={username}))",
+		"group_member_attribute":     "memberOf",
+		"group_base_dn":              "ou=groups,dc=globex,dc=test",
+		"group_filter":               "(|(member={user_dn})(memberUid={username}))",
+		"group_identifier_attribute": "entryUUID",
+		"group_name_attribute":       "displayName",
+		"subject_attribute":          "entryUUID",
+		"email_attribute":            "mail",
+		"username_attribute":         "uid",
+		"display_name_attribute":     "displayName",
 	})
 	if createProviderResp.Code != http.StatusCreated {
 		t.Fatalf("expected create ldap identity provider status 201, got %d: %s", createProviderResp.Code, createProviderResp.Body.String())
@@ -404,7 +409,10 @@ func TestOrganizationAdminHandlersManageLDAPIdentityProviders(t *testing.T) {
 	}
 	if createProviderBody.IdentityProvider.Config.URL != "ldaps://ldap.globex.test:636" ||
 		createProviderBody.IdentityProvider.Config.BaseDN != "dc=globex,dc=test" ||
-		!createProviderBody.IdentityProvider.Config.BindPasswordConfigured {
+		!createProviderBody.IdentityProvider.Config.BindPasswordConfigured ||
+		createProviderBody.IdentityProvider.Config.GroupMemberAttribute != "memberOf" ||
+		createProviderBody.IdentityProvider.Config.GroupBaseDN != "ou=groups,dc=globex,dc=test" ||
+		createProviderBody.IdentityProvider.Config.GroupFilter != "(|(member={user_dn})(memberUid={username}))" {
 		t.Fatalf("unexpected ldap config view: %#v", createProviderBody.IdentityProvider.Config)
 	}
 	if !manager.HasProviders() {
@@ -412,18 +420,23 @@ func TestOrganizationAdminHandlersManageLDAPIdentityProviders(t *testing.T) {
 	}
 
 	updateResp := performJSON(t, router, http.MethodPatch, "/organizations/globex/identity-providers/"+createProviderBody.IdentityProvider.IdentityProviderID, map[string]any{
-		"provider_type":          "ldap",
-		"name":                   "Globex Directory",
-		"slug":                   "globex-ldap",
-		"enabled":                false,
-		"url":                    "ldaps://ldap.globex.test:636",
-		"base_dn":                "dc=globex,dc=test",
-		"bind_dn":                "cn=svc-bind,dc=globex,dc=test",
-		"user_filter":            "(&(objectClass=person)(uid={username}))",
-		"subject_attribute":      "entryUUID",
-		"email_attribute":        "mail",
-		"username_attribute":     "uid",
-		"display_name_attribute": "displayName",
+		"provider_type":              "ldap",
+		"name":                       "Globex Directory",
+		"slug":                       "globex-ldap",
+		"enabled":                    false,
+		"url":                        "ldaps://ldap.globex.test:636",
+		"base_dn":                    "dc=globex,dc=test",
+		"bind_dn":                    "cn=svc-bind,dc=globex,dc=test",
+		"user_filter":                "(&(objectClass=person)(uid={username}))",
+		"group_member_attribute":     "memberOf",
+		"group_base_dn":              "ou=groups,dc=globex,dc=test",
+		"group_filter":               "(|(member={user_dn})(memberUid={username}))",
+		"group_identifier_attribute": "entryUUID",
+		"group_name_attribute":       "displayName",
+		"subject_attribute":          "entryUUID",
+		"email_attribute":            "mail",
+		"username_attribute":         "uid",
+		"display_name_attribute":     "displayName",
 	})
 	if updateResp.Code != http.StatusOK {
 		t.Fatalf("expected update ldap identity provider status 200, got %d: %s", updateResp.Code, updateResp.Body.String())
