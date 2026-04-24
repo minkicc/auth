@@ -220,6 +220,11 @@ export interface OrganizationIdentityProviderConfig {
   bind_dn?: string
   bind_password_configured?: boolean
   user_filter?: string
+  group_base_dn?: string
+  group_filter?: string
+  group_member_attribute?: string
+  group_identifier_attribute?: string
+  group_name_attribute?: string
   start_tls?: boolean
   insecure_skip_verify?: boolean
   subject_attribute?: string

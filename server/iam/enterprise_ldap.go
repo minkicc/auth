@@ -87,6 +87,7 @@ type EnterpriseLDAPUserInfo struct {
 	Name              string
 	PreferredUsername string
 	DN                string
+	Groups            []EnterpriseLDAPGroupInfo
 	ProfileJSON       string
 }
 
@@ -286,6 +287,11 @@ func NewEnterpriseLDAPProvider(cfg config.EnterpriseLDAPProviderConfig, authenti
 	cfg.BindDN = strings.TrimSpace(cfg.BindDN)
 	cfg.BindPassword = strings.TrimSpace(cfg.BindPassword)
 	cfg.UserFilter = strings.TrimSpace(cfg.UserFilter)
+	cfg.GroupBaseDN = strings.TrimSpace(cfg.GroupBaseDN)
+	cfg.GroupFilter = strings.TrimSpace(cfg.GroupFilter)
+	cfg.GroupMemberAttribute = strings.TrimSpace(cfg.GroupMemberAttribute)
+	cfg.GroupIdentifierAttr = strings.TrimSpace(cfg.GroupIdentifierAttr)
+	cfg.GroupNameAttribute = strings.TrimSpace(cfg.GroupNameAttribute)
 	cfg.SubjectAttribute = strings.TrimSpace(cfg.SubjectAttribute)
 	cfg.EmailAttribute = strings.TrimSpace(cfg.EmailAttribute)
 	cfg.UsernameAttribute = strings.TrimSpace(cfg.UsernameAttribute)
@@ -404,11 +410,20 @@ func (networkEnterpriseLDAPAuthenticator) Authenticate(_ context.Context, cfg co
 	if strings.TrimSpace(entry.DN) == "" {
 		return nil, fmt.Errorf("enterprise ldap user entry is missing dn")
 	}
+	groups, err := resolveEnterpriseLDAPGroups(conn, cfg, entry, username)
+	if err != nil {
+		return nil, err
+	}
 	if err := conn.Bind(entry.DN, password); err != nil {
 		return nil, fmt.Errorf("enterprise ldap invalid credentials")
 	}
 
-	return enterpriseLDAPUserInfoFromEntry(cfg, entry)
+	info, err := enterpriseLDAPUserInfoFromEntry(cfg, entry)
+	if err != nil {
+		return nil, err
+	}
+	info.Groups = groups
+	return info, nil
 }
 
 func enterpriseLDAPUserInfoFromEntry(cfg config.EnterpriseLDAPProviderConfig, entry *ldap.Entry) (*EnterpriseLDAPUserInfo, error) {
@@ -501,7 +516,7 @@ func (m *EnterpriseLDAPManager) findOrCreateUser(provider *EnterpriseLDAPProvide
 	}
 }
 
-func (m *EnterpriseLDAPManager) updateExistingIdentity(_ *EnterpriseLDAPProvider, identity *ExternalIdentity, info *EnterpriseLDAPUserInfo) (*auth.User, error) {
+func (m *EnterpriseLDAPManager) updateExistingIdentity(provider *EnterpriseLDAPProvider, identity *ExternalIdentity, info *EnterpriseLDAPUserInfo) (*auth.User, error) {
 	now := time.Now()
 	updates := map[string]any{
 		"email":          info.Email,
@@ -511,11 +526,19 @@ func (m *EnterpriseLDAPManager) updateExistingIdentity(_ *EnterpriseLDAPProvider
 		"last_login_at":  &now,
 		"updated_at":     now,
 	}
-	if err := m.db.Model(identity).Updates(updates).Error; err != nil {
-		return nil, err
-	}
 	var user auth.User
-	if err := m.db.First(&user, "user_id = ?", identity.UserID).Error; err != nil {
+	if err := m.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(identity).Updates(updates).Error; err != nil {
+			return err
+		}
+		if err := upsertMembership(tx, provider.cfg.OrganizationID, identity.UserID); err != nil {
+			return err
+		}
+		if err := m.syncEnterpriseLDAPGroups(tx, provider, identity.UserID, info.Groups, now); err != nil {
+			return err
+		}
+		return tx.First(&user, "user_id = ?", identity.UserID).Error
+	}); err != nil {
 		return nil, err
 	}
 	return &user, nil
@@ -555,7 +578,10 @@ func (m *EnterpriseLDAPManager) linkExistingUser(provider *EnterpriseLDAPProvide
 		if err := tx.Create(&identity).Error; err != nil {
 			return err
 		}
-		return upsertMembership(tx, provider.cfg.OrganizationID, userID)
+		if err := upsertMembership(tx, provider.cfg.OrganizationID, userID); err != nil {
+			return err
+		}
+		return m.syncEnterpriseLDAPGroups(tx, provider, userID, info.Groups, now)
 	}); err != nil {
 		return nil, err
 	}
@@ -619,7 +645,10 @@ func (m *EnterpriseLDAPManager) createNewUser(provider *EnterpriseLDAPProvider, 
 		if err := tx.Create(&identity).Error; err != nil {
 			return err
 		}
-		return upsertMembership(tx, provider.cfg.OrganizationID, userID)
+		if err := upsertMembership(tx, provider.cfg.OrganizationID, userID); err != nil {
+			return err
+		}
+		return m.syncEnterpriseLDAPGroups(tx, provider, userID, info.Groups, now)
 	}); err != nil {
 		return nil, err
 	}
