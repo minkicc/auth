@@ -229,3 +229,80 @@ func TestDiscoverEnterpriseOIDCByDomain(t *testing.T) {
 		t.Fatalf("unexpected domain discovery body: %#v", body)
 	}
 }
+
+func TestDiscoverEnterpriseOIDCReturnsPreferredProviderPolicy(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	db, err := gorm.Open(sqlite.Open("file:enterprise-oidc-handler-policy?mode=memory&cache=shared"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("failed to open sqlite: %v", err)
+	}
+	if err := iam.NewService(db).AutoMigrate(); err != nil {
+		t.Fatalf("failed to migrate iam tables: %v", err)
+	}
+	if err := db.Create(&iam.Organization{
+		OrganizationID: "org_acme000000000000",
+		Slug:           "acme",
+		Name:           "Acme Inc",
+		Status:         iam.OrganizationStatusActive,
+	}).Error; err != nil {
+		t.Fatalf("failed to create organization: %v", err)
+	}
+	if err := db.Create(&iam.OrganizationDomain{
+		Domain:         "example.com",
+		OrganizationID: "org_acme000000000000",
+		Verified:       true,
+	}).Error; err != nil {
+		t.Fatalf("failed to create organization domain: %v", err)
+	}
+
+	manager, err := iam.NewEnterpriseOIDCManager(config.IAMConfig{EnterpriseOIDC: []config.EnterpriseOIDCProviderConfig{
+		{
+			Slug:           "acme-admin",
+			Name:           "Acme Admin",
+			OrganizationID: "org_acme000000000000",
+			Priority:       50,
+			Issuer:         "https://login-admin.acme.test",
+			ClientID:       "acme-admin-client",
+			ClientSecret:   "acme-admin-secret",
+			RedirectURI:    "https://auth.example.com/api/enterprise/oidc/acme-admin/callback",
+		},
+		{
+			Slug:           "acme-workforce",
+			Name:           "Acme Workforce",
+			OrganizationID: "org_acme000000000000",
+			Priority:       10,
+			IsDefault:      true,
+			AutoRedirect:   true,
+			Issuer:         "https://login.acme.test",
+			ClientID:       "acme-client",
+			ClientSecret:   "acme-secret",
+			RedirectURI:    "https://auth.example.com/api/enterprise/oidc/acme-workforce/callback",
+		},
+	}}, db, nil)
+	if err != nil {
+		t.Fatalf("failed to create enterprise oidc manager: %v", err)
+	}
+
+	h := &AuthHandler{enterpriseOIDC: manager}
+	router := gin.New()
+	router.GET("/enterprise/oidc/discover", h.DiscoverEnterpriseOIDC)
+
+	req := httptest.NewRequest(http.MethodGet, "/enterprise/oidc/discover?email=user@example.com", nil)
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	var body iam.EnterpriseOIDCDiscoveryResult
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("failed to decode discovery response: %v", err)
+	}
+	if body.PreferredProviderSlug != "acme-workforce" || !body.AutoRedirect {
+		t.Fatalf("unexpected preferred provider policy: %#v", body)
+	}
+	if len(body.Providers) != 2 || body.Providers[0].Slug != "acme-workforce" {
+		t.Fatalf("unexpected provider order: %#v", body.Providers)
+	}
+}

@@ -74,6 +74,9 @@ type EnterpriseOIDCProviderSummary struct {
 	Slug           string `json:"slug"`
 	Name           string `json:"name"`
 	OrganizationID string `json:"organization_id,omitempty"`
+	Priority       int    `json:"priority"`
+	IsDefault      bool   `json:"is_default"`
+	AutoRedirect   bool   `json:"auto_redirect"`
 }
 
 type EnterpriseOIDCDiscoveryResult struct {
@@ -84,6 +87,8 @@ type EnterpriseOIDCDiscoveryResult struct {
 	OrganizationSlug        string                          `json:"organization_slug,omitempty"`
 	OrganizationName        string                          `json:"organization_name,omitempty"`
 	OrganizationDisplayName string                          `json:"organization_display_name,omitempty"`
+	PreferredProviderSlug   string                          `json:"preferred_provider_slug,omitempty"`
+	AutoRedirect            bool                            `json:"auto_redirect"`
 	Providers               []EnterpriseOIDCProviderSummary `json:"providers"`
 }
 
@@ -221,6 +226,9 @@ func enterpriseOIDCProviderConfigFromRecord(record OrganizationIdentityProvider)
 	providerCfg.Slug = record.Slug
 	providerCfg.Name = record.Name
 	providerCfg.OrganizationID = record.OrganizationID
+	providerCfg.Priority = record.Priority
+	providerCfg.IsDefault = record.IsDefault
+	providerCfg.AutoRedirect = record.AutoRedirect
 	return providerCfg, nil
 }
 
@@ -267,13 +275,9 @@ func (m *EnterpriseOIDCManager) Providers() []EnterpriseOIDCProviderSummary {
 	defer m.mu.RUnlock()
 	providers := make([]EnterpriseOIDCProviderSummary, 0, len(m.providers))
 	for _, provider := range m.providers {
-		providers = append(providers, EnterpriseOIDCProviderSummary{
-			Slug:           provider.cfg.Slug,
-			Name:           provider.cfg.Name,
-			OrganizationID: provider.cfg.OrganizationID,
-		})
+		providers = append(providers, enterpriseOIDCProviderSummaryFromProvider(provider))
 	}
-	sort.Slice(providers, func(i, j int) bool { return providers[i].Slug < providers[j].Slug })
+	sortEnterpriseOIDCProviderSummaries(providers)
 	return providers
 }
 
@@ -349,6 +353,14 @@ func (m *EnterpriseOIDCManager) discoverByDomain(domain string, result Enterpris
 		result.Status = EnterpriseOIDCDiscoveryNoProvider
 		return result, nil
 	}
+	preferred, hasPreferred := preferredEnterpriseOIDCProvider(result.Providers)
+	if hasPreferred {
+		result.PreferredProviderSlug = preferred.Slug
+		result.AutoRedirect = len(result.Providers) == 1 || preferred.AutoRedirect
+	} else if len(result.Providers) == 1 {
+		result.PreferredProviderSlug = result.Providers[0].Slug
+		result.AutoRedirect = true
+	}
 	result.Status = EnterpriseOIDCDiscoveryMatched
 	return result, nil
 }
@@ -400,14 +412,65 @@ func (m *EnterpriseOIDCManager) providersForOrganization(organizationID string) 
 		if provider.cfg.OrganizationID != organizationID {
 			continue
 		}
-		providers = append(providers, EnterpriseOIDCProviderSummary{
-			Slug:           provider.cfg.Slug,
-			Name:           provider.cfg.Name,
-			OrganizationID: provider.cfg.OrganizationID,
-		})
+		providers = append(providers, enterpriseOIDCProviderSummaryFromProvider(provider))
 	}
-	sort.Slice(providers, func(i, j int) bool { return providers[i].Slug < providers[j].Slug })
+	sortEnterpriseOIDCProviderSummaries(providers)
 	return providers
+}
+
+func enterpriseOIDCProviderSummaryFromProvider(provider *EnterpriseOIDCProvider) EnterpriseOIDCProviderSummary {
+	return EnterpriseOIDCProviderSummary{
+		Slug:           provider.cfg.Slug,
+		Name:           provider.cfg.Name,
+		OrganizationID: provider.cfg.OrganizationID,
+		Priority:       provider.cfg.Priority,
+		IsDefault:      provider.cfg.IsDefault,
+		AutoRedirect:   provider.cfg.AutoRedirect,
+	}
+}
+
+func sortEnterpriseOIDCProviderSummaries(providers []EnterpriseOIDCProviderSummary) {
+	sort.Slice(providers, func(i, j int) bool {
+		left := providers[i]
+		right := providers[j]
+		if left.IsDefault != right.IsDefault {
+			return left.IsDefault
+		}
+		if left.AutoRedirect != right.AutoRedirect {
+			return left.AutoRedirect
+		}
+		if left.Priority != right.Priority {
+			return left.Priority < right.Priority
+		}
+		leftName := strings.TrimSpace(strings.ToLower(left.Name))
+		rightName := strings.TrimSpace(strings.ToLower(right.Name))
+		if leftName != rightName {
+			return leftName < rightName
+		}
+		return left.Slug < right.Slug
+	})
+}
+
+func preferredEnterpriseOIDCProvider(providers []EnterpriseOIDCProviderSummary) (EnterpriseOIDCProviderSummary, bool) {
+	if len(providers) == 0 {
+		return EnterpriseOIDCProviderSummary{}, false
+	}
+	if len(providers) == 1 {
+		return providers[0], true
+	}
+
+	first := providers[0]
+	second := providers[1]
+	switch {
+	case first.AutoRedirect:
+		return first, true
+	case first.IsDefault:
+		return first, true
+	case first.Priority != second.Priority:
+		return first, true
+	default:
+		return EnterpriseOIDCProviderSummary{}, false
+	}
 }
 
 func (p *EnterpriseOIDCProvider) AuthCodeURL(ctx context.Context, state, nonce string) (string, error) {

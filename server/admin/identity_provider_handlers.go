@@ -21,6 +21,9 @@ type organizationIdentityProviderPayload struct {
 	Name         string   `json:"name"`
 	Slug         string   `json:"slug"`
 	Enabled      *bool    `json:"enabled"`
+	Priority     *int     `json:"priority"`
+	IsDefault    *bool    `json:"is_default"`
+	AutoRedirect *bool    `json:"auto_redirect"`
 	Issuer       string   `json:"issuer"`
 	ClientID     string   `json:"client_id"`
 	ClientSecret string   `json:"client_secret"`
@@ -43,6 +46,9 @@ type organizationIdentityProviderView struct {
 	Name               string                                 `json:"name"`
 	Slug               string                                 `json:"slug"`
 	Enabled            bool                                   `json:"enabled"`
+	Priority           int                                    `json:"priority"`
+	IsDefault          bool                                   `json:"is_default"`
+	AutoRedirect       bool                                   `json:"auto_redirect"`
 	Config             organizationIdentityProviderConfigView `json:"config"`
 	CreatedAt          time.Time                              `json:"created_at"`
 	UpdatedAt          time.Time                              `json:"updated_at"`
@@ -55,6 +61,9 @@ func (s *AdminServer) handleListOrganizationIdentityProviders(c *gin.Context) {
 	}
 	var providers []iam.OrganizationIdentityProvider
 	if err := s.db.Where("organization_id = ?", org.OrganizationID).
+		Order("is_default DESC").
+		Order("auto_redirect DESC").
+		Order("priority ASC").
 		Order("created_at DESC").
 		Find(&providers).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -234,12 +243,42 @@ func (s *AdminServer) organizationIdentityProviderFromPayload(organizationID str
 		enabled = *req.Enabled
 	}
 
+	priority := iam.DefaultIdentityProviderPriority
+	if current != nil {
+		priority = current.Priority
+	}
+	if req.Priority != nil {
+		priority = *req.Priority
+	}
+	if priority < 0 {
+		return iam.OrganizationIdentityProvider{}, fmt.Errorf("priority must be greater than or equal to 0")
+	}
+
+	isDefault := false
+	if current != nil {
+		isDefault = current.IsDefault
+	}
+	if req.IsDefault != nil {
+		isDefault = *req.IsDefault
+	}
+
+	autoRedirect := false
+	if current != nil {
+		autoRedirect = current.AutoRedirect
+	}
+	if req.AutoRedirect != nil {
+		autoRedirect = *req.AutoRedirect
+	}
+
 	if current != nil {
 		current.OrganizationID = organizationID
 		current.ProviderType = iam.IdentityProviderType(providerType)
 		current.Name = name
 		current.Slug = slug
 		current.Enabled = enabled
+		current.Priority = priority
+		current.IsDefault = isDefault
+		current.AutoRedirect = autoRedirect
 		current.ConfigJSON = string(configJSON)
 		return *current, nil
 	}
@@ -250,6 +289,9 @@ func (s *AdminServer) organizationIdentityProviderFromPayload(organizationID str
 		Name:           name,
 		Slug:           slug,
 		Enabled:        enabled,
+		Priority:       priority,
+		IsDefault:      isDefault,
+		AutoRedirect:   autoRedirect,
 		ConfigJSON:     string(configJSON),
 	}, nil
 }
@@ -303,6 +345,9 @@ func organizationIdentityProviderToView(record iam.OrganizationIdentityProvider)
 		Name:               record.Name,
 		Slug:               record.Slug,
 		Enabled:            record.Enabled,
+		Priority:           record.Priority,
+		IsDefault:          record.IsDefault,
+		AutoRedirect:       record.AutoRedirect,
 		Config: organizationIdentityProviderConfigView{
 			Issuer:                 strings.TrimSpace(storedConfig.Issuer),
 			ClientID:               strings.TrimSpace(storedConfig.ClientID),

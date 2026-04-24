@@ -378,6 +378,13 @@ const canUseEnterpriseDomainHint = (value: string) => {
 const applyEnterpriseOIDCDiscoveryResponse = (response: EnterpriseOIDCDiscoveryResponse) => {
   switch (response.status) {
     case 'matched':
+      if (response.auto_redirect && response.preferred_provider_slug) {
+        enterpriseDiscoveryMessage.value = t('auth.enterpriseDiscoveryMatched', {
+          name: enterpriseDiscoveryOrganizationName(response)
+        })
+        handleEnterpriseOIDCLogin(response.preferred_provider_slug)
+        return
+      }
       if (response.providers.length === 1) {
         enterpriseDiscoveryMessage.value = t('auth.enterpriseDiscoveryMatched', {
           name: enterpriseDiscoveryOrganizationName(response)

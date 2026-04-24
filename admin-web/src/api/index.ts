@@ -191,6 +191,9 @@ export interface OrganizationIdentityProvider {
   name: string
   slug: string
   enabled: boolean
+  priority: number
+  is_default: boolean
+  auto_redirect: boolean
   config: OrganizationIdentityProviderConfig
   created_at: string
   updated_at: string
@@ -442,6 +445,9 @@ class ServerApi {
     name: string
     slug: string
     enabled?: boolean
+    priority?: number
+    is_default?: boolean
+    auto_redirect?: boolean
     issuer: string
     client_id: string
     client_secret?: string
@@ -457,6 +463,9 @@ class ServerApi {
     name: string
     slug: string
     enabled?: boolean
+    priority?: number
+    is_default?: boolean
+    auto_redirect?: boolean
     issuer: string
     client_id: string
     client_secret?: string

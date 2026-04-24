@@ -61,6 +61,9 @@ type EnterpriseOIDCProviderConfig struct {
 	Slug           string   `json:"slug" yaml:"slug"`
 	Name           string   `json:"name" yaml:"name"`
 	OrganizationID string   `json:"organization_id" yaml:"organization_id"`
+	Priority       int      `json:"priority" yaml:"priority"`
+	IsDefault      bool     `json:"is_default" yaml:"is_default"`
+	AutoRedirect   bool     `json:"auto_redirect" yaml:"auto_redirect"`
 	Issuer         string   `json:"issuer" yaml:"issuer"`
 	ClientID       string   `json:"client_id" yaml:"client_id"`
 	ClientSecret   string   `json:"client_secret" yaml:"client_secret"`
