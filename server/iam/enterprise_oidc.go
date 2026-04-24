@@ -74,6 +74,7 @@ type EnterpriseOIDCProviderSummary struct {
 	Slug           string `json:"slug"`
 	Name           string `json:"name"`
 	OrganizationID string `json:"organization_id,omitempty"`
+	ProviderType   string `json:"provider_type"`
 	Priority       int    `json:"priority"`
 	IsDefault      bool   `json:"is_default"`
 	AutoRedirect   bool   `json:"auto_redirect"`
@@ -290,6 +291,13 @@ func (m *EnterpriseOIDCManager) HasProviders() bool {
 	return len(m.providers) > 0
 }
 
+func (m *EnterpriseOIDCManager) DB() *gorm.DB {
+	if m == nil {
+		return nil
+	}
+	return m.db
+}
+
 func (m *EnterpriseOIDCManager) DiscoverByEmail(email string) (EnterpriseOIDCDiscoveryResult, error) {
 	result := EnterpriseOIDCDiscoveryResult{
 		Email:     strings.TrimSpace(strings.ToLower(email)),
@@ -418,11 +426,16 @@ func (m *EnterpriseOIDCManager) providersForOrganization(organizationID string) 
 	return providers
 }
 
+func (m *EnterpriseOIDCManager) ProvidersForOrganization(organizationID string) []EnterpriseOIDCProviderSummary {
+	return m.providersForOrganization(organizationID)
+}
+
 func enterpriseOIDCProviderSummaryFromProvider(provider *EnterpriseOIDCProvider) EnterpriseOIDCProviderSummary {
 	return EnterpriseOIDCProviderSummary{
 		Slug:           provider.cfg.Slug,
 		Name:           provider.cfg.Name,
 		OrganizationID: provider.cfg.OrganizationID,
+		ProviderType:   string(IdentityProviderTypeOIDC),
 		Priority:       provider.cfg.Priority,
 		IsDefault:      provider.cfg.IsDefault,
 		AutoRedirect:   provider.cfg.AutoRedirect,

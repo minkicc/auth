@@ -77,6 +77,13 @@ func NewAccountAuth(db *gorm.DB, config AccountAuthConfig) *AccountAuth {
 	}
 }
 
+func (a *AccountAuth) DB() *gorm.DB {
+	if a == nil {
+		return nil
+	}
+	return a.db
+}
+
 // AutoMigrate Automatically migrate database table structure
 func (a *AccountAuth) AutoMigrate() error {
 	// Ensure UserRole type is registered first

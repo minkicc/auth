@@ -171,7 +171,7 @@
               :key="provider.slug"
               class="enterprise-login-btn"
               type="button"
-              @click="handleEnterpriseOIDCLogin(provider.slug)"
+              @click="handleEnterpriseOIDCLogin(provider)"
             >
               <span class="enterprise-login-mark">SSO</span>
               <span class="enterprise-login-text">
@@ -233,7 +233,7 @@
           :key="provider.slug"
           class="enterprise-login-btn"
           type="button"
-          @click="handleEnterpriseOIDCLogin(provider.slug)"
+          @click="handleEnterpriseOIDCLogin(provider)"
         >
           <span class="enterprise-login-mark">SSO</span>
           <span class="enterprise-login-text">
@@ -379,17 +379,22 @@ const applyEnterpriseOIDCDiscoveryResponse = (response: EnterpriseOIDCDiscoveryR
   switch (response.status) {
     case 'matched':
       if (response.auto_redirect && response.preferred_provider_slug) {
+        const preferredProvider = response.providers.find(provider => provider.slug === response.preferred_provider_slug)
         enterpriseDiscoveryMessage.value = t('auth.enterpriseDiscoveryMatched', {
           name: enterpriseDiscoveryOrganizationName(response)
         })
-        handleEnterpriseOIDCLogin(response.preferred_provider_slug)
+        if (preferredProvider) {
+          handleEnterpriseOIDCLogin(preferredProvider)
+        } else {
+          handleEnterpriseOIDCLogin(response.preferred_provider_slug)
+        }
         return
       }
       if (response.providers.length === 1) {
         enterpriseDiscoveryMessage.value = t('auth.enterpriseDiscoveryMatched', {
           name: enterpriseDiscoveryOrganizationName(response)
         })
-        handleEnterpriseOIDCLogin(response.providers[0].slug)
+        handleEnterpriseOIDCLogin(response.providers[0])
         return
       }
       discoveredEnterpriseOIDCProviders.value = response.providers
@@ -450,10 +455,10 @@ const handleEnterpriseOIDCDomainDiscovery = async (domain: string) => {
   }
 }
 
-const handleEnterpriseOIDCLogin = (slug: string) => {
+const handleEnterpriseOIDCLogin = (provider: EnterpriseOIDCProvider | string) => {
   try {
     errorMessage.value = ''
-    serverApi.startEnterpriseOIDCLogin(slug)
+    serverApi.startEnterpriseOIDCLogin(provider)
   } catch (error) {
     console.error(t('errors.enterpriseOIDCLoginFailed'), error)
     errorMessage.value = t('errors.enterpriseOIDCLoginFailed')

@@ -332,7 +332,7 @@ go run ./pluginsign sign -manifest ../examples/plugins/http-claims-action/mkauth
 
 ### CIAM/IAM 组织管理
 
-启用管理后台后，可以在 `组织管理` 菜单里维护 B2B 租户。当前后台已经支持创建和编辑组织、绑定邮箱域名、把已有用户加入组织、给成员配置轻量角色名，并且可以直接给组织配置 Enterprise OIDC 上游登录源。
+启用管理后台后，可以在 `组织管理` 菜单里维护 B2B 租户。当前后台已经支持创建和编辑组织、绑定邮箱域名、把已有用户加入组织、给成员配置轻量角色名，并且可以直接给组织配置 Enterprise OIDC 和 Enterprise SAML 上游登录源。
 
 下面接口里的 `:id` 可以传组织 ID，也可以传组织 slug。第一版暂不提供组织硬删除，暂时不用的组织建议把状态改成 `inactive`。
 
@@ -349,28 +349,32 @@ go run ./pluginsign sign -manifest ../examples/plugins/http-claims-action/mkauth
 
 当用户存在 active 组织成员关系，并且下游 OIDC 客户端请求了 `profile` scope 时，MKAuth 可以在 ID Token 和 `/oauth2/userinfo` 中返回 `org_id`、`org_slug`、`org_roles`。
 
-Enterprise OIDC 现在支持两种维护方式：
+企业登录源现在支持两种维护方式：
 
-- 通过 `iam.enterprise_oidc` 做 YAML 静态引导
+- 通过 `iam.enterprise_oidc` 和 `iam.enterprise_saml` 做 YAML 静态引导
 - 通过后台 `组织管理 -> 企业登录` 做运行时维护
 
-每个 Enterprise OIDC 登录源现在还支持一组轻量多 IdP 策略字段：
+每个企业身份源现在都支持一组轻量多 IdP 策略字段：
 
 - `priority`：数值越小越靠前
 - `is_default`：标记该组织的默认登录源
 - `auto_redirect`：当 HRD 命中多个登录源时，直接跳转到当前优先登录源，而不是展示选择页
 
-后台创建的 Enterprise OIDC 配置会落库保存，客户端 secret 不会被后台 API 回显，保存后会直接触发进程内 reload，因此新增或禁用企业登录源不需要重启 MKAuth。
+后台创建的企业登录配置会落库保存，保存后会直接触发进程内 reload，因此新增、禁用或更新企业登录源都不需要重启 MKAuth。Enterprise OIDC 的 `client_secret` 不会被后台 API 回显；Enterprise SAML 则支持通过 `idp_metadata_url` 或内联 `idp_metadata_xml` 配置元数据，也支持 `email_attribute`、`username_attribute`、`display_name_attribute` 这类属性映射字段。
 
-当组织已经绑定了已验证域名，并且存在可用的 Enterprise OIDC provider 时，用户登录页现在支持基于企业邮箱做 HRD（Home Realm Discovery）。公开发现接口为：
+当组织已经绑定了已验证域名，并且存在可用的企业身份源时，用户登录页现在支持基于企业邮箱做 HRD（Home Realm Discovery）。推荐使用的公开发现接口为：
 
-- `GET /api/enterprise/oidc/discover?email=user@example.com`
+- `GET /api/enterprise/discover?email=user@example.com`
 
-接口会返回该邮箱域名命中的组织以及一个或多个 Enterprise OIDC provider。登录页在命中单个 provider 时会直接跳转；如果同一组织配置了 `auto_redirect: true` 的优先登录源，也会直接跳转；否则会按默认登录源和优先级顺序收敛出可选的企业登录方式。
+如果你是域名优先接入，也可以直接调用：
 
-如果下游 OIDC 应用已经知道用户的企业邮箱，也可以直接在 `/oauth2/authorize` 上带 `login_hint=user@example.com`。MKAuth 现在会把这个 hint 透传到登录页，并自动触发对应的 Enterprise OIDC 发现流程。
+- `GET /api/enterprise/discover?domain=example.com`
 
-如果下游 OIDC 应用拿不到完整邮箱、只知道企业域名，也可以在 `/oauth2/authorize` 上带 `domain_hint=example.com`。MKAuth 也会透传这个 hint，并自动执行基于域名的 Enterprise OIDC 发现。
+接口会返回该邮箱域名命中的组织以及一个或多个企业身份源。每个身份源都会带上 `provider_type`，登录页会根据它自动走 Enterprise OIDC 或 Enterprise SAML。命中单个 provider 时会直接跳转；如果同一组织配置了 `auto_redirect: true` 的优先登录源，也会直接跳转；否则会按默认登录源和优先级顺序收敛出可选的企业登录方式。
+
+如果下游 OIDC 应用已经知道用户的企业邮箱，也可以直接在 `/oauth2/authorize` 上带 `login_hint=user@example.com`。MKAuth 现在会把这个 hint 透传到登录页，并自动触发对应的企业身份源发现流程。
+
+如果下游 OIDC 应用拿不到完整邮箱、只知道企业域名，也可以在 `/oauth2/authorize` 上带 `domain_hint=example.com`。MKAuth 也会透传这个 hint，并自动执行基于域名的企业身份源发现。
 
 ### Inbound SCIM 同步
 
@@ -558,9 +562,15 @@ curl -X POST http://localhost:8080/oauth2/token \
 
 常用接口：
 - `GET /api/providers`：查询当前启用的登录方式
+- `GET /api/enterprise/providers`：查询企业登录方式
+- `GET /api/enterprise/discover`：按邮箱或域名发现企业登录源
 - `GET /api/enterprise/oidc/providers`：查询企业 OIDC 登录方式
 - `GET /api/enterprise/oidc/:slug/login`：发起企业 OIDC 登录
 - `GET /api/enterprise/oidc/:slug/callback`：企业 OIDC 回调
+- `GET /api/enterprise/saml/:slug/login`：发起企业 SAML 登录
+- `GET /api/enterprise/saml/:slug/metadata`：获取企业 SAML SP metadata
+- `GET /api/enterprise/saml/:slug/acs`：企业 SAML ACS 回调
+- `POST /api/enterprise/saml/:slug/acs`：企业 SAML ACS 回调
 - `POST /api/account/register`
 - `POST /api/account/login`
 - `POST /api/email/login`

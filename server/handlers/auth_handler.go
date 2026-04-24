@@ -35,6 +35,7 @@ type AuthHandler struct {
 	avatarHandler   *AvatarHandler
 	oidcProvider    *oidc.Provider
 	enterpriseOIDC  *iam.EnterpriseOIDCManager
+	enterpriseSAML  *iam.EnterpriseSAMLManager
 	hookRegistry    *iam.HookRegistry
 	pluginRegistry  *plugins.Registry
 	config          *config.Config
@@ -63,6 +64,7 @@ func NewAuthHandler(
 	avatarService *auth.AvatarService,
 	oidcProvider *oidc.Provider,
 	enterpriseOIDC *iam.EnterpriseOIDCManager,
+	enterpriseSAML *iam.EnterpriseSAMLManager,
 	hookRegistry *iam.HookRegistry,
 	pluginRegistry *plugins.Registry,
 	config *config.Config) *AuthHandler {
@@ -81,6 +83,7 @@ func NewAuthHandler(
 		avatarHandler:   NewAvatarHandler(accountAuth, avatarService),
 		oidcProvider:    oidcProvider,
 		enterpriseOIDC:  enterpriseOIDC,
+		enterpriseSAML:  enterpriseSAML,
 		hookRegistry:    hookRegistry,
 		pluginRegistry:  pluginRegistry,
 		config:          config,
@@ -135,11 +138,17 @@ func (h *AuthHandler) RegisterRoutes(authGroup *gin.RouterGroup, cfg *config.Con
 		authGroup.GET("/weixin/miniprogram", h.WeixinMiniLogin)
 	}
 
-	if h.enterpriseOIDC != nil {
+	if h.enterpriseOIDC != nil || h.enterpriseSAML != nil {
+		authGroup.GET("/enterprise/discover", h.DiscoverEnterpriseProviders)
+		authGroup.GET("/enterprise/providers", h.GetEnterpriseProviders)
 		authGroup.GET("/enterprise/oidc/discover", h.DiscoverEnterpriseOIDC)
 		authGroup.GET("/enterprise/oidc/providers", h.GetEnterpriseOIDCProviders)
 		authGroup.GET("/enterprise/oidc/:slug/login", h.EnterpriseOIDCLogin)
 		authGroup.GET("/enterprise/oidc/:slug/callback", h.EnterpriseOIDCCallback)
+		authGroup.GET("/enterprise/saml/:slug/login", h.EnterpriseSAMLLogin)
+		authGroup.GET("/enterprise/saml/:slug/metadata", h.EnterpriseSAMLMetadata)
+		authGroup.POST("/enterprise/saml/:slug/acs", h.EnterpriseSAMLACS)
+		authGroup.GET("/enterprise/saml/:slug/acs", h.EnterpriseSAMLACS)
 	}
 
 	// Phone login related routes
@@ -207,7 +216,7 @@ func (h *AuthHandler) GetSupportedProviders(c *gin.Context) {
 		providers = append(providers, "weixin_mini")
 	}
 
-	if h.enterpriseOIDC != nil && h.enterpriseOIDC.HasProviders() {
+	if (h.enterpriseOIDC != nil && h.enterpriseOIDC.HasProviders()) || (h.enterpriseSAML != nil && h.enterpriseSAML.HasProviders()) {
 		providers = append(providers, "enterprise_oidc")
 	}
 

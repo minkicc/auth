@@ -326,7 +326,7 @@ See [examples/plugins/http-claims-action](examples/plugins/http-claims-action/RE
 
 ### CIAM/IAM organization management
 
-After enabling the admin console, open the `Organizations` menu to manage B2B tenants. The admin UI can create and edit organizations, attach verified email domains, assign existing users to organizations with lightweight role names, and configure Enterprise OIDC providers per organization.
+After enabling the admin console, open the `Organizations` menu to manage B2B tenants. The admin UI can create and edit organizations, attach verified email domains, assign existing users to organizations with lightweight role names, and configure Enterprise OIDC plus Enterprise SAML providers per organization.
 
 The organization ID or slug can be used in the `:id` path segment. Organizations are not hard-deleted in this first version; set their status to `inactive` when they should no longer be used.
 
@@ -343,28 +343,34 @@ Useful admin endpoints:
 
 When a user has an active organization membership and the downstream OIDC client requests `profile`, MKAuth can include `org_id`, `org_slug`, and `org_roles` in the ID Token and `/oauth2/userinfo`.
 
-Enterprise OIDC can now be managed in two ways:
+Enterprise login can now be managed in two ways:
 
-- Static bootstrap via `iam.enterprise_oidc` in YAML
-- Runtime management from the admin console under `Organizations -> Enterprise OIDC`
+- Static bootstrap via `iam.enterprise_oidc` and `iam.enterprise_saml` in YAML
+- Runtime management from the admin console under `Organizations -> Enterprise Login`
 
-Each Enterprise OIDC provider also supports lightweight multi-IdP policy fields:
+Each enterprise identity provider also supports lightweight multi-IdP policy fields:
 
 - `priority`: lower numbers sort earlier
 - `is_default`: marks the preferred provider for the organization
 - `auto_redirect`: when HRD matches multiple providers, jump directly to the preferred provider instead of showing a chooser
 
-Providers created from the admin console are stored in the database, their client secret is not echoed back by the admin API, and saving changes triggers an in-process reload so the enterprise login routes become available immediately without restarting MKAuth.
+Enterprise OIDC providers keep their `client_secret` stored but hidden from admin API responses. Enterprise SAML providers can be configured with either `idp_metadata_url` or inline `idp_metadata_xml`, together with optional attribute mapping fields such as `email_attribute`, `username_attribute`, and `display_name_attribute`.
 
-When an organization has at least one verified domain plus Enterprise OIDC providers, the end-user login page can now perform HRD (Home Realm Discovery) from a work email address. The public discovery endpoint is:
+Providers created from the admin console are stored in the database, and saving changes triggers an in-process reload so enterprise login routes become available immediately without restarting MKAuth.
 
-- `GET /api/enterprise/oidc/discover?email=user@example.com`
+When an organization has at least one verified domain plus enterprise identity providers, the end-user login page can now perform HRD (Home Realm Discovery) from a work email address. The recommended public discovery endpoint is:
 
-It returns the matched organization plus one or more Enterprise OIDC providers for that domain. The login page uses this to auto-redirect when a single provider is matched, or when the preferred provider has `auto_redirect: true`; otherwise it narrows the SSO choices using the organization's default and priority ordering.
+- `GET /api/enterprise/discover?email=user@example.com`
 
-If a downstream OIDC client already knows the user's work email, it can pass `login_hint=user@example.com` to `/oauth2/authorize`. MKAuth now forwards that hint to the login page and automatically triggers Enterprise OIDC discovery from it.
+For domain-first flows, you can also use:
 
-If the downstream OIDC client only knows the organization domain, it can instead pass `domain_hint=example.com` to `/oauth2/authorize`. MKAuth forwards that hint too and performs domain-based Enterprise OIDC discovery automatically.
+- `GET /api/enterprise/discover?domain=example.com`
+
+The response includes the matched organization plus one or more enterprise identity providers for that domain. Each provider carries `provider_type`, so the login page can route to Enterprise OIDC or Enterprise SAML automatically. The login page uses this to auto-redirect when a single provider is matched, or when the preferred provider has `auto_redirect: true`; otherwise it narrows the SSO choices using the organization's default and priority ordering.
+
+If a downstream OIDC client already knows the user's work email, it can pass `login_hint=user@example.com` to `/oauth2/authorize`. MKAuth now forwards that hint to the login page and automatically triggers enterprise provider discovery from it.
+
+If the downstream OIDC client only knows the organization domain, it can instead pass `domain_hint=example.com` to `/oauth2/authorize`. MKAuth forwards that hint too and performs domain-based enterprise provider discovery automatically.
 
 ### Inbound SCIM provisioning
 
@@ -552,9 +558,15 @@ If your app is on another domain or you want a standard third-party login contra
 
 Common endpoints:
 - `GET /api/providers`
+- `GET /api/enterprise/providers`
+- `GET /api/enterprise/discover`
 - `GET /api/enterprise/oidc/providers`
 - `GET /api/enterprise/oidc/:slug/login`
 - `GET /api/enterprise/oidc/:slug/callback`
+- `GET /api/enterprise/saml/:slug/login`
+- `GET /api/enterprise/saml/:slug/metadata`
+- `GET /api/enterprise/saml/:slug/acs`
+- `POST /api/enterprise/saml/:slug/acs`
 - `POST /api/account/register`
 - `POST /api/account/login`
 - `POST /api/email/login`

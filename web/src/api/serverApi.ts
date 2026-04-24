@@ -35,6 +35,7 @@ export interface EnterpriseOIDCProvider {
     slug: string
     name: string
     organization_id?: string
+    provider_type?: 'oidc' | 'saml' | string
     priority?: number
     is_default?: boolean
     auto_redirect?: boolean
@@ -357,12 +358,12 @@ class ServerApi {
     }
 
     async fetchEnterpriseOIDCProviders(): Promise<EnterpriseOIDCProvider[]> {
-        const response = await axios.get('/enterprise/oidc/providers')
+        const response = await axios.get('/enterprise/providers')
         return response.data.providers || []
     }
 
     async discoverEnterpriseOIDCByEmail(email: string): Promise<EnterpriseOIDCDiscoveryResponse> {
-        const response = await axios.get('/enterprise/oidc/discover', {
+        const response = await axios.get('/enterprise/discover', {
             params: { email }
         })
         const data = response.data || {}
@@ -373,7 +374,7 @@ class ServerApi {
     }
 
     async discoverEnterpriseOIDCByDomain(domain: string): Promise<EnterpriseOIDCDiscoveryResponse> {
-        const response = await axios.get('/enterprise/oidc/discover', {
+        const response = await axios.get('/enterprise/discover', {
             params: { domain }
         })
         const data = response.data || {}
@@ -383,10 +384,15 @@ class ServerApi {
         }
     }
 
-    startEnterpriseOIDCLogin(slug: string): void {
+    startEnterpriseOIDCLogin(provider: EnterpriseOIDCProvider | string): void {
+        const providerSlug = typeof provider === 'string' ? provider : provider.slug
+        const providerType = typeof provider === 'string' ? 'oidc' : (provider.provider_type || 'oidc')
+        const basePath = providerType === 'saml'
+            ? `/enterprise/saml/${encodeURIComponent(providerSlug)}/login`
+            : `/enterprise/oidc/${encodeURIComponent(providerSlug)}/login`
         const params = new URLSearchParams()
         params.set('return_uri', this.isOIDCFlow() ? this.redirectUri : this.routePath('/profile'))
-        window.location.href = this.buildApiURL(`/enterprise/oidc/${encodeURIComponent(slug)}/login`, params)
+        window.location.href = this.buildApiURL(basePath, params)
     }
 
     // 账号密码登录

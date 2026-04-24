@@ -53,6 +53,7 @@ type AuthConfig struct {
 // IAMConfig contains optional CIAM/IAM extensions.
 type IAMConfig struct {
 	EnterpriseOIDC []EnterpriseOIDCProviderConfig `json:"enterprise_oidc" yaml:"enterprise_oidc"`
+	EnterpriseSAML []EnterpriseSAMLProviderConfig `json:"enterprise_saml" yaml:"enterprise_saml"`
 	SCIMInbound    []SCIMInboundConfig            `json:"scim_inbound" yaml:"scim_inbound"`
 }
 
@@ -69,6 +70,26 @@ type EnterpriseOIDCProviderConfig struct {
 	ClientSecret   string   `json:"client_secret" yaml:"client_secret"`
 	RedirectURI    string   `json:"redirect_uri" yaml:"redirect_uri"`
 	Scopes         []string `json:"scopes" yaml:"scopes"`
+}
+
+// EnterpriseSAMLProviderConfig describes an upstream enterprise SAML provider.
+type EnterpriseSAMLProviderConfig struct {
+	Slug                 string `json:"slug" yaml:"slug"`
+	Name                 string `json:"name" yaml:"name"`
+	OrganizationID       string `json:"organization_id" yaml:"organization_id"`
+	Priority             int    `json:"priority" yaml:"priority"`
+	IsDefault            bool   `json:"is_default" yaml:"is_default"`
+	AutoRedirect         bool   `json:"auto_redirect" yaml:"auto_redirect"`
+	IDPMetadataURL       string `json:"idp_metadata_url" yaml:"idp_metadata_url"`
+	IDPMetadataXML       string `json:"idp_metadata_xml" yaml:"idp_metadata_xml"`
+	EntityID             string `json:"entity_id" yaml:"entity_id"`
+	ACSURL               string `json:"acs_url" yaml:"acs_url"`
+	NameIDFormat         string `json:"name_id_format" yaml:"name_id_format"`
+	EmailAttribute       string `json:"email_attribute" yaml:"email_attribute"`
+	UsernameAttribute    string `json:"username_attribute" yaml:"username_attribute"`
+	DisplayNameAttribute string `json:"display_name_attribute" yaml:"display_name_attribute"`
+	AllowIDPInitiated    bool   `json:"allow_idp_initiated" yaml:"allow_idp_initiated"`
+	DefaultRedirectURI   string `json:"default_redirect_uri" yaml:"default_redirect_uri"`
 }
 
 // SCIMInboundConfig describes an inbound SCIM 2.0 provisioning connection.

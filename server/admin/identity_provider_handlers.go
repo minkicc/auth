@@ -17,26 +17,46 @@ import (
 var defaultAdminOIDCScopes = []string{"openid", "profile", "email"}
 
 type organizationIdentityProviderPayload struct {
-	ProviderType string   `json:"provider_type"`
-	Name         string   `json:"name"`
-	Slug         string   `json:"slug"`
-	Enabled      *bool    `json:"enabled"`
-	Priority     *int     `json:"priority"`
-	IsDefault    *bool    `json:"is_default"`
-	AutoRedirect *bool    `json:"auto_redirect"`
-	Issuer       string   `json:"issuer"`
-	ClientID     string   `json:"client_id"`
-	ClientSecret string   `json:"client_secret"`
-	RedirectURI  string   `json:"redirect_uri"`
-	Scopes       []string `json:"scopes"`
+	ProviderType         string   `json:"provider_type"`
+	Name                 string   `json:"name"`
+	Slug                 string   `json:"slug"`
+	Enabled              *bool    `json:"enabled"`
+	Priority             *int     `json:"priority"`
+	IsDefault            *bool    `json:"is_default"`
+	AutoRedirect         *bool    `json:"auto_redirect"`
+	Issuer               string   `json:"issuer"`
+	ClientID             string   `json:"client_id"`
+	ClientSecret         string   `json:"client_secret"`
+	RedirectURI          string   `json:"redirect_uri"`
+	Scopes               []string `json:"scopes"`
+	IDPMetadataURL       string   `json:"idp_metadata_url"`
+	IDPMetadataXML       string   `json:"idp_metadata_xml"`
+	EntityID             string   `json:"entity_id"`
+	ACSURL               string   `json:"acs_url"`
+	NameIDFormat         string   `json:"name_id_format"`
+	EmailAttribute       string   `json:"email_attribute"`
+	UsernameAttribute    string   `json:"username_attribute"`
+	DisplayNameAttribute string   `json:"display_name_attribute"`
+	AllowIDPInitiated    *bool    `json:"allow_idp_initiated"`
+	DefaultRedirectURI   string   `json:"default_redirect_uri"`
 }
 
 type organizationIdentityProviderConfigView struct {
-	Issuer                 string   `json:"issuer"`
-	ClientID               string   `json:"client_id"`
-	RedirectURI            string   `json:"redirect_uri"`
-	Scopes                 []string `json:"scopes"`
-	ClientSecretConfigured bool     `json:"client_secret_configured"`
+	Issuer                   string   `json:"issuer"`
+	ClientID                 string   `json:"client_id"`
+	RedirectURI              string   `json:"redirect_uri"`
+	Scopes                   []string `json:"scopes"`
+	ClientSecretConfigured   bool     `json:"client_secret_configured"`
+	IDPMetadataURL           string   `json:"idp_metadata_url"`
+	IDPMetadataXMLConfigured bool     `json:"idp_metadata_xml_configured"`
+	EntityID                 string   `json:"entity_id"`
+	ACSURL                   string   `json:"acs_url"`
+	NameIDFormat             string   `json:"name_id_format"`
+	EmailAttribute           string   `json:"email_attribute"`
+	UsernameAttribute        string   `json:"username_attribute"`
+	DisplayNameAttribute     string   `json:"display_name_attribute"`
+	AllowIDPInitiated        bool     `json:"allow_idp_initiated"`
+	DefaultRedirectURI       string   `json:"default_redirect_uri"`
 }
 
 type organizationIdentityProviderView struct {
@@ -105,7 +125,7 @@ func (s *AdminServer) handleCreateOrganizationIdentityProvider(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if err := s.reloadEnterpriseOIDC(); err != nil {
+	if err := s.reloadEnterpriseIdentityProviders(); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -140,7 +160,7 @@ func (s *AdminServer) handleUpdateOrganizationIdentityProvider(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if err := s.reloadEnterpriseOIDC(); err != nil {
+	if err := s.reloadEnterpriseIdentityProviders(); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -165,7 +185,7 @@ func (s *AdminServer) handleDeleteOrganizationIdentityProvider(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if err := s.reloadEnterpriseOIDC(); err != nil {
+	if err := s.reloadEnterpriseIdentityProviders(); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -177,7 +197,7 @@ func (s *AdminServer) organizationIdentityProviderFromPayload(organizationID str
 	if providerType == "" {
 		providerType = string(iam.IdentityProviderTypeOIDC)
 	}
-	if providerType != string(iam.IdentityProviderTypeOIDC) {
+	if providerType != string(iam.IdentityProviderTypeOIDC) && providerType != string(iam.IdentityProviderTypeSAML) {
 		return iam.OrganizationIdentityProvider{}, fmt.Errorf("unsupported identity provider type %q", providerType)
 	}
 
@@ -191,47 +211,10 @@ func (s *AdminServer) organizationIdentityProviderFromPayload(organizationID str
 	}
 
 	currentID := ""
-	existingConfig := config.EnterpriseOIDCProviderConfig{}
 	if current != nil {
 		currentID = current.IdentityProviderID
-		decoded, err := decodeStoredEnterpriseOIDCConfig(*current)
-		if err != nil {
-			return iam.OrganizationIdentityProvider{}, err
-		}
-		existingConfig = decoded
 	}
 	if err := s.ensureIdentityProviderSlugAvailable(slug, currentID); err != nil {
-		return iam.OrganizationIdentityProvider{}, err
-	}
-
-	clientSecret := strings.TrimSpace(req.ClientSecret)
-	if clientSecret == "" {
-		clientSecret = strings.TrimSpace(existingConfig.ClientSecret)
-	}
-
-	providerConfig := config.EnterpriseOIDCProviderConfig{
-		Slug:           slug,
-		Name:           name,
-		OrganizationID: organizationID,
-		Issuer:         strings.TrimSpace(req.Issuer),
-		ClientID:       strings.TrimSpace(req.ClientID),
-		ClientSecret:   clientSecret,
-		RedirectURI:    strings.TrimSpace(req.RedirectURI),
-		Scopes:         normalizeIdentityProviderScopes(req.Scopes),
-	}
-	if _, err := iam.NewEnterpriseOIDCProvider(providerConfig); err != nil {
-		return iam.OrganizationIdentityProvider{}, err
-	}
-
-	storedConfig := config.EnterpriseOIDCProviderConfig{
-		Issuer:       providerConfig.Issuer,
-		ClientID:     providerConfig.ClientID,
-		ClientSecret: providerConfig.ClientSecret,
-		RedirectURI:  providerConfig.RedirectURI,
-		Scopes:       providerConfig.Scopes,
-	}
-	configJSON, err := json.Marshal(storedConfig)
-	if err != nil {
 		return iam.OrganizationIdentityProvider{}, err
 	}
 
@@ -270,6 +253,116 @@ func (s *AdminServer) organizationIdentityProviderFromPayload(organizationID str
 		autoRedirect = *req.AutoRedirect
 	}
 
+	var configJSON []byte
+	switch providerType {
+	case string(iam.IdentityProviderTypeOIDC):
+		existingConfig := config.EnterpriseOIDCProviderConfig{}
+		if current != nil && current.ProviderType == iam.IdentityProviderTypeOIDC {
+			decoded, err := decodeStoredEnterpriseOIDCConfig(*current)
+			if err != nil {
+				return iam.OrganizationIdentityProvider{}, err
+			}
+			existingConfig = decoded
+		}
+		clientSecret := strings.TrimSpace(req.ClientSecret)
+		if clientSecret == "" {
+			clientSecret = strings.TrimSpace(existingConfig.ClientSecret)
+		}
+
+		providerConfig := config.EnterpriseOIDCProviderConfig{
+			Slug:           slug,
+			Name:           name,
+			OrganizationID: organizationID,
+			Priority:       priority,
+			IsDefault:      isDefault,
+			AutoRedirect:   autoRedirect,
+			Issuer:         strings.TrimSpace(req.Issuer),
+			ClientID:       strings.TrimSpace(req.ClientID),
+			ClientSecret:   clientSecret,
+			RedirectURI:    strings.TrimSpace(req.RedirectURI),
+			Scopes:         normalizeIdentityProviderScopes(req.Scopes),
+		}
+		if _, err := iam.NewEnterpriseOIDCProvider(providerConfig); err != nil {
+			return iam.OrganizationIdentityProvider{}, err
+		}
+
+		storedConfig := config.EnterpriseOIDCProviderConfig{
+			Issuer:       providerConfig.Issuer,
+			ClientID:     providerConfig.ClientID,
+			ClientSecret: providerConfig.ClientSecret,
+			RedirectURI:  providerConfig.RedirectURI,
+			Scopes:       providerConfig.Scopes,
+		}
+		var err error
+		configJSON, err = json.Marshal(storedConfig)
+		if err != nil {
+			return iam.OrganizationIdentityProvider{}, err
+		}
+	case string(iam.IdentityProviderTypeSAML):
+		existingConfig := config.EnterpriseSAMLProviderConfig{}
+		if current != nil && current.ProviderType == iam.IdentityProviderTypeSAML {
+			decoded, err := decodeStoredEnterpriseSAMLConfig(*current)
+			if err != nil {
+				return iam.OrganizationIdentityProvider{}, err
+			}
+			existingConfig = decoded
+		}
+
+		idpMetadataURL := strings.TrimSpace(req.IDPMetadataURL)
+		if idpMetadataURL == "" {
+			idpMetadataURL = strings.TrimSpace(existingConfig.IDPMetadataURL)
+		}
+		idpMetadataXML := strings.TrimSpace(req.IDPMetadataXML)
+		if idpMetadataXML == "" {
+			idpMetadataXML = strings.TrimSpace(existingConfig.IDPMetadataXML)
+		}
+
+		allowIDPInitiated := existingConfig.AllowIDPInitiated
+		if req.AllowIDPInitiated != nil {
+			allowIDPInitiated = *req.AllowIDPInitiated
+		}
+
+		providerConfig := config.EnterpriseSAMLProviderConfig{
+			Slug:                 slug,
+			Name:                 name,
+			OrganizationID:       organizationID,
+			Priority:             priority,
+			IsDefault:            isDefault,
+			AutoRedirect:         autoRedirect,
+			IDPMetadataURL:       idpMetadataURL,
+			IDPMetadataXML:       idpMetadataXML,
+			EntityID:             strings.TrimSpace(req.EntityID),
+			ACSURL:               strings.TrimSpace(req.ACSURL),
+			NameIDFormat:         strings.TrimSpace(req.NameIDFormat),
+			EmailAttribute:       strings.TrimSpace(req.EmailAttribute),
+			UsernameAttribute:    strings.TrimSpace(req.UsernameAttribute),
+			DisplayNameAttribute: strings.TrimSpace(req.DisplayNameAttribute),
+			AllowIDPInitiated:    allowIDPInitiated,
+			DefaultRedirectURI:   strings.TrimSpace(req.DefaultRedirectURI),
+		}
+		if _, err := iam.NewEnterpriseSAMLProvider(providerConfig, s.publicBaseURL); err != nil {
+			return iam.OrganizationIdentityProvider{}, err
+		}
+
+		storedConfig := config.EnterpriseSAMLProviderConfig{
+			IDPMetadataURL:       providerConfig.IDPMetadataURL,
+			IDPMetadataXML:       providerConfig.IDPMetadataXML,
+			EntityID:             providerConfig.EntityID,
+			ACSURL:               providerConfig.ACSURL,
+			NameIDFormat:         providerConfig.NameIDFormat,
+			EmailAttribute:       providerConfig.EmailAttribute,
+			UsernameAttribute:    providerConfig.UsernameAttribute,
+			DisplayNameAttribute: providerConfig.DisplayNameAttribute,
+			AllowIDPInitiated:    providerConfig.AllowIDPInitiated,
+			DefaultRedirectURI:   providerConfig.DefaultRedirectURI,
+		}
+		var err error
+		configJSON, err = json.Marshal(storedConfig)
+		if err != nil {
+			return iam.OrganizationIdentityProvider{}, err
+		}
+	}
+
 	if current != nil {
 		current.OrganizationID = organizationID
 		current.ProviderType = iam.IdentityProviderType(providerType)
@@ -300,6 +393,9 @@ func (s *AdminServer) ensureIdentityProviderSlugAvailable(slug, currentID string
 	if s.enterpriseOIDC != nil && s.enterpriseOIDC.HasStaticProviderSlug(slug) {
 		return fmt.Errorf("slug %q is reserved by static enterprise oidc configuration", slug)
 	}
+	if s.enterpriseSAML != nil && s.enterpriseSAML.HasStaticProviderSlug(slug) {
+		return fmt.Errorf("slug %q is reserved by static enterprise saml configuration", slug)
+	}
 	query := s.db.Model(&iam.OrganizationIdentityProvider{}).Where("slug = ?", slug)
 	if currentID != "" {
 		query = query.Where("identity_provider_id <> ?", currentID)
@@ -325,20 +421,22 @@ func (s *AdminServer) loadOrganizationIdentityProvider(c *gin.Context, organizat
 	return record, true
 }
 
-func (s *AdminServer) reloadEnterpriseOIDC() error {
+func (s *AdminServer) reloadEnterpriseIdentityProviders() error {
 	if s.enterpriseOIDC == nil {
+		goto saml
+	}
+	if err := s.enterpriseOIDC.Reload(); err != nil {
+		return err
+	}
+saml:
+	if s.enterpriseSAML == nil {
 		return nil
 	}
-	return s.enterpriseOIDC.Reload()
+	return s.enterpriseSAML.Reload()
 }
 
 func organizationIdentityProviderToView(record iam.OrganizationIdentityProvider) (organizationIdentityProviderView, error) {
-	storedConfig, err := decodeStoredEnterpriseOIDCConfig(record)
-	if err != nil {
-		return organizationIdentityProviderView{}, err
-	}
-	scopes := normalizeIdentityProviderScopes(storedConfig.Scopes)
-	return organizationIdentityProviderView{
+	view := organizationIdentityProviderView{
 		IdentityProviderID: record.IdentityProviderID,
 		OrganizationID:     record.OrganizationID,
 		ProviderType:       string(record.ProviderType),
@@ -348,16 +446,41 @@ func organizationIdentityProviderToView(record iam.OrganizationIdentityProvider)
 		Priority:           record.Priority,
 		IsDefault:          record.IsDefault,
 		AutoRedirect:       record.AutoRedirect,
-		Config: organizationIdentityProviderConfigView{
+		CreatedAt:          record.CreatedAt,
+		UpdatedAt:          record.UpdatedAt,
+	}
+	switch record.ProviderType {
+	case iam.IdentityProviderTypeOIDC:
+		storedConfig, err := decodeStoredEnterpriseOIDCConfig(record)
+		if err != nil {
+			return organizationIdentityProviderView{}, err
+		}
+		view.Config = organizationIdentityProviderConfigView{
 			Issuer:                 strings.TrimSpace(storedConfig.Issuer),
 			ClientID:               strings.TrimSpace(storedConfig.ClientID),
 			RedirectURI:            strings.TrimSpace(storedConfig.RedirectURI),
-			Scopes:                 scopes,
+			Scopes:                 normalizeIdentityProviderScopes(storedConfig.Scopes),
 			ClientSecretConfigured: strings.TrimSpace(storedConfig.ClientSecret) != "",
-		},
-		CreatedAt: record.CreatedAt,
-		UpdatedAt: record.UpdatedAt,
-	}, nil
+		}
+	case iam.IdentityProviderTypeSAML:
+		storedConfig, err := decodeStoredEnterpriseSAMLConfig(record)
+		if err != nil {
+			return organizationIdentityProviderView{}, err
+		}
+		view.Config = organizationIdentityProviderConfigView{
+			IDPMetadataURL:           strings.TrimSpace(storedConfig.IDPMetadataURL),
+			IDPMetadataXMLConfigured: strings.TrimSpace(storedConfig.IDPMetadataXML) != "",
+			EntityID:                 strings.TrimSpace(storedConfig.EntityID),
+			ACSURL:                   strings.TrimSpace(storedConfig.ACSURL),
+			NameIDFormat:             strings.TrimSpace(storedConfig.NameIDFormat),
+			EmailAttribute:           strings.TrimSpace(storedConfig.EmailAttribute),
+			UsernameAttribute:        strings.TrimSpace(storedConfig.UsernameAttribute),
+			DisplayNameAttribute:     strings.TrimSpace(storedConfig.DisplayNameAttribute),
+			AllowIDPInitiated:        storedConfig.AllowIDPInitiated,
+			DefaultRedirectURI:       strings.TrimSpace(storedConfig.DefaultRedirectURI),
+		}
+	}
+	return view, nil
 }
 
 func decodeStoredEnterpriseOIDCConfig(record iam.OrganizationIdentityProvider) (config.EnterpriseOIDCProviderConfig, error) {
@@ -367,6 +490,17 @@ func decodeStoredEnterpriseOIDCConfig(record iam.OrganizationIdentityProvider) (
 	var providerConfig config.EnterpriseOIDCProviderConfig
 	if err := json.Unmarshal([]byte(record.ConfigJSON), &providerConfig); err != nil {
 		return config.EnterpriseOIDCProviderConfig{}, fmt.Errorf("decode identity provider %q config: %w", record.Slug, err)
+	}
+	return providerConfig, nil
+}
+
+func decodeStoredEnterpriseSAMLConfig(record iam.OrganizationIdentityProvider) (config.EnterpriseSAMLProviderConfig, error) {
+	if strings.TrimSpace(record.ConfigJSON) == "" {
+		return config.EnterpriseSAMLProviderConfig{}, fmt.Errorf("identity provider %q is missing config", record.Slug)
+	}
+	var providerConfig config.EnterpriseSAMLProviderConfig
+	if err := json.Unmarshal([]byte(record.ConfigJSON), &providerConfig); err != nil {
+		return config.EnterpriseSAMLProviderConfig{}, fmt.Errorf("decode identity provider %q config: %w", record.Slug, err)
 	}
 	return providerConfig, nil
 }

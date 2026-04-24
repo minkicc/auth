@@ -17,15 +17,15 @@ Implemented:
 - Flow hook boundaries for `post_authenticate`, `before_token_issue`, and `before_userinfo`.
 - Installable plugin runtime with local ZIP packages, catalog installation, URL installation, preview, config schema, signatures, audit log, backups, restore, and in-process reload.
 - `enterprise_oidc` as the first upstream enterprise identity connector.
-- HRD (Home Realm Discovery) from verified organization domains to Enterprise OIDC providers.
-- Organization-level default provider, provider priority, and optional auto-redirect policy for Enterprise OIDC discovery.
+- `enterprise_saml` as the second upstream enterprise identity connector.
+- HRD (Home Realm Discovery) from verified organization domains to Enterprise OIDC and Enterprise SAML providers.
+- Organization-level default provider, provider priority, and optional auto-redirect policy for enterprise provider discovery.
 - Organization claim injection into ID Token and `/oauth2/userinfo`.
-- Admin API and admin console page for organization, domain, membership, and Enterprise OIDC identity provider management.
+- Admin API and admin console page for organization, domain, membership, and enterprise identity provider management.
 - Inbound SCIM Users and Groups MVP for enterprise directory provisioning into an organization.
 
 Not implemented yet:
 
-- Enterprise SAML.
 - LDAP federation or sync.
 - Full role/group/RBAC policy enforcement.
 - Explicit organization selection for users who belong to multiple organizations.
@@ -247,7 +247,7 @@ The admin console now includes an `Organizations` page for B2B tenant operations
 - Add existing users as organization members.
 - Update membership status and lightweight role names.
 - Remove organization memberships.
-- Create, update, enable, disable, and delete Enterprise OIDC identity providers per organization.
+- Create, update, enable, disable, and delete Enterprise OIDC and Enterprise SAML identity providers per organization.
 - Configure per-provider `priority`, `is_default`, and `auto_redirect` policy from the admin console.
 
 The admin API accepts either organization ID or slug in the `:id` path segment:
@@ -340,6 +340,8 @@ iam:
 
 Runtime endpoints:
 
+- `GET /api/enterprise/providers`
+- `GET /api/enterprise/discover`
 - `GET /api/enterprise/oidc/providers`
 - `GET /api/enterprise/oidc/:slug/login`
 - `GET /api/enterprise/oidc/:slug/callback`
@@ -355,9 +357,9 @@ Runtime admin behavior:
 
 HRD behavior:
 
-1. The public endpoint `GET /api/enterprise/oidc/discover?email=...` extracts the email domain.
+1. The public endpoint `GET /api/enterprise/discover?email=...` extracts the email domain.
 2. MKAuth looks up a verified record in `organization_domains`.
-3. The matched active organization is resolved to one or more runtime Enterprise OIDC providers.
+3. The matched active organization is resolved to one or more runtime enterprise identity providers.
 4. Providers are ordered by `is_default`, `auto_redirect`, and ascending `priority`.
 5. The login page auto-redirects when exactly one provider is matched, or when the preferred provider has `auto_redirect: true`.
 6. Otherwise the login page narrows the provider list in the organization's preferred order.
@@ -372,6 +374,48 @@ The callback flow:
 4. Creates a new internal `usr_...` user when no linked user exists.
 5. Adds an organization membership when the provider has `organization_id`.
 6. Reuses the existing MKAuth `oidc_session` browser session mechanism.
+
+The OIDC-specific discovery endpoint `GET /api/enterprise/oidc/discover` remains available for compatibility, but new integrations should prefer the generic enterprise discovery endpoint.
+
+## Enterprise SAML MVP
+
+The second upstream identity connector is `enterprise_saml`. Providers can be bootstrapped statically from `iam.enterprise_saml` or managed dynamically from the admin console.
+
+Static bootstrap example:
+
+```yaml
+iam:
+  enterprise_saml:
+    - slug: "acme-saml"
+      name: "Acme SAML"
+      organization_id: "org_acme000000000000"
+      idp_metadata_url: "https://idp.example.com/metadata"
+      entity_id: "https://auth.example.com/api/enterprise/saml/acme-saml/metadata"
+      acs_url: "https://auth.example.com/api/enterprise/saml/acme-saml/acs"
+      name_id_format: "urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress"
+      email_attribute: "email"
+      username_attribute: "preferred_username"
+      display_name_attribute: "displayName"
+```
+
+Runtime endpoints:
+
+- `GET /api/enterprise/saml/:slug/login`
+- `GET /api/enterprise/saml/:slug/metadata`
+- `GET /api/enterprise/saml/:slug/acs`
+- `POST /api/enterprise/saml/:slug/acs`
+
+The login endpoint accepts an optional `return_uri` query parameter, just like Enterprise OIDC, so enterprise SSO can resume an existing downstream OIDC authorization request after MKAuth creates the browser session.
+
+Enterprise SAML behavior:
+
+1. Loads IdP metadata from `idp_metadata_url` or inline `idp_metadata_xml`.
+2. Generates SP defaults for metadata and ACS from the public MKAuth base URL when explicit values are omitted.
+3. Tracks the outbound AuthnRequest through `RelayState` and validates the matching request on ACS.
+4. Links `(provider_type=saml, provider_id=:slug, subject=NameID)` into `external_identities`.
+5. Creates a new internal `usr_...` user when no linked user exists.
+6. Adds an organization membership when the provider has `organization_id`.
+7. Reuses the existing MKAuth `oidc_session` browser session mechanism after SAML login succeeds.
 
 ## Organization Claims
 
@@ -391,7 +435,8 @@ The first version selects the earliest active organization membership. A future 
 4. Add organization admin APIs and UI. Done.
 5. Add inbound SCIM Users provisioning. Done.
 6. Add SCIM Groups for group-to-role synchronization. Done.
-7. Add SAML and LDAP connectors after the OIDC path is stable.
+7. Add `enterprise_saml` after the OIDC path is stable. Done.
+8. Add LDAP connector after the OIDC and SAML paths are stable.
 
 ## Non-Goals For The First Version
 
@@ -400,7 +445,7 @@ The first version selects the earliest active organization membership. A future 
 - Downstream SAML IdP support.
 - Complete workforce IAM parity with Keycloak, Okta, Auth0, or ZITADEL.
 
-Those can be revisited after the organization and enterprise OIDC path is proven.
+Those can be revisited after the organization and enterprise identity provider path is proven.
 
 ## References
 

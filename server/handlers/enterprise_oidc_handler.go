@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 	"minki.cc/mkauth/server/auth"
 	"minki.cc/mkauth/server/common"
 	"minki.cc/mkauth/server/iam"
@@ -23,14 +24,23 @@ type enterpriseOIDCState struct {
 }
 
 func (h *AuthHandler) GetEnterpriseOIDCProviders(c *gin.Context) {
-	if h.enterpriseOIDC == nil || !h.enterpriseOIDC.HasProviders() {
-		c.JSON(http.StatusNotFound, gin.H{"error": "enterprise oidc is not enabled"})
+	h.GetEnterpriseProviders(c)
+}
+
+func (h *AuthHandler) GetEnterpriseProviders(c *gin.Context) {
+	providers := iam.EnterpriseProviders(h.enterpriseOIDC, h.enterpriseSAML)
+	if len(providers) == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "enterprise login is not enabled"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"providers": h.enterpriseOIDC.Providers()})
+	c.JSON(http.StatusOK, gin.H{"providers": providers})
 }
 
 func (h *AuthHandler) DiscoverEnterpriseOIDC(c *gin.Context) {
+	h.DiscoverEnterpriseProviders(c)
+}
+
+func (h *AuthHandler) DiscoverEnterpriseProviders(c *gin.Context) {
 	email := strings.TrimSpace(c.Query("email"))
 	domain := strings.TrimSpace(c.Query("domain"))
 	if email == "" && domain == "" {
@@ -38,7 +48,7 @@ func (h *AuthHandler) DiscoverEnterpriseOIDC(c *gin.Context) {
 		return
 	}
 
-	if h.enterpriseOIDC == nil {
+	if h.enterpriseOIDC == nil && h.enterpriseSAML == nil {
 		c.JSON(http.StatusOK, iam.EnterpriseOIDCDiscoveryResult{
 			Status:    iam.EnterpriseOIDCDiscoveryNoProvider,
 			Email:     strings.ToLower(email),
@@ -49,13 +59,14 @@ func (h *AuthHandler) DiscoverEnterpriseOIDC(c *gin.Context) {
 	}
 
 	var (
+		db     = h.enterpriseDiscoveryDB()
 		result iam.EnterpriseOIDCDiscoveryResult
 		err    error
 	)
 	if email != "" {
-		result, err = h.enterpriseOIDC.DiscoverByEmail(email)
+		result, err = iam.DiscoverEnterpriseIdentityByEmail(db, email, h.enterpriseOIDC, h.enterpriseSAML)
 	} else {
-		result, err = h.enterpriseOIDC.DiscoverByDomain(domain)
+		result, err = iam.DiscoverEnterpriseIdentityByDomain(db, domain, h.enterpriseOIDC, h.enterpriseSAML)
 	}
 	if err != nil {
 		if errors.Is(err, iam.ErrInvalidEnterpriseOIDCEmail) {
@@ -70,6 +81,19 @@ func (h *AuthHandler) DiscoverEnterpriseOIDC(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, result)
+}
+
+func (h *AuthHandler) enterpriseDiscoveryDB() *gorm.DB {
+	if h != nil && h.accountAuth != nil {
+		return h.accountAuth.DB()
+	}
+	if h != nil && h.enterpriseOIDC != nil && h.enterpriseOIDC.DB() != nil {
+		return h.enterpriseOIDC.DB()
+	}
+	if h != nil && h.enterpriseSAML != nil {
+		return h.enterpriseSAML.DB()
+	}
+	return nil
 }
 
 func (h *AuthHandler) EnterpriseOIDCLogin(c *gin.Context) {
