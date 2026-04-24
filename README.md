@@ -326,7 +326,7 @@ See [examples/plugins/http-claims-action](examples/plugins/http-claims-action/RE
 
 ### CIAM/IAM organization management
 
-After enabling the admin console, open the `Organizations` menu to manage B2B tenants. The admin UI can create and edit organizations, attach verified email domains, assign existing users to organizations with lightweight role names, and configure Enterprise OIDC plus Enterprise SAML providers per organization.
+After enabling the admin console, open the `Organizations` menu to manage B2B tenants. The admin UI can create and edit organizations, attach verified email domains, assign existing users to organizations with lightweight role names, and configure Enterprise OIDC, Enterprise SAML, plus Enterprise LDAP/AD providers per organization.
 
 The organization ID or slug can be used in the `:id` path segment. Organizations are not hard-deleted in this first version; set their status to `inactive` when they should no longer be used.
 
@@ -355,7 +355,7 @@ The end-user app uses `GET /api/user/organizations` to render that chooser and l
 
 Enterprise login can now be managed in two ways:
 
-- Static bootstrap via `iam.enterprise_oidc` and `iam.enterprise_saml` in YAML
+- Static bootstrap via `iam.enterprise_oidc`, `iam.enterprise_saml`, and `iam.enterprise_ldap` in YAML
 - Runtime management from the admin console under `Organizations -> Enterprise Login`
 
 Each enterprise identity provider also supports lightweight multi-IdP policy fields:
@@ -376,7 +376,7 @@ For domain-first flows, you can also use:
 
 - `GET /api/enterprise/discover?domain=example.com`
 
-The response includes the matched organization plus one or more enterprise identity providers for that domain. Each provider carries `provider_type`, so the login page can route to Enterprise OIDC or Enterprise SAML automatically. The login page uses this to auto-redirect when a single provider is matched, or when the preferred provider has `auto_redirect: true`; otherwise it narrows the SSO choices using the organization's default and priority ordering.
+The response includes the matched organization plus one or more enterprise identity providers for that domain. Each provider carries `provider_type`, so the login page can route to Enterprise OIDC, Enterprise SAML, or Enterprise LDAP/AD automatically. The login page uses this to auto-redirect when a single OIDC/SAML provider is matched, or when the preferred provider has `auto_redirect: true`; LDAP/AD providers instead open an in-page directory username/password form.
 
 If a downstream OIDC client already knows the user's work email, it can pass `login_hint=user@example.com` to `/oauth2/authorize`. MKAuth now forwards that hint to the login page and automatically triggers enterprise provider discovery from it.
 
@@ -582,6 +582,7 @@ Common endpoints:
 - `GET /api/enterprise/saml/:slug/metadata`
 - `GET /api/enterprise/saml/:slug/acs`
 - `POST /api/enterprise/saml/:slug/acs`
+- `POST /api/enterprise/ldap/:slug/login`
 - `POST /api/account/register`
 - `POST /api/account/login`
 - `POST /api/email/login`

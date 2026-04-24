@@ -361,7 +361,7 @@ go run ./pluginsign sign -manifest ../examples/plugins/http-claims-action/mkauth
 
 企业登录源现在支持两种维护方式：
 
-- 通过 `iam.enterprise_oidc` 和 `iam.enterprise_saml` 做 YAML 静态引导
+- 通过 `iam.enterprise_oidc`、`iam.enterprise_saml` 和 `iam.enterprise_ldap` 做 YAML 静态引导
 - 通过后台 `组织管理 -> 企业登录` 做运行时维护
 
 每个企业身份源现在都支持一组轻量多 IdP 策略字段：
@@ -380,7 +380,7 @@ go run ./pluginsign sign -manifest ../examples/plugins/http-claims-action/mkauth
 
 - `GET /api/enterprise/discover?domain=example.com`
 
-接口会返回该邮箱域名命中的组织以及一个或多个企业身份源。每个身份源都会带上 `provider_type`，登录页会根据它自动走 Enterprise OIDC 或 Enterprise SAML。命中单个 provider 时会直接跳转；如果同一组织配置了 `auto_redirect: true` 的优先登录源，也会直接跳转；否则会按默认登录源和优先级顺序收敛出可选的企业登录方式。
+接口会返回该邮箱域名命中的组织以及一个或多个企业身份源。每个身份源都会带上 `provider_type`，登录页会根据它自动走 Enterprise OIDC、Enterprise SAML 或 Enterprise LDAP/AD。命中单个 OIDC/SAML provider 时会直接跳转；如果同一组织配置了 `auto_redirect: true` 的优先登录源，也会优先直跳；而 LDAP/AD 类型则会在当前登录页里展开目录账号密码表单。
 
 如果下游 OIDC 应用已经知道用户的企业邮箱，也可以直接在 `/oauth2/authorize` 上带 `login_hint=user@example.com`。MKAuth 现在会把这个 hint 透传到登录页，并自动触发对应的企业身份源发现流程。
 
@@ -582,6 +582,7 @@ curl -X POST http://localhost:8080/oauth2/token \
 - `GET /api/enterprise/oidc/providers`：查询企业 OIDC 登录方式
 - `GET /api/enterprise/oidc/:slug/login`：发起企业 OIDC 登录
 - `GET /api/enterprise/oidc/:slug/callback`：企业 OIDC 回调
+- `POST /api/enterprise/ldap/:slug/login`：使用企业 LDAP/AD 目录账号密码登录
 - `GET /api/enterprise/saml/:slug/login`：发起企业 SAML 登录
 - `GET /api/enterprise/saml/:slug/metadata`：获取企业 SAML SP metadata
 - `GET /api/enterprise/saml/:slug/acs`：企业 SAML ACS 回调

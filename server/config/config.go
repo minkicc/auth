@@ -54,6 +54,7 @@ type AuthConfig struct {
 type IAMConfig struct {
 	EnterpriseOIDC []EnterpriseOIDCProviderConfig `json:"enterprise_oidc" yaml:"enterprise_oidc"`
 	EnterpriseSAML []EnterpriseSAMLProviderConfig `json:"enterprise_saml" yaml:"enterprise_saml"`
+	EnterpriseLDAP []EnterpriseLDAPProviderConfig `json:"enterprise_ldap" yaml:"enterprise_ldap"`
 	SCIMInbound    []SCIMInboundConfig            `json:"scim_inbound" yaml:"scim_inbound"`
 }
 
@@ -90,6 +91,27 @@ type EnterpriseSAMLProviderConfig struct {
 	DisplayNameAttribute string `json:"display_name_attribute" yaml:"display_name_attribute"`
 	AllowIDPInitiated    bool   `json:"allow_idp_initiated" yaml:"allow_idp_initiated"`
 	DefaultRedirectURI   string `json:"default_redirect_uri" yaml:"default_redirect_uri"`
+}
+
+// EnterpriseLDAPProviderConfig describes an upstream enterprise LDAP/AD provider.
+type EnterpriseLDAPProviderConfig struct {
+	Slug                 string `json:"slug" yaml:"slug"`
+	Name                 string `json:"name" yaml:"name"`
+	OrganizationID       string `json:"organization_id" yaml:"organization_id"`
+	Priority             int    `json:"priority" yaml:"priority"`
+	IsDefault            bool   `json:"is_default" yaml:"is_default"`
+	AutoRedirect         bool   `json:"auto_redirect" yaml:"auto_redirect"`
+	URL                  string `json:"url" yaml:"url"`
+	BaseDN               string `json:"base_dn" yaml:"base_dn"`
+	BindDN               string `json:"bind_dn" yaml:"bind_dn"`
+	BindPassword         string `json:"bind_password" yaml:"bind_password"`
+	UserFilter           string `json:"user_filter" yaml:"user_filter"`
+	StartTLS             bool   `json:"start_tls" yaml:"start_tls"`
+	InsecureSkipVerify   bool   `json:"insecure_skip_verify" yaml:"insecure_skip_verify"`
+	SubjectAttribute     string `json:"subject_attribute" yaml:"subject_attribute"`
+	EmailAttribute       string `json:"email_attribute" yaml:"email_attribute"`
+	UsernameAttribute    string `json:"username_attribute" yaml:"username_attribute"`
+	DisplayNameAttribute string `json:"display_name_attribute" yaml:"display_name_attribute"`
 }
 
 // SCIMInboundConfig describes an inbound SCIM 2.0 provisioning connection.

@@ -306,3 +306,70 @@ func TestDiscoverEnterpriseOIDCReturnsPreferredProviderPolicy(t *testing.T) {
 		t.Fatalf("unexpected provider order: %#v", body.Providers)
 	}
 }
+
+func TestDiscoverEnterpriseProvidersIncludesLDAP(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	db, err := gorm.Open(sqlite.Open("file:enterprise-ldap-handler-discover?mode=memory&cache=shared"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("failed to open sqlite: %v", err)
+	}
+	if err := iam.NewService(db).AutoMigrate(); err != nil {
+		t.Fatalf("failed to migrate iam tables: %v", err)
+	}
+	if err := db.Create(&iam.Organization{
+		OrganizationID: "org_ldap00000000000",
+		Slug:           "globex",
+		Name:           "Globex Corp",
+		Status:         iam.OrganizationStatusActive,
+	}).Error; err != nil {
+		t.Fatalf("failed to create organization: %v", err)
+	}
+	if err := db.Create(&iam.OrganizationDomain{
+		Domain:         "globex.com",
+		OrganizationID: "org_ldap00000000000",
+		Verified:       true,
+	}).Error; err != nil {
+		t.Fatalf("failed to create organization domain: %v", err)
+	}
+
+	ldapManager, err := iam.NewEnterpriseLDAPManager(config.IAMConfig{EnterpriseLDAP: []config.EnterpriseLDAPProviderConfig{{
+		Slug:                 "globex-ldap",
+		Name:                 "Globex Directory",
+		OrganizationID:       "org_ldap00000000000",
+		URL:                  "ldaps://ldap.globex.test:636",
+		BaseDN:               "dc=globex,dc=test",
+		BindDN:               "cn=svc-bind,dc=globex,dc=test",
+		BindPassword:         "super-secret",
+		UserFilter:           "(&(objectClass=person)(uid={username}))",
+		SubjectAttribute:     "entryUUID",
+		EmailAttribute:       "mail",
+		UsernameAttribute:    "uid",
+		DisplayNameAttribute: "displayName",
+	}}}, db, nil)
+	if err != nil {
+		t.Fatalf("failed to create enterprise ldap manager: %v", err)
+	}
+
+	h := &AuthHandler{enterpriseLDAP: ldapManager}
+	router := gin.New()
+	router.GET("/enterprise/discover", h.DiscoverEnterpriseProviders)
+
+	req := httptest.NewRequest(http.MethodGet, "/enterprise/discover?email=user@globex.com", nil)
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	var body iam.EnterpriseOIDCDiscoveryResult
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("failed to decode discovery response: %v", err)
+	}
+	if body.Status != iam.EnterpriseOIDCDiscoveryMatched || len(body.Providers) != 1 {
+		t.Fatalf("unexpected ldap discovery body: %#v", body)
+	}
+	if body.Providers[0].ProviderType != "ldap" || body.Providers[0].Slug != "globex-ldap" {
+		t.Fatalf("expected ldap provider in discovery result, got %#v", body.Providers)
+	}
+}

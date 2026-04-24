@@ -18,7 +18,8 @@ Implemented:
 - Installable plugin runtime with local ZIP packages, catalog installation, URL installation, preview, config schema, signatures, audit log, backups, restore, and in-process reload.
 - `enterprise_oidc` as the first upstream enterprise identity connector.
 - `enterprise_saml` as the second upstream enterprise identity connector.
-- HRD (Home Realm Discovery) from verified organization domains to Enterprise OIDC and Enterprise SAML providers.
+- `enterprise_ldap` as the third upstream enterprise identity connector.
+- HRD (Home Realm Discovery) from verified organization domains to Enterprise OIDC, Enterprise SAML, and Enterprise LDAP providers.
 - Organization-level default provider, provider priority, and optional auto-redirect policy for enterprise provider discovery.
 - Organization claim injection into ID Token and `/oauth2/userinfo`, including `org_groups`.
 - Downstream OIDC organization pinning through `org_hint`.
@@ -28,7 +29,6 @@ Implemented:
 
 Not implemented yet:
 
-- LDAP federation or sync.
 - Full role/group/RBAC policy enforcement.
 
 ## Plugin Types
@@ -425,6 +425,44 @@ Enterprise SAML behavior:
 6. Adds an organization membership when the provider has `organization_id`.
 7. Reuses the existing MKAuth `oidc_session` browser session mechanism after SAML login succeeds.
 
+## Enterprise LDAP/AD MVP
+
+The third upstream identity connector is `enterprise_ldap`. Providers can be bootstrapped statically from `iam.enterprise_ldap` or managed dynamically from the admin console.
+
+Static bootstrap example:
+
+```yaml
+iam:
+  enterprise_ldap:
+    - slug: "acme-ldap"
+      name: "Acme Directory"
+      organization_id: "org_acme000000000000"
+      url: "ldaps://ldap.example.com:636"
+      base_dn: "dc=example,dc=com"
+      bind_dn: "cn=svc-bind,ou=system,dc=example,dc=com"
+      bind_password: "YOUR_LDAP_BIND_PASSWORD"
+      user_filter: "(&(objectClass=person)(uid={username}))"
+      subject_attribute: "entryUUID"
+      email_attribute: "mail"
+      username_attribute: "uid"
+      display_name_attribute: "displayName"
+```
+
+Runtime endpoints:
+
+- `POST /api/enterprise/ldap/:slug/login`
+
+Enterprise LDAP behavior:
+
+1. The login page discovers the organization from a verified domain just like Enterprise OIDC and Enterprise SAML.
+2. If the selected enterprise identity source has `provider_type=ldap`, the login page opens an in-page directory username/password form instead of redirecting to an external IdP.
+3. MKAuth optionally binds with `bind_dn` and `bind_password`, searches under `base_dn` with `user_filter`, and then binds as the matched user DN to verify credentials.
+4. The directory entry is mapped into `subject`, `email`, `preferred_username`, and `display_name` through configurable attribute names.
+5. MKAuth links `(provider_type=ldap, provider_id=:slug, subject=...)` into `external_identities`.
+6. Creates a new internal `usr_...` user when no linked user exists.
+7. Adds an organization membership when the provider has `organization_id`.
+8. Reuses the existing MKAuth `oidc_session` browser session mechanism after directory login succeeds.
+
 ## Organization Claims
 
 When a user has an active organization membership and the downstream OIDC client requests the `profile` scope, MKAuth adds these claims to the ID Token and `/oauth2/userinfo` response:
@@ -449,7 +487,7 @@ The chooser UI loads `GET /api/user/organizations`, which returns the current us
 6. Add SCIM Groups for group-to-role synchronization. Done.
 7. Add manual organization group administration and `org_groups` claims. Done.
 8. Add `enterprise_saml` after the OIDC path is stable. Done.
-9. Add LDAP connector after the OIDC and SAML paths are stable.
+9. Add LDAP connector after the OIDC and SAML paths are stable. Done.
 
 ## Non-Goals For The First Version
 

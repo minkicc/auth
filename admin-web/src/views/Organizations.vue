@@ -216,7 +216,7 @@
           <div class="identity-provider-header">
             <div>
               <h3>企业登录源</h3>
-              <p>为组织配置上游企业 IdP，支持 Enterprise OIDC 和 Enterprise SAML，保存后会立即刷新运行时。</p>
+              <p>为组织配置上游企业 IdP，支持 Enterprise OIDC、Enterprise SAML 和 Enterprise LDAP/AD，保存后会立即刷新运行时。</p>
             </div>
             <el-button type="primary" :disabled="!activeOrg" @click="openIdentityProviderDialog()">新建企业登录源</el-button>
           </div>
@@ -255,33 +255,23 @@
             </el-table-column>
             <el-table-column label="Issuer / Metadata" min-width="220">
               <template #default="{ row }">
-                <span class="mono">{{ row.provider_type === 'saml' ? (row.config?.idp_metadata_url || '-') : (row.config?.issuer || '-') }}</span>
+                <span class="mono">{{ identityProviderEndpointLabel(row) }}</span>
               </template>
             </el-table-column>
             <el-table-column label="Redirect / ACS" min-width="280">
               <template #default="{ row }">
-                <span class="mono">{{ row.provider_type === 'saml' ? (row.config?.acs_url || '-') : (row.config?.redirect_uri || '-') }}</span>
+                <span class="mono">{{ identityProviderCallbackLabel(row) }}</span>
               </template>
             </el-table-column>
             <el-table-column label="配置摘要" min-width="200">
               <template #default="{ row }">
-                <span v-if="row.provider_type === 'saml'">
-                  {{ row.config?.entity_id || row.config?.name_id_format || '-' }}
-                </span>
-                <span v-else>{{ row.config?.scopes?.join(', ') || '-' }}</span>
+                <span>{{ identityProviderSummary(row) }}</span>
               </template>
             </el-table-column>
             <el-table-column label="配置" width="120">
               <template #default="{ row }">
-                <el-tag
-                  :type="row.provider_type === 'saml'
-                    ? (row.config?.idp_metadata_xml_configured ? 'success' : 'info')
-                    : (row.config?.client_secret_configured ? 'success' : 'warning')"
-                  effect="plain"
-                >
-                  {{ row.provider_type === 'saml'
-                    ? (row.config?.idp_metadata_xml_configured ? '内置元数据' : 'URL 元数据')
-                    : (row.config?.client_secret_configured ? '已配置' : '未配置') }}
+                <el-tag :type="identityProviderConfigTagType(row)" effect="plain">
+                  {{ identityProviderConfigTagText(row) }}
                 </el-tag>
               </template>
             </el-table-column>
@@ -357,6 +347,7 @@
           <el-select v-model="identityProviderForm.provider_type" class="full-width">
             <el-option label="Enterprise OIDC" value="oidc" />
             <el-option label="Enterprise SAML" value="saml" />
+            <el-option label="Enterprise LDAP / AD" value="ldap" />
           </el-select>
         </el-form-item>
         <el-form-item label="名称">
@@ -414,7 +405,7 @@
             <p class="form-hint">支持逗号或换行分隔，默认会补齐 `openid, profile, email`。</p>
           </el-form-item>
         </template>
-        <template v-else>
+        <template v-else-if="identityProviderForm.provider_type === 'saml'">
           <el-form-item label="IdP Metadata URL">
             <el-input v-model="identityProviderForm.idp_metadata_url" placeholder="https://login.acme.com/metadata" />
           </el-form-item>
@@ -450,6 +441,56 @@
           </el-form-item>
           <el-form-item label="默认回跳地址">
             <el-input v-model="identityProviderForm.default_redirect_uri" placeholder="/profile" />
+          </el-form-item>
+        </template>
+        <template v-else>
+          <el-form-item label="LDAP URL">
+            <el-input v-model="identityProviderForm.url" placeholder="ldaps://ldap.acme.com:636" />
+          </el-form-item>
+          <el-form-item label="Base DN">
+            <el-input v-model="identityProviderForm.base_dn" placeholder="dc=acme,dc=com" />
+          </el-form-item>
+          <el-form-item label="Bind DN">
+            <el-input v-model="identityProviderForm.bind_dn" placeholder="cn=svc-bind,ou=system,dc=acme,dc=com" />
+          </el-form-item>
+          <el-form-item label="Bind Password">
+            <el-input
+              v-model="identityProviderForm.bind_password"
+              type="password"
+              show-password
+              :placeholder="editingIdentityProvider ? '留空则保留现有 bind password' : '可选，留空表示匿名搜索'"
+            />
+            <p v-if="editingIdentityProvider?.provider_type === 'ldap' && editingIdentityProvider?.config?.bind_password_configured" class="form-hint">
+              当前已配置 bind password，留空会继续沿用原值。
+            </p>
+          </el-form-item>
+          <el-form-item label="User Filter">
+            <el-input
+              v-model="identityProviderForm.user_filter"
+              type="textarea"
+              :rows="3"
+              placeholder="(&(objectClass=person)(uid={username}))"
+            />
+            <p class="form-hint">支持使用 `{username}` 占位符，登录时会替换为用户输入并自动做 LDAP filter escaping。</p>
+          </el-form-item>
+          <el-form-item label="Subject Attribute">
+            <el-input v-model="identityProviderForm.subject_attribute" placeholder="entryUUID / objectGUID / uid" />
+          </el-form-item>
+          <el-form-item label="Email Attribute">
+            <el-input v-model="identityProviderForm.email_attribute" placeholder="mail" />
+          </el-form-item>
+          <el-form-item label="Username Attribute">
+            <el-input v-model="identityProviderForm.username_attribute" placeholder="uid / sAMAccountName" />
+          </el-form-item>
+          <el-form-item label="Display Name Attribute">
+            <el-input v-model="identityProviderForm.display_name_attribute" placeholder="displayName / cn" />
+          </el-form-item>
+          <el-form-item label="StartTLS">
+            <el-switch v-model="identityProviderForm.start_tls" active-text="启用" inactive-text="关闭" />
+          </el-form-item>
+          <el-form-item label="跳过 TLS 校验">
+            <el-switch v-model="identityProviderForm.insecure_skip_verify" active-text="跳过" inactive-text="严格校验" />
+            <p class="form-hint">仅建议本地开发或明确受控环境使用。</p>
           </el-form-item>
         </template>
       </el-form>
@@ -541,6 +582,14 @@ function defaultIdentityProviderForm() {
     entity_id: '',
     acs_url: '',
     name_id_format: '',
+    url: '',
+    base_dn: '',
+    bind_dn: '',
+    bind_password: '',
+    user_filter: '',
+    start_tls: false,
+    insecure_skip_verify: false,
+    subject_attribute: '',
     email_attribute: '',
     username_attribute: '',
     display_name_attribute: '',
@@ -812,6 +861,14 @@ const openIdentityProviderDialog = (provider?: OrganizationIdentityProvider) => 
     entity_id: provider?.config?.entity_id || '',
     acs_url: provider?.config?.acs_url || '',
     name_id_format: provider?.config?.name_id_format || '',
+    url: provider?.config?.url || '',
+    base_dn: provider?.config?.base_dn || '',
+    bind_dn: provider?.config?.bind_dn || '',
+    bind_password: '',
+    user_filter: provider?.config?.user_filter || '',
+    start_tls: provider?.config?.start_tls ?? false,
+    insecure_skip_verify: provider?.config?.insecure_skip_verify ?? false,
+    subject_attribute: provider?.config?.subject_attribute || '',
     email_attribute: provider?.config?.email_attribute || '',
     username_attribute: provider?.config?.username_attribute || '',
     display_name_attribute: provider?.config?.display_name_attribute || '',
@@ -843,6 +900,14 @@ const saveIdentityProvider = async () => {
       entity_id: identityProviderForm.value.entity_id || undefined,
       acs_url: identityProviderForm.value.acs_url || undefined,
       name_id_format: identityProviderForm.value.name_id_format || undefined,
+      url: identityProviderForm.value.url || undefined,
+      base_dn: identityProviderForm.value.base_dn || undefined,
+      bind_dn: identityProviderForm.value.bind_dn || undefined,
+      bind_password: identityProviderForm.value.bind_password || undefined,
+      user_filter: identityProviderForm.value.user_filter || undefined,
+      start_tls: identityProviderForm.value.start_tls,
+      insecure_skip_verify: identityProviderForm.value.insecure_skip_verify,
+      subject_attribute: identityProviderForm.value.subject_attribute || undefined,
       email_attribute: identityProviderForm.value.email_attribute || undefined,
       username_attribute: identityProviderForm.value.username_attribute || undefined,
       display_name_attribute: identityProviderForm.value.display_name_attribute || undefined,
@@ -926,6 +991,56 @@ const formatDate = (value?: string) => {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return value
   return date.toLocaleString()
+}
+
+const identityProviderEndpointLabel = (provider: OrganizationIdentityProvider) => {
+  if (provider.provider_type === 'saml') {
+    return provider.config?.idp_metadata_url || '-'
+  }
+  if (provider.provider_type === 'ldap') {
+    return provider.config?.url || '-'
+  }
+  return provider.config?.issuer || '-'
+}
+
+const identityProviderCallbackLabel = (provider: OrganizationIdentityProvider) => {
+  if (provider.provider_type === 'saml') {
+    return provider.config?.acs_url || '-'
+  }
+  if (provider.provider_type === 'ldap') {
+    return provider.config?.base_dn || '-'
+  }
+  return provider.config?.redirect_uri || '-'
+}
+
+const identityProviderSummary = (provider: OrganizationIdentityProvider) => {
+  if (provider.provider_type === 'saml') {
+    return provider.config?.entity_id || provider.config?.name_id_format || '-'
+  }
+  if (provider.provider_type === 'ldap') {
+    return provider.config?.subject_attribute || provider.config?.user_filter || '-'
+  }
+  return provider.config?.scopes?.join(', ') || '-'
+}
+
+const identityProviderConfigTagType = (provider: OrganizationIdentityProvider) => {
+  if (provider.provider_type === 'saml') {
+    return provider.config?.idp_metadata_xml_configured ? 'success' : 'info'
+  }
+  if (provider.provider_type === 'ldap') {
+    return provider.config?.bind_password_configured ? 'success' : 'info'
+  }
+  return provider.config?.client_secret_configured ? 'success' : 'warning'
+}
+
+const identityProviderConfigTagText = (provider: OrganizationIdentityProvider) => {
+  if (provider.provider_type === 'saml') {
+    return provider.config?.idp_metadata_xml_configured ? '内置元数据' : 'URL 元数据'
+  }
+  if (provider.provider_type === 'ldap') {
+    return provider.config?.bind_password_configured ? '已配置 Bind' : '匿名/无密码'
+  }
+  return provider.config?.client_secret_configured ? '已配置' : '未配置'
 }
 
 onMounted(() => {
