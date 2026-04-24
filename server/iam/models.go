@@ -25,6 +25,7 @@ const (
 type IdentityProviderType string
 
 const (
+	IdentityProviderTypeManual IdentityProviderType = "manual"
 	IdentityProviderTypeOIDC   IdentityProviderType = "oidc"
 	IdentityProviderTypeSAML   IdentityProviderType = "saml"
 	IdentityProviderTypeLDAP   IdentityProviderType = "ldap"
@@ -38,6 +39,7 @@ const (
 	IdentityProviderIDPrefix        = "idp_"
 	ExternalIdentityIDPrefix        = "ext_"
 	OrganizationGroupIDPrefix       = "grp_"
+	ManualOrganizationGroupProvider = "manual"
 	DefaultIdentityProviderPriority = 100
 	readableRandomIDLength          = 16
 )

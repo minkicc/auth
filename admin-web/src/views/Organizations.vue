@@ -5,7 +5,7 @@
         <div class="card-header">
           <div>
             <h2>组织管理</h2>
-            <p>管理 B2B CIAM 的租户、企业域名、组织成员和 Enterprise OIDC 登录源。</p>
+            <p>管理 B2B CIAM 的租户、企业域名、组织成员、组织组，以及 Enterprise OIDC / SAML 登录源。</p>
           </div>
           <el-button type="primary" @click="openOrgDialog()">新建组织</el-button>
         </div>
@@ -164,6 +164,54 @@
           </el-table>
         </el-tab-pane>
 
+        <el-tab-pane label="组" name="groups">
+          <div class="identity-provider-header">
+            <div>
+              <h3>组织组</h3>
+              <p>手工维护组织组成员和角色映射；SCIM 同步进来的组也会展示在这里，并进入 OIDC 的 `org_groups` claim。</p>
+            </div>
+            <el-button type="primary" :disabled="!activeOrg" @click="openGroupDialog()">新建组织组</el-button>
+          </div>
+
+          <el-table v-loading="detailLoading" :data="groups" row-key="group_id" empty-text="暂无组织组">
+            <el-table-column prop="display_name" label="组名" min-width="180" />
+            <el-table-column prop="role_name" label="角色映射" min-width="160">
+              <template #default="{ row }">
+                <span class="mono">{{ row.role_name }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="来源" min-width="150">
+              <template #default="{ row }">
+                <el-tag :type="row.provider_type === 'manual' ? 'success' : 'info'" effect="plain">
+                  {{ row.provider_type === 'manual' ? '手工维护' : row.provider_type?.toUpperCase() }}
+                </el-tag>
+                <p v-if="row.provider_type !== 'manual' && row.provider_id" class="muted">{{ row.provider_id }}</p>
+              </template>
+            </el-table-column>
+            <el-table-column label="成员数" width="100">
+              <template #default="{ row }">{{ row.member_count ?? 0 }}</template>
+            </el-table-column>
+            <el-table-column label="可编辑" width="120">
+              <template #default="{ row }">
+                <el-tag :type="row.editable ? 'success' : 'info'" effect="plain">
+                  {{ row.editable ? '可编辑' : '只读' }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="更新时间" min-width="170">
+              <template #default="{ row }">{{ formatDate(row.updated_at) }}</template>
+            </el-table-column>
+            <el-table-column label="操作" width="170" fixed="right">
+              <template #default="{ row }">
+                <el-button link type="primary" @click="openGroupDialog(row)">
+                  {{ row.editable ? '编辑' : '查看' }}
+                </el-button>
+                <el-button v-if="row.editable" link type="danger" @click="deleteGroup(row)">删除</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-tab-pane>
+
         <el-tab-pane label="企业登录" name="identity-providers">
           <div class="identity-provider-header">
             <div>
@@ -252,6 +300,53 @@
     </el-dialog>
 
     <el-dialog
+      v-model="groupDialogVisible"
+      :title="editingGroup ? (editingGroup.editable ? '编辑组织组' : '查看组织组') : '新建组织组'"
+      width="640px"
+      append-to-body
+    >
+      <el-form label-position="top">
+        <el-form-item label="组名">
+          <el-input v-model="groupForm.display_name" placeholder="Platform Team" :disabled="!!editingGroup && !editingGroup.editable" />
+        </el-form-item>
+        <el-form-item label="角色映射">
+          <el-input v-model="groupForm.role_name" placeholder="留空则自动从组名生成，例如 platform-team" :disabled="!!editingGroup && !editingGroup.editable" />
+          <p class="form-hint">组成员会自动把这里的角色映射同步到组织成员的 `org_roles`。</p>
+        </el-form-item>
+        <el-form-item label="成员 User ID">
+          <el-input
+            v-model="groupForm.user_ids_text"
+            type="textarea"
+            :rows="5"
+            placeholder="usr_xxx,usr_yyy"
+            :disabled="!!editingGroup && !editingGroup.editable"
+          />
+          <p class="form-hint">支持逗号、空格或换行分隔。没有组织成员关系的用户会自动创建为 active 成员。</p>
+        </el-form-item>
+        <template v-if="editingGroup && editingGroup.members?.length">
+          <el-form-item label="当前成员">
+            <div class="tag-group">
+              <el-tag v-for="member in editingGroup.members" :key="member.user_id" effect="plain">
+                {{ member.nickname || member.username || member.user_id }}
+              </el-tag>
+            </div>
+          </el-form-item>
+        </template>
+      </el-form>
+      <template #footer>
+        <el-button @click="groupDialogVisible = false">关闭</el-button>
+        <el-button
+          v-if="!editingGroup || editingGroup.editable"
+          type="primary"
+          :loading="detailSaving === 'group'"
+          @click="saveGroup"
+        >
+          保存
+        </el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog
       v-model="identityProviderDialogVisible"
       :title="editingIdentityProvider ? '编辑企业登录源' : '新建企业登录源'"
       width="640px"
@@ -275,7 +370,7 @@
         </el-form-item>
         <el-form-item label="优先级">
           <el-input-number v-model="identityProviderForm.priority" :min="0" :step="10" class="full-width" />
-          <p class="form-hint">数值越小越靠前。多个 Enterprise OIDC 同时命中时，会按默认标记和优先级排序。</p>
+          <p class="form-hint">数值越小越靠前。多个企业登录源同时命中时，会按默认标记和优先级排序。</p>
         </el-form-item>
         <el-form-item label="默认登录源">
           <el-switch v-model="identityProviderForm.is_default" active-text="默认" inactive-text="普通" />
@@ -376,6 +471,7 @@ import {
   serverApi,
   type Organization,
   type OrganizationDomain,
+  type OrganizationGroup,
   type OrganizationIdentityProvider,
   type OrganizationMembership
 } from '@/api'
@@ -405,13 +501,26 @@ const detailLoading = ref(false)
 const detailSaving = ref('')
 const domains = ref<OrganizationDomain[]>([])
 const memberships = ref<OrganizationMembership[]>([])
+const groups = ref<OrganizationGroup[]>([])
 const identityProviders = ref<OrganizationIdentityProvider[]>([])
 const domainForm = ref({ domain: '', verified: true })
 const memberForm = ref({ user_id: '', status: 'active', roles_text: '' })
 
+const groupDialogVisible = ref(false)
+const editingGroup = ref<OrganizationGroup | null>(null)
+const groupForm = ref(defaultGroupForm())
+
 const identityProviderDialogVisible = ref(false)
 const editingIdentityProvider = ref<OrganizationIdentityProvider | null>(null)
 const identityProviderForm = ref(defaultIdentityProviderForm())
+
+function defaultGroupForm() {
+  return {
+    display_name: '',
+    role_name: '',
+    user_ids_text: ''
+  }
+}
 
 function defaultIdentityProviderForm() {
   return {
@@ -506,6 +615,7 @@ const openManageDialog = async (org: Organization) => {
   activeOrg.value = org
   activeTab.value = 'domains'
   manageDialogVisible.value = true
+  groupDialogVisible.value = false
   identityProviderDialogVisible.value = false
   await loadOrganizationDetails()
 }
@@ -514,13 +624,15 @@ const loadOrganizationDetails = async () => {
   if (!activeOrg.value) return
   detailLoading.value = true
   try {
-    const [domainResponse, memberResponse, identityProviderResponse] = await Promise.all([
+    const [domainResponse, memberResponse, groupResponse, identityProviderResponse] = await Promise.all([
       serverApi.getOrganizationDomains(activeOrg.value.organization_id),
       serverApi.getOrganizationMemberships(activeOrg.value.organization_id),
+      serverApi.getOrganizationGroups(activeOrg.value.organization_id),
       serverApi.getOrganizationIdentityProviders(activeOrg.value.organization_id)
     ])
     domains.value = domainResponse.domains || []
     memberships.value = memberResponse.memberships || []
+    groups.value = groupResponse.groups || []
     identityProviders.value = identityProviderResponse.identity_providers || []
   } catch (error: any) {
     ElMessage.error(error?.response?.data?.error || '加载组织详情失败')
@@ -613,6 +725,73 @@ const deleteMembership = async (userId: string) => {
   }
 }
 
+const openGroupDialog = async (group?: OrganizationGroup) => {
+  if (!activeOrg.value) return
+  if (!group) {
+    editingGroup.value = null
+    groupForm.value = defaultGroupForm()
+    groupDialogVisible.value = true
+    return
+  }
+  try {
+    detailLoading.value = true
+    const response = await serverApi.getOrganizationGroup(activeOrg.value.organization_id, group.group_id)
+    editingGroup.value = response.group
+    groupForm.value = {
+      display_name: response.group.display_name || '',
+      role_name: response.group.role_name || '',
+      user_ids_text: (response.group.members || []).map(member => member.user_id).join('\n')
+    }
+    groupDialogVisible.value = true
+  } catch (error: any) {
+    ElMessage.error(error?.response?.data?.error || '加载组织组失败')
+  } finally {
+    detailLoading.value = false
+  }
+}
+
+const saveGroup = async () => {
+  if (!activeOrg.value) return
+  detailSaving.value = 'group'
+  try {
+    const payload = {
+      display_name: groupForm.value.display_name,
+      role_name: groupForm.value.role_name || undefined,
+      user_ids: parseUserIds(groupForm.value.user_ids_text)
+    }
+    if (editingGroup.value) {
+      await serverApi.updateOrganizationGroup(activeOrg.value.organization_id, editingGroup.value.group_id, payload)
+    } else {
+      await serverApi.createOrganizationGroup(activeOrg.value.organization_id, payload)
+    }
+    ElMessage.success('组织组已保存')
+    groupDialogVisible.value = false
+    editingGroup.value = null
+    groupForm.value = defaultGroupForm()
+    await loadOrganizationDetails()
+  } catch (error: any) {
+    ElMessage.error(error?.response?.data?.error || '保存组织组失败')
+  } finally {
+    detailSaving.value = ''
+  }
+}
+
+const deleteGroup = async (group: OrganizationGroup) => {
+  if (!activeOrg.value) return
+  try {
+    await ElMessageBox.confirm(`确定删除组织组 ${group.display_name} 吗？`, '删除组织组', { type: 'warning' })
+  } catch {
+    return
+  }
+  try {
+    await serverApi.deleteOrganizationGroup(activeOrg.value.organization_id, group.group_id)
+    ElMessage.success('组织组已删除')
+    await loadOrganizationDetails()
+  } catch (error: any) {
+    ElMessage.error(error?.response?.data?.error || '删除组织组失败')
+  }
+}
+
 const openIdentityProviderDialog = (provider?: OrganizationIdentityProvider) => {
   editingIdentityProvider.value = provider || null
   identityProviderForm.value = {
@@ -679,13 +858,13 @@ const saveIdentityProvider = async () => {
     } else {
       await serverApi.createOrganizationIdentityProvider(activeOrg.value.organization_id, payload)
     }
-    ElMessage.success('Enterprise OIDC 已保存')
+    ElMessage.success('企业登录源已保存')
     identityProviderDialogVisible.value = false
     editingIdentityProvider.value = null
     identityProviderForm.value = defaultIdentityProviderForm()
     await loadOrganizationDetails()
   } catch (error: any) {
-    ElMessage.error(error?.response?.data?.error || '保存 Enterprise OIDC 失败')
+    ElMessage.error(error?.response?.data?.error || '保存企业登录源失败')
   } finally {
     detailSaving.value = ''
   }
@@ -694,16 +873,16 @@ const saveIdentityProvider = async () => {
 const deleteIdentityProvider = async (provider: OrganizationIdentityProvider) => {
   if (!activeOrg.value) return
   try {
-    await ElMessageBox.confirm(`确定删除企业登录源 ${provider.name || provider.slug} 吗？`, '删除 Enterprise OIDC', { type: 'warning' })
+    await ElMessageBox.confirm(`确定删除企业登录源 ${provider.name || provider.slug} 吗？`, '删除企业登录源', { type: 'warning' })
   } catch {
     return
   }
   try {
     await serverApi.deleteOrganizationIdentityProvider(activeOrg.value.organization_id, provider.identity_provider_id)
-    ElMessage.success('Enterprise OIDC 已删除')
+    ElMessage.success('企业登录源已删除')
     await loadOrganizationDetails()
   } catch (error: any) {
-    ElMessage.error(error?.response?.data?.error || '删除 Enterprise OIDC 失败')
+    ElMessage.error(error?.response?.data?.error || '删除企业登录源失败')
   }
 }
 
@@ -727,6 +906,12 @@ const formatMetadata = (raw?: string) => {
 }
 
 const parseRoles = (raw: string) => raw.split(',').map(item => item.trim()).filter(Boolean)
+
+const parseUserIds = (raw: string) =>
+  raw
+    .split(/[\s,]+/)
+    .map(item => item.trim())
+    .filter(Boolean)
 
 const parseScopes = (raw: string) => {
   const values = raw

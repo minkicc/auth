@@ -20,8 +20,8 @@ Implemented:
 - `enterprise_saml` as the second upstream enterprise identity connector.
 - HRD (Home Realm Discovery) from verified organization domains to Enterprise OIDC and Enterprise SAML providers.
 - Organization-level default provider, provider priority, and optional auto-redirect policy for enterprise provider discovery.
-- Organization claim injection into ID Token and `/oauth2/userinfo`.
-- Admin API and admin console page for organization, domain, membership, and enterprise identity provider management.
+- Organization claim injection into ID Token and `/oauth2/userinfo`, including `org_groups`.
+- Admin API and admin console page for organization, domain, membership, group, and enterprise identity provider management.
 - Inbound SCIM Users and Groups MVP for enterprise directory provisioning into an organization.
 
 Not implemented yet:
@@ -247,6 +247,8 @@ The admin console now includes an `Organizations` page for B2B tenant operations
 - Add existing users as organization members.
 - Update membership status and lightweight role names.
 - Remove organization memberships.
+- Create, update, inspect, and delete manual organization groups.
+- Surface SCIM-managed groups in the same admin page as read-only group records.
 - Create, update, enable, disable, and delete Enterprise OIDC and Enterprise SAML identity providers per organization.
 - Configure per-provider `priority`, `is_default`, and `auto_redirect` policy from the admin console.
 
@@ -264,6 +266,11 @@ The admin API accepts either organization ID or slug in the `:id` path segment:
 - `POST /admin-api/organizations/:id/memberships`
 - `PATCH /admin-api/organizations/:id/memberships/:user_id`
 - `DELETE /admin-api/organizations/:id/memberships/:user_id`
+- `GET /admin-api/organizations/:id/groups`
+- `POST /admin-api/organizations/:id/groups`
+- `GET /admin-api/organizations/:id/groups/:group_id`
+- `PATCH /admin-api/organizations/:id/groups/:group_id`
+- `DELETE /admin-api/organizations/:id/groups/:group_id`
 - `GET /admin-api/organizations/:id/identity-providers`
 - `POST /admin-api/organizations/:id/identity-providers`
 - `PATCH /admin-api/organizations/:id/identity-providers/:provider_id`
@@ -314,7 +321,7 @@ Provisioning behavior:
 7. Normalizes group `displayName` into an organization role, such as `Engineering Team` -> `engineering-team`.
 8. Recalculates only SCIM-managed group roles when group membership changes, preserving manually assigned membership roles.
 
-This is still a lightweight role-mapping layer, not a full group/RBAC policy engine. A future version should add first-class group claims, delegated group administration, and policy enforcement.
+This is still a lightweight role-mapping layer, not a full group/RBAC policy engine. MKAuth now exposes first-class `org_groups` claims and delegated manual group administration, but it still does not provide full policy enforcement.
 
 ## Enterprise OIDC MVP
 
@@ -424,6 +431,7 @@ When a user has an active organization membership and the downstream OIDC client
 - `org_id`: the selected organization ID.
 - `org_slug`: the organization slug when the organization record exists.
 - `org_roles`: role names from the active organization membership.
+- `org_groups`: display names of the active organization's assigned groups.
 
 The first version selects the earliest active organization membership. A future version should add explicit organization selection for users who belong to multiple organizations.
 
@@ -435,8 +443,9 @@ The first version selects the earliest active organization membership. A future 
 4. Add organization admin APIs and UI. Done.
 5. Add inbound SCIM Users provisioning. Done.
 6. Add SCIM Groups for group-to-role synchronization. Done.
-7. Add `enterprise_saml` after the OIDC path is stable. Done.
-8. Add LDAP connector after the OIDC and SAML paths are stable.
+7. Add manual organization group administration and `org_groups` claims. Done.
+8. Add `enterprise_saml` after the OIDC path is stable. Done.
+9. Add LDAP connector after the OIDC and SAML paths are stable.
 
 ## Non-Goals For The First Version
 

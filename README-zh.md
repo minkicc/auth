@@ -344,10 +344,14 @@ go run ./pluginsign sign -manifest ../examples/plugins/http-claims-action/mkauth
 - 域名更新/删除：`PATCH /admin-api/organizations/:id/domains/:domain`、`DELETE /admin-api/organizations/:id/domains/:domain`
 - 组织成员：`GET /admin-api/organizations/:id/memberships`、`POST /admin-api/organizations/:id/memberships`
 - 成员更新/删除：`PATCH /admin-api/organizations/:id/memberships/:user_id`、`DELETE /admin-api/organizations/:id/memberships/:user_id`
+- 组织组：`GET /admin-api/organizations/:id/groups`、`POST /admin-api/organizations/:id/groups`
+- 组织组详情/更新/删除：`GET /admin-api/organizations/:id/groups/:group_id`、`PATCH /admin-api/organizations/:id/groups/:group_id`、`DELETE /admin-api/organizations/:id/groups/:group_id`
 - 组织身份源：`GET /admin-api/organizations/:id/identity-providers`、`POST /admin-api/organizations/:id/identity-providers`
 - 身份源更新/删除：`PATCH /admin-api/organizations/:id/identity-providers/:provider_id`、`DELETE /admin-api/organizations/:id/identity-providers/:provider_id`
 
-当用户存在 active 组织成员关系，并且下游 OIDC 客户端请求了 `profile` scope 时，MKAuth 可以在 ID Token 和 `/oauth2/userinfo` 中返回 `org_id`、`org_slug`、`org_roles`。
+后台现在也支持管理手工组织组。组成员会自动把组的 `role_name` 投影到组织成员的 `org_roles`；SCIM 同步过来的组会在同一个界面只读展示。
+
+当用户存在 active 组织成员关系，并且下游 OIDC 客户端请求了 `profile` scope 时，MKAuth 可以在 ID Token 和 `/oauth2/userinfo` 中返回 `org_id`、`org_slug`、`org_roles`、`org_groups`。
 
 企业登录源现在支持两种维护方式：
 
@@ -415,7 +419,7 @@ https://auth.example.com/api/scim/v2
 
 SCIM Users 会创建或更新 MKAuth 用户，通过 `external_identities(provider_type=scim)` 建立外部目录映射，并同步组织成员状态和轻量角色名。`DELETE /Users/:id` 和 `active=false` 会禁用 MKAuth 用户，并把对应组织成员关系标记为 disabled。
 
-SCIM Groups 会把企业目录组映射成组织内的轻量角色。Group `displayName` 会被规范化成 role name，比如 `Engineering Team` 会变成 `engineering-team`。当组成员变化或组被删除时，MKAuth 只会重算由 SCIM Groups 管理的角色，并保留其它手工分配的角色。
+SCIM Groups 会把企业目录组映射到 `organization_groups` 和组织内的轻量角色。Group `displayName` 会被规范化成 role name，比如 `Engineering Team` 会变成 `engineering-team`。当组成员变化或组被删除时，MKAuth 只会重算由 SCIM Groups 管理的角色，并保留其它手工分配的角色。这些组现在也能在管理后台里看到，并可进入 `org_groups` OIDC claim。
 
 ### 存储
 
@@ -579,7 +583,7 @@ curl -X POST http://localhost:8080/oauth2/token \
 - `POST /api/logout`
 - `GET /api/user`
 
-当存在 CIAM/IAM 组织成员数据，并且下游 OIDC 客户端请求了 `profile` scope 时，MKAuth 会在 ID Token 和 `/oauth2/userinfo` 中额外返回 `org_id`、`org_slug`、`org_roles`。
+当存在 CIAM/IAM 组织成员数据，并且下游 OIDC 客户端请求了 `profile` scope 时，MKAuth 会在 ID Token 和 `/oauth2/userinfo` 中额外返回 `org_id`、`org_slug`、`org_roles`、`org_groups`。
 
 账号登录示例：
 

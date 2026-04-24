@@ -338,10 +338,14 @@ Useful admin endpoints:
 - Domain update/delete: `PATCH /admin-api/organizations/:id/domains/:domain`, `DELETE /admin-api/organizations/:id/domains/:domain`
 - Organization memberships: `GET /admin-api/organizations/:id/memberships`, `POST /admin-api/organizations/:id/memberships`
 - Membership update/delete: `PATCH /admin-api/organizations/:id/memberships/:user_id`, `DELETE /admin-api/organizations/:id/memberships/:user_id`
+- Organization groups: `GET /admin-api/organizations/:id/groups`, `POST /admin-api/organizations/:id/groups`
+- Group detail/update/delete: `GET /admin-api/organizations/:id/groups/:group_id`, `PATCH /admin-api/organizations/:id/groups/:group_id`, `DELETE /admin-api/organizations/:id/groups/:group_id`
 - Organization identity providers: `GET /admin-api/organizations/:id/identity-providers`, `POST /admin-api/organizations/:id/identity-providers`
 - Identity provider update/delete: `PATCH /admin-api/organizations/:id/identity-providers/:provider_id`, `DELETE /admin-api/organizations/:id/identity-providers/:provider_id`
 
-When a user has an active organization membership and the downstream OIDC client requests `profile`, MKAuth can include `org_id`, `org_slug`, and `org_roles` in the ID Token and `/oauth2/userinfo`.
+The admin UI can also manage manual organization groups. Group members automatically project the group's `role_name` into organization membership `org_roles`, while SCIM-managed groups stay read-only in the same view.
+
+When a user has an active organization membership and the downstream OIDC client requests `profile`, MKAuth can include `org_id`, `org_slug`, `org_roles`, and `org_groups` in the ID Token and `/oauth2/userinfo`.
 
 Enterprise login can now be managed in two ways:
 
@@ -411,7 +415,7 @@ Supported SCIM endpoints:
 
 SCIM Users creates or updates MKAuth users, links them through `external_identities` with `provider_type=scim`, and syncs organization membership status plus lightweight role names. `DELETE /Users/:id` and `active=false` disable the MKAuth user and mark the organization membership as disabled.
 
-SCIM Groups map enterprise directory groups to lightweight organization roles. Group `displayName` is normalized into a role name, for example `Engineering Team` becomes `engineering-team`. When group members change or a group is deleted, MKAuth recalculates only the roles managed by SCIM groups and preserves other manually assigned roles.
+SCIM Groups map enterprise directory groups into `organization_groups` and lightweight organization roles. Group `displayName` is normalized into a role name, for example `Engineering Team` becomes `engineering-team`. When group members change or a group is deleted, MKAuth recalculates only the roles managed by SCIM groups and preserves other manually assigned roles. The same group data is now visible in the admin console and can flow into the `org_groups` OIDC claim.
 
 ### Storage
 
@@ -575,7 +579,7 @@ Common endpoints:
 - `POST /api/logout`
 - `GET /api/user`
 
-When CIAM/IAM organization data exists and the downstream OIDC client requests `profile`, MKAuth can also include `org_id`, `org_slug`, and `org_roles` in the ID Token and `/oauth2/userinfo`.
+When CIAM/IAM organization data exists and the downstream OIDC client requests `profile`, MKAuth can also include `org_id`, `org_slug`, `org_roles`, and `org_groups` in the ID Token and `/oauth2/userinfo`.
 
 Example account login request:
 

@@ -42,6 +42,12 @@ type membershipPayload struct {
 	Roles  []string `json:"roles"`
 }
 
+type organizationGroupPayload struct {
+	DisplayName string   `json:"display_name"`
+	RoleName    string   `json:"role_name"`
+	UserIDs     []string `json:"user_ids"`
+}
+
 type organizationMembershipView struct {
 	OrganizationID string    `json:"organization_id"`
 	UserID         string    `json:"user_id"`
@@ -53,6 +59,29 @@ type organizationMembershipView struct {
 	UserStatus     string    `json:"user_status,omitempty"`
 	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`
+}
+
+type organizationGroupMemberView struct {
+	UserID     string `json:"user_id"`
+	Username   string `json:"username,omitempty"`
+	Nickname   string `json:"nickname,omitempty"`
+	Avatar     string `json:"avatar,omitempty"`
+	UserStatus string `json:"user_status,omitempty"`
+}
+
+type organizationGroupView struct {
+	GroupID        string                        `json:"group_id"`
+	OrganizationID string                        `json:"organization_id"`
+	ProviderType   string                        `json:"provider_type"`
+	ProviderID     string                        `json:"provider_id,omitempty"`
+	ExternalID     string                        `json:"external_id,omitempty"`
+	DisplayName    string                        `json:"display_name"`
+	RoleName       string                        `json:"role_name"`
+	Editable       bool                          `json:"editable"`
+	MemberCount    int                           `json:"member_count"`
+	Members        []organizationGroupMemberView `json:"members,omitempty"`
+	CreatedAt      time.Time                     `json:"created_at"`
+	UpdatedAt      time.Time                     `json:"updated_at"`
 }
 
 func (s *AdminServer) handleListOrganizations(c *gin.Context) {
@@ -340,6 +369,173 @@ func (s *AdminServer) handleDeleteOrganizationMembership(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "organization membership deleted successfully"})
 }
 
+func (s *AdminServer) handleListOrganizationGroups(c *gin.Context) {
+	org, ok := s.loadOrganization(c, c.Param("id"))
+	if !ok {
+		return
+	}
+	var groups []iam.OrganizationGroup
+	if err := s.db.Where("organization_id = ?", org.OrganizationID).Order("created_at DESC").Find(&groups).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	views, err := s.organizationGroupViews(groups, false)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"groups": views})
+}
+
+func (s *AdminServer) handleGetOrganizationGroup(c *gin.Context) {
+	org, ok := s.loadOrganization(c, c.Param("id"))
+	if !ok {
+		return
+	}
+	group, ok := s.loadOrganizationGroup(c, org.OrganizationID, c.Param("group_id"))
+	if !ok {
+		return
+	}
+	view, err := s.organizationGroupView(group, true)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"group": view})
+}
+
+func (s *AdminServer) handleCreateOrganizationGroup(c *gin.Context) {
+	org, ok := s.loadOrganization(c, c.Param("id"))
+	if !ok {
+		return
+	}
+	var req organizationGroupPayload
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid organization group payload"})
+		return
+	}
+	displayName, roleName, userIDs, users, err := s.normalizeOrganizationGroupPayload(req)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	service := iam.NewService(s.db)
+	groupID, err := service.GenerateOrganizationGroupID()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	now := time.Now()
+	group := iam.OrganizationGroup{
+		GroupID:        groupID,
+		OrganizationID: org.OrganizationID,
+		ProviderType:   iam.IdentityProviderTypeManual,
+		ProviderID:     iam.ManualOrganizationGroupProvider,
+		ExternalID:     groupID,
+		DisplayName:    displayName,
+		RoleName:       roleName,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}
+	if err := s.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&group).Error; err != nil {
+			return err
+		}
+		if err := s.replaceOrganizationGroupMembers(tx, org.OrganizationID, group.GroupID, userIDs, now); err != nil {
+			return err
+		}
+		return s.reconcileManualOrganizationGroupRoles(tx, org.OrganizationID, userIDs, nil, now)
+	}); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusCreated, gin.H{"group": s.organizationGroupViewWithUsers(group, users, len(userIDs), true)})
+}
+
+func (s *AdminServer) handleUpdateOrganizationGroup(c *gin.Context) {
+	org, ok := s.loadOrganization(c, c.Param("id"))
+	if !ok {
+		return
+	}
+	group, ok := s.loadOrganizationGroup(c, org.OrganizationID, c.Param("group_id"))
+	if !ok {
+		return
+	}
+	if group.ProviderType != iam.IdentityProviderTypeManual {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "only manual organization groups can be updated"})
+		return
+	}
+	var req organizationGroupPayload
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid organization group payload"})
+		return
+	}
+	displayName, roleName, userIDs, users, err := s.normalizeOrganizationGroupPayload(req)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	var updated iam.OrganizationGroup
+	if err := s.db.Transaction(func(tx *gorm.DB) error {
+		existingUserIDs, err := s.groupMemberUserIDs(tx, group.GroupID)
+		if err != nil {
+			return err
+		}
+		previousRoleName := group.RoleName
+		group.DisplayName = displayName
+		group.RoleName = roleName
+		group.UpdatedAt = time.Now()
+		if err := tx.Save(&group).Error; err != nil {
+			return err
+		}
+		if err := s.replaceOrganizationGroupMembers(tx, org.OrganizationID, group.GroupID, userIDs, group.UpdatedAt); err != nil {
+			return err
+		}
+		if err := s.reconcileManualOrganizationGroupRoles(tx, org.OrganizationID, mergeUniqueStrings(existingUserIDs, userIDs), []string{previousRoleName}, group.UpdatedAt); err != nil {
+			return err
+		}
+		updated = group
+		return nil
+	}); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"group": s.organizationGroupViewWithUsers(updated, users, len(userIDs), true)})
+}
+
+func (s *AdminServer) handleDeleteOrganizationGroup(c *gin.Context) {
+	org, ok := s.loadOrganization(c, c.Param("id"))
+	if !ok {
+		return
+	}
+	group, ok := s.loadOrganizationGroup(c, org.OrganizationID, c.Param("group_id"))
+	if !ok {
+		return
+	}
+	if group.ProviderType != iam.IdentityProviderTypeManual {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "only manual organization groups can be deleted"})
+		return
+	}
+	if err := s.db.Transaction(func(tx *gorm.DB) error {
+		userIDs, err := s.groupMemberUserIDs(tx, group.GroupID)
+		if err != nil {
+			return err
+		}
+		if err := tx.Delete(&iam.OrganizationGroupMember{}, "group_id = ?", group.GroupID).Error; err != nil {
+			return err
+		}
+		if err := tx.Delete(&iam.OrganizationGroup{}, "group_id = ?", group.GroupID).Error; err != nil {
+			return err
+		}
+		return s.reconcileManualOrganizationGroupRoles(tx, org.OrganizationID, userIDs, []string{group.RoleName}, time.Now())
+	}); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "organization group deleted successfully"})
+}
+
 func (s *AdminServer) organizationFromPayload(req organizationPayload, current *iam.Organization) (iam.Organization, error) {
 	slug := strings.TrimSpace(strings.ToLower(req.Slug))
 	name := strings.TrimSpace(req.Name)
@@ -442,6 +638,259 @@ func (s *AdminServer) membershipView(item iam.OrganizationMembership, roles []st
 	return view
 }
 
+func (s *AdminServer) loadOrganizationGroup(c *gin.Context, organizationID, groupID string) (iam.OrganizationGroup, bool) {
+	groupID = strings.TrimSpace(groupID)
+	var group iam.OrganizationGroup
+	if err := s.db.First(&group, "organization_id = ? AND group_id = ?", organizationID, groupID).Error; err != nil {
+		writeNotFoundOrError(c, err, "organization group was not found")
+		return iam.OrganizationGroup{}, false
+	}
+	return group, true
+}
+
+func (s *AdminServer) organizationGroupViews(groups []iam.OrganizationGroup, includeMembers bool) ([]organizationGroupView, error) {
+	if len(groups) == 0 {
+		return []organizationGroupView{}, nil
+	}
+	groupIDs := make([]string, 0, len(groups))
+	for _, group := range groups {
+		groupIDs = append(groupIDs, group.GroupID)
+	}
+	var memberRows []iam.OrganizationGroupMember
+	if err := s.db.Where("group_id IN ?", groupIDs).Find(&memberRows).Error; err != nil {
+		return nil, err
+	}
+	memberMap := map[string][]string{}
+	memberCount := map[string]int{}
+	userIDSet := map[string]struct{}{}
+	for _, member := range memberRows {
+		memberMap[member.GroupID] = append(memberMap[member.GroupID], member.UserID)
+		memberCount[member.GroupID]++
+		userIDSet[member.UserID] = struct{}{}
+	}
+	users, err := s.loadAdminUsersMap(stringKeys(userIDSet))
+	if err != nil {
+		return nil, err
+	}
+	views := make([]organizationGroupView, 0, len(groups))
+	for _, group := range groups {
+		memberUsers := usersForIDs(users, memberMap[group.GroupID])
+		views = append(views, s.organizationGroupViewWithUsers(group, memberUsers, memberCount[group.GroupID], includeMembers))
+	}
+	return views, nil
+}
+
+func (s *AdminServer) organizationGroupView(group iam.OrganizationGroup, includeMembers bool) (organizationGroupView, error) {
+	userIDs, err := s.groupMemberUserIDs(s.db, group.GroupID)
+	if err != nil {
+		return organizationGroupView{}, err
+	}
+	users, err := s.loadAdminUsersMap(userIDs)
+	if err != nil {
+		return organizationGroupView{}, err
+	}
+	return s.organizationGroupViewWithUsers(group, usersForIDs(users, userIDs), len(userIDs), includeMembers), nil
+}
+
+func (s *AdminServer) organizationGroupViewWithUsers(group iam.OrganizationGroup, users []*auth.User, memberCount int, includeMembers bool) organizationGroupView {
+	view := organizationGroupView{
+		GroupID:        group.GroupID,
+		OrganizationID: group.OrganizationID,
+		ProviderType:   string(group.ProviderType),
+		ProviderID:     group.ProviderID,
+		ExternalID:     group.ExternalID,
+		DisplayName:    group.DisplayName,
+		RoleName:       group.RoleName,
+		Editable:       group.ProviderType == iam.IdentityProviderTypeManual,
+		MemberCount:    memberCount,
+		CreatedAt:      group.CreatedAt,
+		UpdatedAt:      group.UpdatedAt,
+	}
+	if includeMembers {
+		view.Members = make([]organizationGroupMemberView, 0, len(users))
+		for _, user := range users {
+			if user == nil {
+				continue
+			}
+			view.Members = append(view.Members, organizationGroupMemberView{
+				UserID:     user.UserID,
+				Username:   user.Username,
+				Nickname:   user.Nickname,
+				Avatar:     user.Avatar,
+				UserStatus: string(user.Status),
+			})
+		}
+	}
+	return view
+}
+
+func (s *AdminServer) loadAdminUsersMap(userIDs []string) (map[string]auth.User, error) {
+	userIDs = uniqueTrimmedStrings(userIDs)
+	if len(userIDs) == 0 {
+		return map[string]auth.User{}, nil
+	}
+	var users []auth.User
+	if err := s.db.Where("user_id IN ?", userIDs).Find(&users).Error; err != nil {
+		return nil, err
+	}
+	result := make(map[string]auth.User, len(users))
+	for _, user := range users {
+		result[user.UserID] = user
+	}
+	return result, nil
+}
+
+func usersForIDs(users map[string]auth.User, userIDs []string) []*auth.User {
+	userIDs = uniqueTrimmedStrings(userIDs)
+	result := make([]*auth.User, 0, len(userIDs))
+	for _, userID := range userIDs {
+		if user, ok := users[userID]; ok {
+			userCopy := user
+			result = append(result, &userCopy)
+			continue
+		}
+		result = append(result, &auth.User{UserID: userID})
+	}
+	return result
+}
+
+func (s *AdminServer) normalizeOrganizationGroupPayload(req organizationGroupPayload) (string, string, []string, []*auth.User, error) {
+	displayName := strings.TrimSpace(req.DisplayName)
+	if displayName == "" {
+		return "", "", nil, nil, fmt.Errorf("display_name is required")
+	}
+	roleName, err := normalizeOrganizationGroupRoleName(req.RoleName, displayName)
+	if err != nil {
+		return "", "", nil, nil, err
+	}
+	userIDs := uniqueTrimmedStrings(req.UserIDs)
+	usersMap, err := s.loadAdminUsersMap(userIDs)
+	if err != nil {
+		return "", "", nil, nil, err
+	}
+	users := make([]*auth.User, 0, len(userIDs))
+	for _, userID := range userIDs {
+		user, ok := usersMap[userID]
+		if !ok {
+			return "", "", nil, nil, fmt.Errorf("user %q was not found", userID)
+		}
+		userCopy := user
+		users = append(users, &userCopy)
+	}
+	return displayName, roleName, userIDs, users, nil
+}
+
+func (s *AdminServer) groupMemberUserIDs(db *gorm.DB, groupID string) ([]string, error) {
+	var userIDs []string
+	if err := db.Model(&iam.OrganizationGroupMember{}).Where("group_id = ?", groupID).Order("user_id ASC").Pluck("user_id", &userIDs).Error; err != nil {
+		return nil, err
+	}
+	return uniqueTrimmedStrings(userIDs), nil
+}
+
+func (s *AdminServer) replaceOrganizationGroupMembers(tx *gorm.DB, organizationID, groupID string, userIDs []string, now time.Time) error {
+	userIDs = uniqueTrimmedStrings(userIDs)
+	if err := tx.Delete(&iam.OrganizationGroupMember{}, "group_id = ?", groupID).Error; err != nil {
+		return err
+	}
+	for _, userID := range userIDs {
+		member := iam.OrganizationGroupMember{
+			OrganizationID: organizationID,
+			GroupID:        groupID,
+			UserID:         userID,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}
+		if err := tx.Create(&member).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *AdminServer) reconcileManualOrganizationGroupRoles(tx *gorm.DB, organizationID string, userIDs, extraManagedRoles []string, now time.Time) error {
+	userIDs = uniqueTrimmedStrings(userIDs)
+	if len(userIDs) == 0 {
+		return nil
+	}
+	var managedRoles []string
+	if err := tx.Model(&iam.OrganizationGroup{}).
+		Where("organization_id = ? AND provider_type = ? AND provider_id = ?", organizationID, iam.IdentityProviderTypeManual, iam.ManualOrganizationGroupProvider).
+		Pluck("role_name", &managedRoles).Error; err != nil {
+		return err
+	}
+	managedRoleSet := map[string]struct{}{}
+	for _, role := range mergeUniqueStrings(managedRoles, extraManagedRoles) {
+		role = strings.TrimSpace(role)
+		if role != "" {
+			managedRoleSet[strings.ToLower(role)] = struct{}{}
+		}
+	}
+
+	for _, userID := range userIDs {
+		assignedRoles, err := s.manualGroupAssignedRoleNames(tx, organizationID, userID)
+		if err != nil {
+			return err
+		}
+		var membership iam.OrganizationMembership
+		err = tx.First(&membership, "organization_id = ? AND user_id = ?", organizationID, userID).Error
+		switch {
+		case err == nil:
+			currentRoles := parseRolesJSON(membership.RolesJSON)
+			nextRoles := make([]string, 0, len(currentRoles)+len(assignedRoles))
+			for _, role := range currentRoles {
+				if _, managed := managedRoleSet[strings.ToLower(role)]; managed {
+					continue
+				}
+				nextRoles = append(nextRoles, role)
+			}
+			nextRoles = append(nextRoles, assignedRoles...)
+			_, membership.RolesJSON, err = normalizeRoleList(nextRoles)
+			if err != nil {
+				return err
+			}
+			membership.UpdatedAt = now
+			if err := tx.Save(&membership).Error; err != nil {
+				return err
+			}
+		case errors.Is(err, gorm.ErrRecordNotFound):
+			if len(assignedRoles) == 0 {
+				continue
+			}
+			_, rolesJSON, err := normalizeRoleList(assignedRoles)
+			if err != nil {
+				return err
+			}
+			membership = iam.OrganizationMembership{
+				OrganizationID: organizationID,
+				UserID:         userID,
+				Status:         iam.MembershipStatusActive,
+				RolesJSON:      rolesJSON,
+				CreatedAt:      now,
+				UpdatedAt:      now,
+			}
+			if err := tx.Create(&membership).Error; err != nil {
+				return err
+			}
+		default:
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *AdminServer) manualGroupAssignedRoleNames(tx *gorm.DB, organizationID, userID string) ([]string, error) {
+	var roles []string
+	if err := tx.Table("organization_groups").
+		Select("organization_groups.role_name").
+		Joins("JOIN organization_group_members ON organization_group_members.group_id = organization_groups.group_id").
+		Where("organization_groups.organization_id = ? AND organization_groups.provider_type = ? AND organization_groups.provider_id = ? AND organization_group_members.user_id = ?", organizationID, iam.IdentityProviderTypeManual, iam.ManualOrganizationGroupProvider, userID).
+		Pluck("organization_groups.role_name", &roles).Error; err != nil {
+		return nil, err
+	}
+	return uniqueTrimmedStrings(roles), nil
+}
+
 func adminPagination(c *gin.Context, defaultSize, maxSize int) (int, int) {
 	page := 1
 	pageSize := defaultSize
@@ -534,6 +983,42 @@ func normalizeRoleList(raw []string) ([]string, string, error) {
 	return roles, string(content), nil
 }
 
+func normalizeOrganizationGroupRoleName(rawRole, displayName string) (string, error) {
+	role := strings.TrimSpace(rawRole)
+	if role == "" {
+		role = roleNameFromDisplayName(displayName)
+	}
+	if !roleNamePattern.MatchString(role) {
+		return "", fmt.Errorf("role_name %q is invalid", role)
+	}
+	return role, nil
+}
+
+func roleNameFromDisplayName(displayName string) string {
+	var b strings.Builder
+	lastDash := false
+	for _, ch := range strings.ToLower(strings.TrimSpace(displayName)) {
+		valid := (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '_' || ch == '.' || ch == ':'
+		if valid {
+			b.WriteRune(ch)
+			lastDash = false
+			continue
+		}
+		if !lastDash {
+			b.WriteRune('-')
+			lastDash = true
+		}
+	}
+	role := strings.Trim(b.String(), "-._:")
+	if role == "" {
+		role = "group"
+	}
+	if len(role) > 64 {
+		role = role[:64]
+	}
+	return role
+}
+
 func parseRolesJSON(raw string) []string {
 	if strings.TrimSpace(raw) == "" {
 		return []string{}
@@ -544,6 +1029,41 @@ func parseRolesJSON(raw string) []string {
 	}
 	sort.Strings(roles)
 	return roles
+}
+
+func uniqueTrimmedStrings(values []string) []string {
+	seen := map[string]struct{}{}
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		key := strings.ToLower(value)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		result = append(result, value)
+	}
+	sort.Strings(result)
+	return result
+}
+
+func mergeUniqueStrings(left, right []string) []string {
+	merged := make([]string, 0, len(left)+len(right))
+	merged = append(merged, left...)
+	merged = append(merged, right...)
+	return uniqueTrimmedStrings(merged)
+}
+
+func stringKeys(values map[string]struct{}) []string {
+	result := make([]string, 0, len(values))
+	for value := range values {
+		result = append(result, value)
+	}
+	sort.Strings(result)
+	return result
 }
 
 func marshalMetadata(metadata map[string]any) (string, error) {
