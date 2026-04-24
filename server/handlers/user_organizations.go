@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 
@@ -8,6 +9,7 @@ import (
 	"gorm.io/gorm"
 
 	"minki.cc/mkauth/server/iam"
+	"minki.cc/mkauth/server/oidc"
 )
 
 type currentUserOrganizationView struct {
@@ -45,6 +47,25 @@ func (h *AuthHandler) GetCurrentUserOrganizations(c *gin.Context) {
 		Find(&memberships).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
+	}
+	if clientID := strings.TrimSpace(c.Query("client_id")); clientID != "" && h.oidcProvider != nil {
+		allowedOrgIDs, filtered, err := h.oidcProvider.AuthorizedOrganizationIDsForClient(userIDStr, clientID)
+		switch {
+		case errors.Is(err, oidc.ErrClientNotFound):
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_client"})
+			return
+		case err != nil:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		case filtered:
+			filteredMemberships := make([]iam.OrganizationMembership, 0, len(memberships))
+			for _, membership := range memberships {
+				if _, ok := allowedOrgIDs[membership.OrganizationID]; ok {
+					filteredMemberships = append(filteredMemberships, membership)
+				}
+			}
+			memberships = filteredMemberships
+		}
 	}
 	if len(memberships) == 0 {
 		c.JSON(http.StatusOK, gin.H{"organizations": []currentUserOrganizationView{}})

@@ -502,6 +502,15 @@ oidc:
         - "openid"
         - "profile"
         - "email"
+      # 可选：B2B 组织授权策略
+      # require_organization: true
+      # allowed_organizations:
+      #   - "acme"
+      #   - "org_acme000000000000"
+      # required_org_roles:
+      #   - "admin"
+      # required_org_groups:
+      #   - "Engineering Team"
 ```
 
 服务启动后会暴露这些标准端点：
@@ -513,6 +522,15 @@ oidc:
 - `/oauth2/jwks`
 
 OIDC 的 `sub` 使用 MKAuth 稳定的内部用户 ID，而不是登录用户名。新用户 ID 类似 `usr_8m3kq7p2x9zc4vna`；普通账号的用户名会在可用时单独通过 `preferred_username` / `username` 返回。
+
+如果某个 OIDC client 配置了组织授权策略，MKAuth 会在发授权码之前先做校验：
+
+- `require_organization`：用户必须以某个 active 组织上下文完成授权
+- `allowed_organizations`：只允许指定的组织 ID 或 slug
+- `required_org_roles`：要求至少命中一个 `org_roles`
+- `required_org_groups`：要求至少命中一个 `org_groups`
+
+如果只有一个组织满足策略，MKAuth 会自动把这次授权固定到该组织；如果有多个组织满足策略，组织选择页也只会展示这些可用组织。
 
 ### 可信业务后端配置
 

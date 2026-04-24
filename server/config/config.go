@@ -274,12 +274,16 @@ type OIDCConfig struct {
 }
 
 type OIDCClientConfig struct {
-	ClientID     string   `json:"client_id" yaml:"client_id"`
-	ClientSecret string   `json:"client_secret" yaml:"client_secret"`
-	RedirectURIs []string `json:"redirect_uris" yaml:"redirect_uris"`
-	Scopes       []string `json:"scopes" yaml:"scopes"`
-	Public       bool     `json:"public" yaml:"public"`
-	RequirePKCE  bool     `json:"require_pkce" yaml:"require_pkce"`
+	ClientID             string   `json:"client_id" yaml:"client_id"`
+	ClientSecret         string   `json:"client_secret" yaml:"client_secret"`
+	RedirectURIs         []string `json:"redirect_uris" yaml:"redirect_uris"`
+	Scopes               []string `json:"scopes" yaml:"scopes"`
+	Public               bool     `json:"public" yaml:"public"`
+	RequirePKCE          bool     `json:"require_pkce" yaml:"require_pkce"`
+	RequireOrganization  bool     `json:"require_organization" yaml:"require_organization"`
+	AllowedOrganizations []string `json:"allowed_organizations" yaml:"allowed_organizations"`
+	RequiredOrgRoles     []string `json:"required_org_roles" yaml:"required_org_roles"`
+	RequiredOrgGroups    []string `json:"required_org_groups" yaml:"required_org_groups"`
 }
 
 func (c *TrustedClient) HasScope(_scope string) bool {

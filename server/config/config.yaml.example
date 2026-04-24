@@ -34,6 +34,17 @@ oidc:
         - "openid"
         - "profile"
         - "email"
+      # Optional organization access policy. When configured, MKAuth only
+      # issues authorization codes/tokens for organizations that satisfy the
+      # client policy.
+      # require_organization: true
+      # allowed_organizations:
+      #   - "acme"
+      #   - "org_acme000000000000"
+      # required_org_roles:
+      #   - "admin"
+      # required_org_groups:
+      #   - "Engineering Team"
     - client_id: "demo-backend"
       client_secret: "CHANGE_ME"
       public: false

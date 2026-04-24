@@ -500,6 +500,15 @@ oidc:
         - "openid"
         - "profile"
         - "email"
+      # Optional B2B organization policy
+      # require_organization: true
+      # allowed_organizations:
+      #   - "acme"
+      #   - "org_acme000000000000"
+      # required_org_roles:
+      #   - "admin"
+      # required_org_groups:
+      #   - "Engineering Team"
 ```
 
 When enabled, MKAuth exposes these standard endpoints:
@@ -511,6 +520,15 @@ When enabled, MKAuth exposes these standard endpoints:
 - `/oauth2/jwks`
 
 OIDC `sub` uses MKAuth's stable internal user ID, not the login username. New users receive IDs such as `usr_8m3kq7p2x9zc4vna`; regular account usernames are returned separately as `preferred_username` / `username` when available.
+
+If an OIDC client configures organization policy, MKAuth enforces it before issuing the authorization code:
+
+- `require_organization`: the user must authorize within an active organization
+- `allowed_organizations`: allow only specific organization IDs or slugs
+- `required_org_roles`: require at least one matching `org_roles` entry
+- `required_org_groups`: require at least one matching `org_groups` entry
+
+When only one organization satisfies the policy, MKAuth automatically pins the authorization to it. When multiple organizations satisfy it, the organization chooser shows only the eligible organizations.
 
 ### Trusted backend client
 

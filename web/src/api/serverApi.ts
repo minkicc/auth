@@ -480,7 +480,9 @@ class ServerApi {
     }
 
     async fetchCurrentUserOrganizations(): Promise<{ organizations: CurrentUserOrganization[] }> {
-        const response = await axios.get('/user/organizations')
+        const response = await axios.get('/user/organizations', {
+            params: this.clientId ? { client_id: this.clientId } : undefined
+        })
         return {
             organizations: response.data?.organizations || []
         }
