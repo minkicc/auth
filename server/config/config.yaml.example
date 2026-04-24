@@ -52,6 +52,10 @@ iam:
     - slug: "acme"
       name: "Acme Workforce"
       organization_id: "org_acme000000000000"
+      # Optional multi-IdP policy. Lower priority wins.
+      priority: 10
+      is_default: true
+      auto_redirect: true
       issuer: "https://idp.example.com"
       client_id: "YOUR_ENTERPRISE_OIDC_CLIENT_ID"
       client_secret: "YOUR_ENTERPRISE_OIDC_CLIENT_SECRET"

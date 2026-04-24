@@ -18,6 +18,7 @@ Implemented:
 - Installable plugin runtime with local ZIP packages, catalog installation, URL installation, preview, config schema, signatures, audit log, backups, restore, and in-process reload.
 - `enterprise_oidc` as the first upstream enterprise identity connector.
 - HRD (Home Realm Discovery) from verified organization domains to Enterprise OIDC providers.
+- Organization-level default provider, provider priority, and optional auto-redirect policy for Enterprise OIDC discovery.
 - Organization claim injection into ID Token and `/oauth2/userinfo`.
 - Admin API and admin console page for organization, domain, membership, and Enterprise OIDC identity provider management.
 - Inbound SCIM Users and Groups MVP for enterprise directory provisioning into an organization.
@@ -247,6 +248,7 @@ The admin console now includes an `Organizations` page for B2B tenant operations
 - Update membership status and lightweight role names.
 - Remove organization memberships.
 - Create, update, enable, disable, and delete Enterprise OIDC identity providers per organization.
+- Configure per-provider `priority`, `is_default`, and `auto_redirect` policy from the admin console.
 
 The admin API accepts either organization ID or slug in the `:id` path segment:
 
@@ -356,9 +358,11 @@ HRD behavior:
 1. The public endpoint `GET /api/enterprise/oidc/discover?email=...` extracts the email domain.
 2. MKAuth looks up a verified record in `organization_domains`.
 3. The matched active organization is resolved to one or more runtime Enterprise OIDC providers.
-4. The login page auto-redirects when exactly one provider is matched, or narrows the provider list when multiple providers are available for that organization.
-5. When a downstream OIDC client sends `login_hint`, MKAuth forwards it into the login page and reuses it to trigger HRD automatically.
-6. When a downstream OIDC client sends `domain_hint`, MKAuth can skip the email requirement and trigger HRD directly from the hinted organization domain.
+4. Providers are ordered by `is_default`, `auto_redirect`, and ascending `priority`.
+5. The login page auto-redirects when exactly one provider is matched, or when the preferred provider has `auto_redirect: true`.
+6. Otherwise the login page narrows the provider list in the organization's preferred order.
+7. When a downstream OIDC client sends `login_hint`, MKAuth forwards it into the login page and reuses it to trigger HRD automatically.
+8. When a downstream OIDC client sends `domain_hint`, MKAuth can skip the email requirement and trigger HRD directly from the hinted organization domain.
 
 The callback flow:
 

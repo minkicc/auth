@@ -385,6 +385,135 @@ func TestEnterpriseOIDCDiscoverByDomain(t *testing.T) {
 	}
 }
 
+func TestEnterpriseOIDCDiscoverByDomainReturnsPreferredProvider(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file:enterprise-oidc-discover-preferred?mode=memory&cache=shared"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("failed to open sqlite: %v", err)
+	}
+	if err := NewService(db).AutoMigrate(); err != nil {
+		t.Fatalf("failed to migrate iam tables: %v", err)
+	}
+	if err := db.Create(&Organization{
+		OrganizationID: "org_globex000000000",
+		Slug:           "globex",
+		Name:           "Globex Corp",
+		Status:         OrganizationStatusActive,
+	}).Error; err != nil {
+		t.Fatalf("failed to create organization: %v", err)
+	}
+	if err := db.Create(&OrganizationDomain{
+		Domain:         "globex.com",
+		OrganizationID: "org_globex000000000",
+		Verified:       true,
+	}).Error; err != nil {
+		t.Fatalf("failed to create organization domain: %v", err)
+	}
+
+	manager, err := NewEnterpriseOIDCManager(config.IAMConfig{EnterpriseOIDC: []config.EnterpriseOIDCProviderConfig{
+		{
+			Slug:           "globex-legacy",
+			Name:           "Globex Legacy",
+			OrganizationID: "org_globex000000000",
+			Priority:       90,
+			Issuer:         "https://login-legacy.globex.test",
+			ClientID:       "globex-legacy-client",
+			ClientSecret:   "globex-legacy-secret",
+			RedirectURI:    "https://auth.example.com/api/enterprise/oidc/globex-legacy/callback",
+		},
+		{
+			Slug:           "globex-main",
+			Name:           "Globex Workforce",
+			OrganizationID: "org_globex000000000",
+			Priority:       20,
+			IsDefault:      true,
+			Issuer:         "https://login.globex.test",
+			ClientID:       "globex-client",
+			ClientSecret:   "globex-secret",
+			RedirectURI:    "https://auth.example.com/api/enterprise/oidc/globex-main/callback",
+		},
+	}}, db, nil)
+	if err != nil {
+		t.Fatalf("failed to create enterprise oidc manager: %v", err)
+	}
+
+	result, err := manager.DiscoverByDomain("globex.com")
+	if err != nil {
+		t.Fatalf("failed to discover enterprise oidc by domain: %v", err)
+	}
+	if result.PreferredProviderSlug != "globex-main" {
+		t.Fatalf("expected preferred provider globex-main, got %#v", result)
+	}
+	if result.AutoRedirect {
+		t.Fatalf("expected default provider discovery to require manual selection")
+	}
+	if len(result.Providers) != 2 || result.Providers[0].Slug != "globex-main" || result.Providers[1].Slug != "globex-legacy" {
+		t.Fatalf("unexpected provider ordering: %#v", result.Providers)
+	}
+}
+
+func TestEnterpriseOIDCDiscoverByDomainAutoRedirectsConfiguredProvider(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file:enterprise-oidc-discover-auto-redirect?mode=memory&cache=shared"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("failed to open sqlite: %v", err)
+	}
+	if err := NewService(db).AutoMigrate(); err != nil {
+		t.Fatalf("failed to migrate iam tables: %v", err)
+	}
+	if err := db.Create(&Organization{
+		OrganizationID: "org_globex000000000",
+		Slug:           "globex",
+		Name:           "Globex Corp",
+		Status:         OrganizationStatusActive,
+	}).Error; err != nil {
+		t.Fatalf("failed to create organization: %v", err)
+	}
+	if err := db.Create(&OrganizationDomain{
+		Domain:         "globex.com",
+		OrganizationID: "org_globex000000000",
+		Verified:       true,
+	}).Error; err != nil {
+		t.Fatalf("failed to create organization domain: %v", err)
+	}
+
+	manager, err := NewEnterpriseOIDCManager(config.IAMConfig{EnterpriseOIDC: []config.EnterpriseOIDCProviderConfig{
+		{
+			Slug:           "globex-sso",
+			Name:           "Globex Workforce",
+			OrganizationID: "org_globex000000000",
+			Priority:       50,
+			AutoRedirect:   true,
+			Issuer:         "https://login.globex.test",
+			ClientID:       "globex-client",
+			ClientSecret:   "globex-secret",
+			RedirectURI:    "https://auth.example.com/api/enterprise/oidc/globex-sso/callback",
+		},
+		{
+			Slug:           "globex-admin",
+			Name:           "Globex Admin",
+			OrganizationID: "org_globex000000000",
+			Priority:       50,
+			Issuer:         "https://login-admin.globex.test",
+			ClientID:       "globex-admin-client",
+			ClientSecret:   "globex-admin-secret",
+			RedirectURI:    "https://auth.example.com/api/enterprise/oidc/globex-admin/callback",
+		},
+	}}, db, nil)
+	if err != nil {
+		t.Fatalf("failed to create enterprise oidc manager: %v", err)
+	}
+
+	result, err := manager.DiscoverByDomain("globex.com")
+	if err != nil {
+		t.Fatalf("failed to discover enterprise oidc by domain: %v", err)
+	}
+	if result.PreferredProviderSlug != "globex-sso" || !result.AutoRedirect {
+		t.Fatalf("expected auto-redirect to preferred provider, got %#v", result)
+	}
+	if len(result.Providers) != 2 || result.Providers[0].Slug != "globex-sso" {
+		t.Fatalf("unexpected provider ordering: %#v", result.Providers)
+	}
+}
+
 type fakeEnterpriseUser struct {
 	Subject           string
 	Email             string

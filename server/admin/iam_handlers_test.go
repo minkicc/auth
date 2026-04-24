@@ -150,6 +150,9 @@ func TestOrganizationAdminHandlersManageIdentityProviders(t *testing.T) {
 	createProviderResp := performJSON(t, router, http.MethodPost, "/organizations/acme/identity-providers", map[string]any{
 		"name":          "Acme Workforce",
 		"slug":          "acme-workforce",
+		"priority":      15,
+		"is_default":    true,
+		"auto_redirect": true,
 		"issuer":        "https://login.acme.test",
 		"client_id":     "acme-client",
 		"client_secret": "super-secret",
@@ -171,6 +174,9 @@ func TestOrganizationAdminHandlersManageIdentityProviders(t *testing.T) {
 	if !createProviderBody.IdentityProvider.Config.ClientSecretConfigured {
 		t.Fatalf("expected client secret configured flag")
 	}
+	if createProviderBody.IdentityProvider.Priority != 15 || !createProviderBody.IdentityProvider.IsDefault || !createProviderBody.IdentityProvider.AutoRedirect {
+		t.Fatalf("expected identity provider policy fields to round-trip, got %#v", createProviderBody.IdentityProvider)
+	}
 	if !manager.HasProviders() {
 		t.Fatalf("expected enterprise oidc manager to reload created provider")
 	}
@@ -188,11 +194,16 @@ func TestOrganizationAdminHandlersManageIdentityProviders(t *testing.T) {
 	if len(listBody.IdentityProviders) != 1 || listBody.IdentityProviders[0].Slug != "acme-workforce" {
 		t.Fatalf("unexpected identity provider list: %#v", listBody.IdentityProviders)
 	}
+	if !listBody.IdentityProviders[0].IsDefault || !listBody.IdentityProviders[0].AutoRedirect || listBody.IdentityProviders[0].Priority != 15 {
+		t.Fatalf("expected identity provider policy fields in list response, got %#v", listBody.IdentityProviders[0])
+	}
 
 	updateResp := performJSON(t, router, http.MethodPatch, "/organizations/acme/identity-providers/"+createProviderBody.IdentityProvider.IdentityProviderID, map[string]any{
 		"name":         "Acme Workforce",
 		"slug":         "acme-workforce",
 		"enabled":      false,
+		"priority":     30,
+		"is_default":   false,
 		"issuer":       "https://login.acme.test",
 		"client_id":    "acme-client",
 		"redirect_uri": "https://auth.example.com/api/enterprise/oidc/acme-workforce/callback",
@@ -200,6 +211,15 @@ func TestOrganizationAdminHandlersManageIdentityProviders(t *testing.T) {
 	})
 	if updateResp.Code != http.StatusOK {
 		t.Fatalf("expected update identity provider status 200, got %d: %s", updateResp.Code, updateResp.Body.String())
+	}
+	var updateBody struct {
+		IdentityProvider organizationIdentityProviderView `json:"identity_provider"`
+	}
+	if err := json.Unmarshal(updateResp.Body.Bytes(), &updateBody); err != nil {
+		t.Fatalf("failed to decode update identity provider body: %v", err)
+	}
+	if updateBody.IdentityProvider.Priority != 30 || updateBody.IdentityProvider.IsDefault || updateBody.IdentityProvider.AutoRedirect != true {
+		t.Fatalf("expected update to preserve unset auto_redirect and apply policy changes, got %#v", updateBody.IdentityProvider)
 	}
 	if manager.HasProviders() {
 		t.Fatalf("expected disabled identity provider to be removed from runtime manager")

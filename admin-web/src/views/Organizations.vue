@@ -188,6 +188,18 @@
                 </el-tag>
               </template>
             </el-table-column>
+            <el-table-column label="策略" min-width="180">
+              <template #default="{ row }">
+                <div class="tag-group">
+                  <el-tag v-if="row.is_default" type="success" effect="plain">默认</el-tag>
+                  <el-tag v-if="row.auto_redirect" type="warning" effect="plain">自动跳转</el-tag>
+                  <span v-if="!row.is_default && !row.auto_redirect" class="muted">手动选择</span>
+                </div>
+              </template>
+            </el-table-column>
+            <el-table-column label="优先级" width="110">
+              <template #default="{ row }">{{ row.priority ?? 100 }}</template>
+            </el-table-column>
             <el-table-column label="Issuer" min-width="220">
               <template #default="{ row }">
                 <span class="mono">{{ row.config?.issuer || '-' }}</span>
@@ -237,6 +249,18 @@
         </el-form-item>
         <el-form-item label="启用">
           <el-switch v-model="identityProviderForm.enabled" active-text="启用中" inactive-text="已禁用" />
+        </el-form-item>
+        <el-form-item label="优先级">
+          <el-input-number v-model="identityProviderForm.priority" :min="0" :step="10" class="full-width" />
+          <p class="form-hint">数值越小越靠前。多个 Enterprise OIDC 同时命中时，会按默认标记和优先级排序。</p>
+        </el-form-item>
+        <el-form-item label="默认登录源">
+          <el-switch v-model="identityProviderForm.is_default" active-text="默认" inactive-text="普通" />
+          <p class="form-hint">多企业登录源并存时，默认登录源会优先展示，并作为优先推荐对象。</p>
+        </el-form-item>
+        <el-form-item label="自动跳转">
+          <el-switch v-model="identityProviderForm.auto_redirect" active-text="自动跳转" inactive-text="手动选择" />
+          <p class="form-hint">命中该组织且存在多个登录源时，会优先直跳当前优先提供方。建议同一组织只启用一个自动跳转源。</p>
         </el-form-item>
         <el-form-item label="Issuer">
           <el-input v-model="identityProviderForm.issuer" placeholder="https://login.acme.com" />
@@ -332,6 +356,9 @@ function defaultIdentityProviderForm() {
     name: '',
     slug: '',
     enabled: true,
+    priority: 100,
+    is_default: false,
+    auto_redirect: false,
     issuer: '',
     client_id: '',
     client_secret: '',
@@ -520,6 +547,9 @@ const openIdentityProviderDialog = (provider?: OrganizationIdentityProvider) => 
     name: provider?.name || '',
     slug: provider?.slug || '',
     enabled: provider?.enabled ?? true,
+    priority: provider?.priority ?? 100,
+    is_default: provider?.is_default ?? false,
+    auto_redirect: provider?.auto_redirect ?? false,
     issuer: provider?.config?.issuer || '',
     client_id: provider?.config?.client_id || '',
     client_secret: '',
@@ -538,6 +568,9 @@ const saveIdentityProvider = async () => {
       name: identityProviderForm.value.name,
       slug: identityProviderForm.value.slug,
       enabled: identityProviderForm.value.enabled,
+      priority: identityProviderForm.value.priority,
+      is_default: identityProviderForm.value.is_default,
+      auto_redirect: identityProviderForm.value.auto_redirect,
       issuer: identityProviderForm.value.issuer,
       client_id: identityProviderForm.value.client_id,
       client_secret: identityProviderForm.value.client_secret || undefined,
@@ -697,6 +730,13 @@ onMounted(() => {
     margin: 4px 0 0;
     color: #64748b;
     font-size: 12px;
+  }
+
+  .tag-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
   }
 
   .form-hint {

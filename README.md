@@ -348,13 +348,19 @@ Enterprise OIDC can now be managed in two ways:
 - Static bootstrap via `iam.enterprise_oidc` in YAML
 - Runtime management from the admin console under `Organizations -> Enterprise OIDC`
 
+Each Enterprise OIDC provider also supports lightweight multi-IdP policy fields:
+
+- `priority`: lower numbers sort earlier
+- `is_default`: marks the preferred provider for the organization
+- `auto_redirect`: when HRD matches multiple providers, jump directly to the preferred provider instead of showing a chooser
+
 Providers created from the admin console are stored in the database, their client secret is not echoed back by the admin API, and saving changes triggers an in-process reload so the enterprise login routes become available immediately without restarting MKAuth.
 
 When an organization has at least one verified domain plus Enterprise OIDC providers, the end-user login page can now perform HRD (Home Realm Discovery) from a work email address. The public discovery endpoint is:
 
 - `GET /api/enterprise/oidc/discover?email=user@example.com`
 
-It returns the matched organization plus one or more Enterprise OIDC providers for that domain. The login page uses this to auto-redirect when a single provider is matched, or to narrow the SSO choices when multiple providers exist.
+It returns the matched organization plus one or more Enterprise OIDC providers for that domain. The login page uses this to auto-redirect when a single provider is matched, or when the preferred provider has `auto_redirect: true`; otherwise it narrows the SSO choices using the organization's default and priority ordering.
 
 If a downstream OIDC client already knows the user's work email, it can pass `login_hint=user@example.com` to `/oauth2/authorize`. MKAuth now forwards that hint to the login page and automatically triggers Enterprise OIDC discovery from it.
 

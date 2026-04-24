@@ -35,6 +35,9 @@ export interface EnterpriseOIDCProvider {
     slug: string
     name: string
     organization_id?: string
+    priority?: number
+    is_default?: boolean
+    auto_redirect?: boolean
 }
 
 export type EnterpriseOIDCDiscoveryStatus =
@@ -52,6 +55,8 @@ export interface EnterpriseOIDCDiscoveryResponse {
     organization_slug?: string
     organization_name?: string
     organization_display_name?: string
+    preferred_provider_slug?: string
+    auto_redirect?: boolean
     providers: EnterpriseOIDCProvider[]
 }
 

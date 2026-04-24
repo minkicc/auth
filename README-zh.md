@@ -354,13 +354,19 @@ Enterprise OIDC 现在支持两种维护方式：
 - 通过 `iam.enterprise_oidc` 做 YAML 静态引导
 - 通过后台 `组织管理 -> 企业登录` 做运行时维护
 
+每个 Enterprise OIDC 登录源现在还支持一组轻量多 IdP 策略字段：
+
+- `priority`：数值越小越靠前
+- `is_default`：标记该组织的默认登录源
+- `auto_redirect`：当 HRD 命中多个登录源时，直接跳转到当前优先登录源，而不是展示选择页
+
 后台创建的 Enterprise OIDC 配置会落库保存，客户端 secret 不会被后台 API 回显，保存后会直接触发进程内 reload，因此新增或禁用企业登录源不需要重启 MKAuth。
 
 当组织已经绑定了已验证域名，并且存在可用的 Enterprise OIDC provider 时，用户登录页现在支持基于企业邮箱做 HRD（Home Realm Discovery）。公开发现接口为：
 
 - `GET /api/enterprise/oidc/discover?email=user@example.com`
 
-接口会返回该邮箱域名命中的组织以及一个或多个 Enterprise OIDC provider。登录页在命中单个 provider 时会直接跳转，在命中多个 provider 时会自动收敛出可选的企业登录方式。
+接口会返回该邮箱域名命中的组织以及一个或多个 Enterprise OIDC provider。登录页在命中单个 provider 时会直接跳转；如果同一组织配置了 `auto_redirect: true` 的优先登录源，也会直接跳转；否则会按默认登录源和优先级顺序收敛出可选的企业登录方式。
 
 如果下游 OIDC 应用已经知道用户的企业邮箱，也可以直接在 `/oauth2/authorize` 上带 `login_hint=user@example.com`。MKAuth 现在会把这个 hint 透传到登录页，并自动触发对应的 Enterprise OIDC 发现流程。
 

@@ -34,11 +34,12 @@ const (
 )
 
 const (
-	OrganizationIDPrefix      = "org_"
-	IdentityProviderIDPrefix  = "idp_"
-	ExternalIdentityIDPrefix  = "ext_"
-	OrganizationGroupIDPrefix = "grp_"
-	readableRandomIDLength    = 16
+	OrganizationIDPrefix            = "org_"
+	IdentityProviderIDPrefix        = "idp_"
+	ExternalIdentityIDPrefix        = "ext_"
+	OrganizationGroupIDPrefix       = "grp_"
+	DefaultIdentityProviderPriority = 100
+	readableRandomIDLength          = 16
 )
 
 // Organization represents a customer, workspace, or enterprise tenant.
@@ -72,6 +73,9 @@ type OrganizationIdentityProvider struct {
 	Name               string               `json:"name" gorm:"size:120;not null"`
 	Slug               string               `json:"slug" gorm:"uniqueIndex;size:80;not null"`
 	Enabled            bool                 `json:"enabled" gorm:"not null;default:true"`
+	Priority           int                  `json:"priority" gorm:"not null;default:100"`
+	IsDefault          bool                 `json:"is_default" gorm:"not null;default:false"`
+	AutoRedirect       bool                 `json:"auto_redirect" gorm:"not null;default:false"`
 	ConfigJSON         string               `json:"config_json,omitempty" gorm:"type:text"`
 	CreatedAt          time.Time            `json:"created_at"`
 	UpdatedAt          time.Time            `json:"updated_at"`
