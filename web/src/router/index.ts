@@ -6,6 +6,19 @@
 import { serverApi } from '@/api/serverApi'
 import { createRouter, createWebHistory } from 'vue-router'
 
+const applyRouteAuthData = (query: Record<string, unknown>) => {
+  const client_id = typeof query.client_id === 'string' ? query.client_id : ''
+  const redirect_uri = typeof query.redirect_uri === 'string'
+    ? query.redirect_uri
+    : typeof query.redirect_url === 'string'
+      ? query.redirect_url
+      : undefined
+  const login_hint = typeof query.login_hint === 'string' ? query.login_hint : undefined
+  const domain_hint = typeof query.domain_hint === 'string' ? query.domain_hint : undefined
+  const org_hint = typeof query.org_hint === 'string' ? query.org_hint : undefined
+  serverApi.updateAuthData(client_id, redirect_uri, login_hint, domain_hint, org_hint)
+}
+
 const routes = [
   {
     path: '/',
@@ -15,17 +28,16 @@ const routes = [
     path: '/login',
     name: 'Login',
     component: () => import('../views/Login.vue'),
-    // 记录client_id和redirect_uri
     beforeEnter: (to) => {
-      const client_id = typeof to.query.client_id === 'string' ? to.query.client_id : ''
-      const redirect_uri = typeof to.query.redirect_uri === 'string'
-        ? to.query.redirect_uri
-        : typeof to.query.redirect_url === 'string'
-          ? to.query.redirect_url
-          : undefined
-      const login_hint = typeof to.query.login_hint === 'string' ? to.query.login_hint : undefined
-      const domain_hint = typeof to.query.domain_hint === 'string' ? to.query.domain_hint : undefined
-      serverApi.updateAuthData(client_id, redirect_uri, login_hint, domain_hint)
+      applyRouteAuthData(to.query)
+    }
+  },
+  {
+    path: '/select-organization',
+    name: 'OrganizationSelect',
+    component: () => import('../views/OrganizationSelect.vue'),
+    beforeEnter: (to) => {
+      applyRouteAuthData(to.query)
     }
   },
   {
@@ -38,15 +50,7 @@ const routes = [
     name: 'EmailVerify',
     component: () => import('../components/auth/EmailVerify.vue'),
     beforeEnter: (to) => {
-      const client_id = typeof to.query.client_id === 'string' ? to.query.client_id : ''
-      const redirect_uri = typeof to.query.redirect_uri === 'string'
-        ? to.query.redirect_uri
-        : typeof to.query.redirect_url === 'string'
-          ? to.query.redirect_url
-          : undefined
-      const login_hint = typeof to.query.login_hint === 'string' ? to.query.login_hint : undefined
-      const domain_hint = typeof to.query.domain_hint === 'string' ? to.query.domain_hint : undefined
-      serverApi.updateAuthData(client_id, redirect_uri, login_hint, domain_hint)
+      applyRouteAuthData(to.query)
     }
   },
   {

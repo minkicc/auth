@@ -157,6 +157,12 @@ func (h *AuthHandler) authenticateOIDCAccessToken(c *gin.Context) error {
 	c.Set("auth_method", "access_token")
 	c.Set("client_id", claims.ClientID)
 	c.Set("scope", claims.Scope)
+	if claims.OrgID != "" {
+		c.Set("org_id", claims.OrgID)
+	}
+	if claims.OrgSlug != "" {
+		c.Set("org_slug", claims.OrgSlug)
+	}
 	return nil
 }
 

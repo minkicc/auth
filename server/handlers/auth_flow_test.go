@@ -17,6 +17,7 @@ import (
 
 	"minki.cc/mkauth/server/auth"
 	"minki.cc/mkauth/server/config"
+	"minki.cc/mkauth/server/iam"
 )
 
 type fakeEmailService struct {
@@ -109,6 +110,9 @@ func newAuthTestEnv(t *testing.T) *authTestEnv {
 	})
 	if err := accountAuth.AutoMigrate(); err != nil {
 		t.Fatalf("failed to migrate account tables: %v", err)
+	}
+	if err := iam.NewService(db).AutoMigrate(); err != nil {
+		t.Fatalf("failed to migrate iam tables: %v", err)
 	}
 
 	emailService := &fakeEmailService{}
@@ -435,6 +439,119 @@ func TestBrowserSessionEndpointReturnsAuthenticatedUser(t *testing.T) {
 	refreshedCookie := requireCookie(t, resp, auth.OIDCSessionCookieName)
 	if refreshedCookie.Value != sessionCookie.Value {
 		t.Fatalf("expected browser session cookie to be refreshed without rotation, got %q want %q", refreshedCookie.Value, sessionCookie.Value)
+	}
+}
+
+func TestCurrentUserOrganizationsEndpointReturnsMemberships(t *testing.T) {
+	env := newAuthTestEnv(t)
+	defer env.Close()
+
+	registerResp := performJSONRequest(t, env.router, http.MethodPost, "/api/account/register", map[string]string{
+		"username": "org_user",
+		"password": "demo12345",
+	}, nil, nil)
+	if registerResp.Code != http.StatusOK {
+		t.Fatalf("expected register status 200, got %d with body %s", registerResp.Code, registerResp.Body.String())
+	}
+
+	sessionCookie := requireCookie(t, registerResp, auth.OIDCSessionCookieName)
+	body := decodeBodyMap(t, registerResp)
+	userID, ok := body["user_id"].(string)
+	if !ok || userID == "" {
+		t.Fatalf("expected user_id in register response, got %#v", body["user_id"])
+	}
+
+	now := time.Now()
+	for _, org := range []iam.Organization{
+		{
+			OrganizationID: "org_alpha0000000000",
+			Slug:           "alpha",
+			Name:           "Alpha Inc",
+			DisplayName:    "Alpha",
+			Status:         iam.OrganizationStatusActive,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		},
+		{
+			OrganizationID: "org_beta00000000000",
+			Slug:           "beta",
+			Name:           "Beta LLC",
+			DisplayName:    "Beta",
+			Status:         iam.OrganizationStatusActive,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		},
+	} {
+		if err := env.db.Create(&org).Error; err != nil {
+			t.Fatalf("failed to create organization %s: %v", org.OrganizationID, err)
+		}
+	}
+	if err := env.db.Create(&iam.OrganizationMembership{
+		OrganizationID: "org_alpha0000000000",
+		UserID:         userID,
+		Status:         iam.MembershipStatusActive,
+		RolesJSON:      `["viewer"]`,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}).Error; err != nil {
+		t.Fatalf("failed to create alpha membership: %v", err)
+	}
+	if err := env.db.Create(&iam.OrganizationMembership{
+		OrganizationID: "org_beta00000000000",
+		UserID:         userID,
+		Status:         iam.MembershipStatusActive,
+		RolesJSON:      `["admin"]`,
+		CreatedAt:      now.Add(time.Second),
+		UpdatedAt:      now.Add(time.Second),
+	}).Error; err != nil {
+		t.Fatalf("failed to create beta membership: %v", err)
+	}
+	if err := env.db.Create(&iam.OrganizationGroup{
+		GroupID:        "grp_beta0000000000",
+		OrganizationID: "org_beta00000000000",
+		ProviderType:   iam.IdentityProviderTypeManual,
+		ProviderID:     iam.ManualOrganizationGroupProvider,
+		ExternalID:     "grp_beta0000000000",
+		DisplayName:    "Beta Team",
+		RoleName:       "beta-team",
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}).Error; err != nil {
+		t.Fatalf("failed to create organization group: %v", err)
+	}
+	if err := env.db.Create(&iam.OrganizationGroupMember{
+		OrganizationID: "org_beta00000000000",
+		GroupID:        "grp_beta0000000000",
+		UserID:         userID,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}).Error; err != nil {
+		t.Fatalf("failed to create organization group member: %v", err)
+	}
+
+	resp := performJSONRequest(t, env.router, http.MethodGet, "/api/user/organizations", nil, sessionCookie, nil)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected organizations status 200, got %d with body %s", resp.Code, resp.Body.String())
+	}
+
+	var response struct {
+		Organizations []map[string]any `json:"organizations"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &response); err != nil {
+		t.Fatalf("failed to decode organizations response: %v", err)
+	}
+	if len(response.Organizations) != 2 {
+		t.Fatalf("expected 2 organizations, got %#v", response.Organizations)
+	}
+	if response.Organizations[0]["slug"] != "alpha" || response.Organizations[1]["slug"] != "beta" {
+		t.Fatalf("expected organizations ordered by membership create time, got %#v", response.Organizations)
+	}
+	if response.Organizations[1]["current"] != false {
+		t.Fatalf("expected browser session organizations not to mark current selection, got %#v", response.Organizations[1]["current"])
+	}
+	groups, ok := response.Organizations[1]["groups"].([]any)
+	if !ok || len(groups) != 1 || groups[0] != "Beta Team" {
+		t.Fatalf("expected beta organization groups to include Beta Team, got %#v", response.Organizations[1]["groups"])
 	}
 }
 

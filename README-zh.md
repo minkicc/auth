@@ -355,6 +355,10 @@ go run ./pluginsign sign -manifest ../examples/plugins/http-claims-action/mkauth
 
 如果同一个用户属于多个组织，下游 OIDC 应用现在还可以在 `/oauth2/authorize` 上带 `org_hint=<组织ID或slug>`。MKAuth 会把这次授权、`id_token`、access token 以及 `/oauth2/userinfo` 都固定到指定组织上下文。
 
+如果下游 OIDC 应用没有传 `org_hint`，而当前浏览器会话对应的用户又属于多个 active 组织，MKAuth 现在会自动跳到 `/select-organization`，让用户交互式选择组织后再继续授权。如果客户端同时传了 `prompt=none`，则不会展示选择页，而是直接返回 `interaction_required`。
+
+用户端前端会通过 `GET /api/user/organizations` 加载当前用户的 active 组织成员关系、轻量角色和组织组，用于渲染这个组织选择页。
+
 企业登录源现在支持两种维护方式：
 
 - 通过 `iam.enterprise_oidc` 和 `iam.enterprise_saml` 做 YAML 静态引导

@@ -162,6 +162,8 @@ export default {
     enterpriseDomainNotFound: '没有找到与该企业域名匹配的企业登录源',
     enterpriseOrganizationInactive: '该企业组织当前不可用，请联系管理员',
     enterpriseOIDCNotConfigured: '该企业已命中，但尚未配置可用的企业登录源',
+    organizationSelectionLoadFailed: '加载可选组织失败，请稍后重试',
+    organizationSelectionFailed: '继续组织授权失败，请重新选择',
   },
   email: {
     verificationTitle: '邮箱验证',
@@ -230,5 +232,22 @@ export default {
     sessionExpiresAt: '会话过期时间',
     noAvatar: '暂无头像',
     backToLogin: '返回登录页'
+  },
+  organizationSelect: {
+    eyebrow: '组织上下文',
+    loading: '正在加载可选组织...',
+    title: '选择这次登录要进入的组织',
+    subtitle: '当前账号属于多个组织。选择后，MKAuth 会把本次 OIDC 授权、令牌和 userinfo 固定到对应组织上下文。',
+    clientId: '业务客户端',
+    organizationCount: '可选组织',
+    status: '组织状态',
+    roles: '组织角色',
+    groups: '组织组',
+    current: '当前上下文',
+    continue: '继续进入这个组织',
+    redirecting: '正在继续授权...',
+    emptyTitle: '当前账号没有可用组织',
+    emptySubtitle: '如果你本来应该属于某个组织，请联系管理员检查组织成员关系或目录同步配置。',
+    errorTitle: '组织选择暂时不可用'
   }
 } 

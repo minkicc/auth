@@ -22,6 +22,7 @@ Implemented:
 - Organization-level default provider, provider priority, and optional auto-redirect policy for enterprise provider discovery.
 - Organization claim injection into ID Token and `/oauth2/userinfo`, including `org_groups`.
 - Downstream OIDC organization pinning through `org_hint`.
+- Interactive organization chooser for users who belong to multiple organizations.
 - Admin API and admin console page for organization, domain, membership, group, and enterprise identity provider management.
 - Inbound SCIM Users and Groups MVP for enterprise directory provisioning into an organization.
 
@@ -29,7 +30,6 @@ Not implemented yet:
 
 - LDAP federation or sync.
 - Full role/group/RBAC policy enforcement.
-- Interactive organization chooser for users who belong to multiple organizations.
 
 ## Plugin Types
 
@@ -435,6 +435,9 @@ When a user has an active organization membership and the downstream OIDC client
 - `org_groups`: display names of the active organization's assigned groups.
 
 By default, MKAuth selects the earliest active organization membership. Downstream OIDC clients can now override that by sending `org_hint=<organization_id_or_slug>` to `/oauth2/authorize`. A future version should add an interactive organization chooser for end users who belong to multiple organizations.
+By default, MKAuth selects the earliest active organization membership. Downstream OIDC clients can now override that by sending `org_hint=<organization_id_or_slug>` to `/oauth2/authorize`. If no `org_hint` is provided and the browser session belongs to multiple active organizations, MKAuth redirects the user to `/select-organization` so the user can choose the organization interactively. When the downstream client also sends `prompt=none`, MKAuth returns `interaction_required` instead of showing the chooser.
+
+The chooser UI loads `GET /api/user/organizations`, which returns the current user's active organization memberships together with lightweight roles and `org_groups`.
 
 ## Recommended Delivery Order
 

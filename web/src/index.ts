@@ -33,7 +33,8 @@ const initAuth = async () => {
   const redirectUri = urlParams.get('redirect_uri') || urlParams.get('redirect_url') || undefined
   const loginHint = urlParams.get('login_hint') || undefined
   const domainHint = urlParams.get('domain_hint') || undefined
-  serverApi.updateAuthData(clientId, redirectUri, loginHint, domainHint)
+  const orgHint = urlParams.get('org_hint') || undefined
+  serverApi.updateAuthData(clientId, redirectUri, loginHint, domainHint, orgHint)
   serverApi.clearStoredAuth()
 
   try {

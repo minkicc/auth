@@ -782,3 +782,92 @@ func TestAuthorizeRejectsOrgHintWithoutMembership(t *testing.T) {
 		t.Fatalf("expected state to round-trip, got %q", redirectLocation.Query().Get("state"))
 	}
 }
+
+func TestAuthorizeRedirectsToOrganizationChooserWithoutOrgHint(t *testing.T) {
+	env := newIntegrationEnv(t)
+	defer env.Close()
+
+	user := env.createAccountUser(t, "demo")
+	env.createOrganizationMembershipRecord(t, user.UserID, "org_alpha0000000000", "alpha", []string{"viewer"})
+	env.createOrganizationMembershipRecord(t, user.UserID, "org_beta00000000000", "beta", []string{"admin"})
+	sessionCookie := env.createBrowserSessionCookie(t, user.UserID)
+
+	authorizeURL := "/oauth2/authorize?client_id=demo-spa" +
+		"&redirect_uri=" + url.QueryEscape(testRedirectURI) +
+		"&response_type=code" +
+		"&scope=" + url.QueryEscape("openid profile") +
+		"&code_challenge=" + testCodeChallenge +
+		"&code_challenge_method=S256" +
+		"&state=choose-org"
+
+	authorizeResp := performRequest(t, env.router, http.MethodGet, authorizeURL, nil, sessionCookie)
+	if authorizeResp.Code != http.StatusFound {
+		t.Fatalf("expected authorize status 302, got %d with body %s", authorizeResp.Code, authorizeResp.Body.String())
+	}
+
+	location := authorizeResp.Header().Get("Location")
+	chooserLocation, err := url.Parse(location)
+	if err != nil {
+		t.Fatalf("failed to parse chooser redirect location %q: %v", location, err)
+	}
+	if chooserLocation.Path != "/select-organization" {
+		t.Fatalf("expected redirect to /select-organization, got %s", location)
+	}
+	if chooserLocation.Query().Get("client_id") != "demo-spa" {
+		t.Fatalf("expected client_id demo-spa, got %q", chooserLocation.Query().Get("client_id"))
+	}
+
+	redirectValue := chooserLocation.Query().Get("redirect_uri")
+	if redirectValue == "" {
+		t.Fatalf("expected nested redirect_uri in chooser redirect")
+	}
+	redirectURL, err := url.Parse(redirectValue)
+	if err != nil {
+		t.Fatalf("failed to parse nested redirect_uri %q: %v", redirectValue, err)
+	}
+	if redirectURL.Path != "/oauth2/authorize" {
+		t.Fatalf("expected nested authorize redirect, got %s", redirectURL.String())
+	}
+	if redirectURL.Query().Get("state") != "choose-org" {
+		t.Fatalf("expected nested authorize state to round-trip, got %q", redirectURL.Query().Get("state"))
+	}
+	if redirectURL.Query().Get("org_hint") != "" {
+		t.Fatalf("expected nested authorize URL to omit org_hint until user chooses, got %q", redirectURL.Query().Get("org_hint"))
+	}
+}
+
+func TestAuthorizePromptNoneReturnsInteractionRequiredForOrganizationChooser(t *testing.T) {
+	env := newIntegrationEnv(t)
+	defer env.Close()
+
+	user := env.createAccountUser(t, "demo")
+	env.createOrganizationMembershipRecord(t, user.UserID, "org_alpha0000000000", "alpha", []string{"viewer"})
+	env.createOrganizationMembershipRecord(t, user.UserID, "org_beta00000000000", "beta", []string{"admin"})
+	sessionCookie := env.createBrowserSessionCookie(t, user.UserID)
+
+	authorizeURL := "/oauth2/authorize?client_id=demo-spa" +
+		"&redirect_uri=" + url.QueryEscape(testRedirectURI) +
+		"&response_type=code" +
+		"&scope=" + url.QueryEscape("openid profile") +
+		"&code_challenge=" + testCodeChallenge +
+		"&code_challenge_method=S256" +
+		"&state=choose-org-none" +
+		"&prompt=none"
+
+	authorizeResp := performRequest(t, env.router, http.MethodGet, authorizeURL, nil, sessionCookie)
+	if authorizeResp.Code != http.StatusFound {
+		t.Fatalf("expected authorize status 302, got %d with body %s", authorizeResp.Code, authorizeResp.Body.String())
+	}
+
+	location := authorizeResp.Header().Get("Location")
+	redirectLocation, err := url.Parse(location)
+	if err != nil {
+		t.Fatalf("failed to parse redirect location %q: %v", location, err)
+	}
+	if redirectLocation.Query().Get("error") != "interaction_required" {
+		t.Fatalf("expected interaction_required, got %q in location %s", redirectLocation.Query().Get("error"), location)
+	}
+	if redirectLocation.Query().Get("state") != "choose-org-none" {
+		t.Fatalf("expected state to round-trip, got %q", redirectLocation.Query().Get("state"))
+	}
+}

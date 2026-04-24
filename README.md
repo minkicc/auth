@@ -349,6 +349,10 @@ When a user has an active organization membership and the downstream OIDC client
 
 If the same user belongs to multiple organizations, downstream OIDC clients can pass `org_hint=<organization_id_or_slug>` to `/oauth2/authorize`. MKAuth will then pin the authorization result, `id_token`, access token, and `/oauth2/userinfo` response to that organization context.
 
+If a downstream OIDC client does not send `org_hint` and the browser session belongs to multiple active organizations, MKAuth now redirects the user to `/select-organization` so the user can pick the organization interactively. If the client also sends `prompt=none`, MKAuth returns `interaction_required` instead of showing the chooser.
+
+The end-user app uses `GET /api/user/organizations` to render that chooser and list the current user's active organization memberships, lightweight roles, and organization groups.
+
 Enterprise login can now be managed in two ways:
 
 - Static bootstrap via `iam.enterprise_oidc` and `iam.enterprise_saml` in YAML

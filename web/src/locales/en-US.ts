@@ -162,6 +162,8 @@ export default {
     enterpriseDomainNotFound: 'No enterprise login was found for that organization domain',
     enterpriseOrganizationInactive: 'This organization is currently inactive. Contact your administrator.',
     enterpriseOIDCNotConfigured: 'The organization was matched, but no enterprise login is configured yet',
+    organizationSelectionLoadFailed: 'Failed to load the available organizations, please try again',
+    organizationSelectionFailed: 'Failed to continue with the selected organization',
   },
   email: {
     verificationTitle: 'Email Verification',
@@ -230,5 +232,22 @@ export default {
     sessionExpiresAt: 'Session Expires At',
     noAvatar: 'No avatar yet',
     backToLogin: 'Back to Login'
+  },
+  organizationSelect: {
+    eyebrow: 'Organization Context',
+    loading: 'Loading available organizations...',
+    title: 'Choose the organization for this sign-in',
+    subtitle: 'This account belongs to multiple organizations. After you choose one, MKAuth pins the OIDC authorization, tokens, and userinfo response to that organization context.',
+    clientId: 'Client',
+    organizationCount: 'Organizations',
+    status: 'Status',
+    roles: 'Organization Roles',
+    groups: 'Organization Groups',
+    current: 'Current Context',
+    continue: 'Continue with this organization',
+    redirecting: 'Continuing authorization...',
+    emptyTitle: 'No available organization was found',
+    emptySubtitle: 'If this account should already belong to an organization, ask an administrator to review memberships or directory provisioning.',
+    errorTitle: 'Organization selection is temporarily unavailable'
   }
 } 

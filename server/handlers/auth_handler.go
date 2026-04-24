@@ -173,6 +173,7 @@ func (h *AuthHandler) RegisterRoutes(authGroup *gin.RouterGroup, cfg *config.Con
 
 	// User information related routes
 	authGroup.GET("/user", h.AuthRequired(), h.GetUserInfo)
+	authGroup.GET("/user/organizations", h.AuthRequired(), h.GetCurrentUserOrganizations)
 	authGroup.GET("/user/:id", h.AuthRequired(), trustedClient, h.GetUserInfoById)
 	authGroup.POST("/users", h.AuthRequired(), trustedClient, h.GetUsersInfo)
 	authGroup.PUT("/user", h.AuthRequired(), h.RequireSameOriginForBrowserSession(), h.UpdateUserInfo)

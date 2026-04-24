@@ -61,6 +61,17 @@ export interface EnterpriseOIDCDiscoveryResponse {
     providers: EnterpriseOIDCProvider[]
 }
 
+export interface CurrentUserOrganization {
+    organization_id: string
+    slug?: string
+    name?: string
+    display_name?: string
+    status?: string
+    roles?: string[]
+    groups?: string[]
+    current?: boolean
+}
+
 type ApiErrorPayload = {
     error?: string | {
         message?: string
@@ -132,6 +143,7 @@ class ServerApi {
     redirectUri: string = ''
     loginHint: string = ''
     domainHint: string = ''
+    orgHint: string = ''
 
     private redirectStorageKey(clientId: string): string {
         return `mkauth:redirect:${clientId}`
@@ -143,6 +155,10 @@ class ServerApi {
 
     private domainHintStorageKey(clientId: string): string {
         return `mkauth:domain_hint:${clientId}`
+    }
+
+    private orgHintStorageKey(clientId: string): string {
+        return `mkauth:org_hint:${clientId}`
     }
 
     private appBaseURL(): URL {
@@ -202,6 +218,10 @@ class ServerApi {
         return typeof domainHint === 'string' ? domainHint.trim().toLowerCase() : ''
     }
 
+    private sanitizeOrgHint(orgHint?: string | null): string {
+        return typeof orgHint === 'string' ? orgHint.trim() : ''
+    }
+
     private extractLoginHintFromRedirectUri(redirectUri?: string | null): string {
         const sanitizedRedirectUri = this.sanitizeRedirectUri(redirectUri)
         if (!sanitizedRedirectUri) {
@@ -235,6 +255,25 @@ class ServerApi {
                 return ''
             }
             return this.sanitizeDomainHint(url.searchParams.get('domain_hint'))
+        } catch {
+            return ''
+        }
+    }
+
+    private extractOrgHintFromRedirectUri(redirectUri?: string | null): string {
+        const sanitizedRedirectUri = this.sanitizeRedirectUri(redirectUri)
+        if (!sanitizedRedirectUri) {
+            return ''
+        }
+
+        try {
+            const url = new URL(sanitizedRedirectUri)
+            const normalizedPath = this.normalizePath(url.pathname)
+            const isAuthorizePath = normalizedPath === '/oauth2/authorize' || normalizedPath.endsWith('/oauth2/authorize')
+            if (!isAuthorizePath) {
+                return ''
+            }
+            return this.sanitizeOrgHint(url.searchParams.get('org_hint'))
         } catch {
             return ''
         }
@@ -281,15 +320,17 @@ class ServerApi {
         this.handleLoginRedirect() // 重定向到应用
     }
 
-    updateAuthData(clientId: string, redirectUri?: string, loginHint?: string, domainHint?: string) {
+    updateAuthData(clientId: string, redirectUri?: string, loginHint?: string, domainHint?: string, orgHint?: string) {
         serverApi.clientId = clientId
-        if (redirectUri !== undefined || loginHint !== undefined || domainHint !== undefined) {
+        if (redirectUri !== undefined || loginHint !== undefined || domainHint !== undefined || orgHint !== undefined) {
             const sanitizedRedirectUri = this.sanitizeRedirectUri(redirectUri)
             const sanitizedLoginHint = this.sanitizeLoginHint(loginHint) || this.extractLoginHintFromRedirectUri(sanitizedRedirectUri)
             const sanitizedDomainHint = this.sanitizeDomainHint(domainHint) || this.extractDomainHintFromRedirectUri(sanitizedRedirectUri)
+            const sanitizedOrgHint = this.sanitizeOrgHint(orgHint) || this.extractOrgHintFromRedirectUri(sanitizedRedirectUri)
             serverApi.redirectUri = sanitizedRedirectUri
             serverApi.loginHint = sanitizedLoginHint
             serverApi.domainHint = sanitizedDomainHint
+            serverApi.orgHint = sanitizedOrgHint
             if (clientId) {
                 if (sanitizedRedirectUri) {
                     sessionStorage.setItem(this.redirectStorageKey(clientId), sanitizedRedirectUri)
@@ -306,6 +347,11 @@ class ServerApi {
                 } else {
                     sessionStorage.removeItem(this.domainHintStorageKey(clientId))
                 }
+                if (sanitizedOrgHint) {
+                    sessionStorage.setItem(this.orgHintStorageKey(clientId), sanitizedOrgHint)
+                } else {
+                    sessionStorage.removeItem(this.orgHintStorageKey(clientId))
+                }
             }
             return
         }
@@ -314,12 +360,15 @@ class ServerApi {
             const storedRedirectUri = sessionStorage.getItem(this.redirectStorageKey(clientId)) || ''
             const storedLoginHint = sessionStorage.getItem(this.loginHintStorageKey(clientId)) || ''
             const storedDomainHint = sessionStorage.getItem(this.domainHintStorageKey(clientId)) || ''
+            const storedOrgHint = sessionStorage.getItem(this.orgHintStorageKey(clientId)) || ''
             const sanitizedRedirectUri = this.sanitizeRedirectUri(storedRedirectUri)
             const sanitizedLoginHint = this.sanitizeLoginHint(storedLoginHint) || this.extractLoginHintFromRedirectUri(sanitizedRedirectUri)
             const sanitizedDomainHint = this.sanitizeDomainHint(storedDomainHint) || this.extractDomainHintFromRedirectUri(sanitizedRedirectUri)
+            const sanitizedOrgHint = this.sanitizeOrgHint(storedOrgHint) || this.extractOrgHintFromRedirectUri(sanitizedRedirectUri)
             serverApi.redirectUri = sanitizedRedirectUri
             serverApi.loginHint = sanitizedLoginHint
             serverApi.domainHint = sanitizedDomainHint
+            serverApi.orgHint = sanitizedOrgHint
             if (!sanitizedRedirectUri) {
                 sessionStorage.removeItem(this.redirectStorageKey(clientId))
             }
@@ -329,12 +378,16 @@ class ServerApi {
             if (!sanitizedDomainHint) {
                 sessionStorage.removeItem(this.domainHintStorageKey(clientId))
             }
+            if (!sanitizedOrgHint) {
+                sessionStorage.removeItem(this.orgHintStorageKey(clientId))
+            }
             return
         }
 
         serverApi.redirectUri = ''
         serverApi.loginHint = ''
         serverApi.domainHint = ''
+        serverApi.orgHint = ''
     }
 
     hasBusinessConnection(): boolean {
@@ -415,6 +468,13 @@ class ServerApi {
         return response.data
     }
 
+    async fetchCurrentUserOrganizations(): Promise<{ organizations: CurrentUserOrganization[] }> {
+        const response = await axios.get('/user/organizations')
+        return {
+            organizations: response.data?.organizations || []
+        }
+    }
+
     async fetchBrowserSession() {
         const response = await axios.get('/browser-session')
         return response.data
@@ -453,6 +513,25 @@ class ServerApi {
     // 当前已经登陆，直接回调
     async handleLoginRedirect(): Promise<void> {
         window.location.href = this.isOIDCFlow() ? this.redirectUri : this.getDefaultAuthenticatedURL()
+    }
+
+    continueOIDCWithOrganization(orgHint: string): void {
+        if (!this.isOIDCFlow()) {
+            window.location.href = this.getDefaultAuthenticatedURL()
+            return
+        }
+
+        const sanitizedOrgHint = this.sanitizeOrgHint(orgHint)
+        if (!sanitizedOrgHint) {
+            window.location.href = this.redirectUri
+            return
+        }
+
+        const redirectURL = new URL(this.redirectUri)
+        redirectURL.searchParams.set('org_hint', sanitizedOrgHint)
+        const nextRedirectUri = redirectURL.toString()
+        this.updateAuthData(this.clientId, nextRedirectUri, this.loginHint, this.domainHint, sanitizedOrgHint)
+        window.location.href = nextRedirectUri
     }
 
     // 手机相关
