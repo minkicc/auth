@@ -179,6 +179,36 @@
               </span>
             </button>
           </div>
+
+          <div v-if="selectedEnterpriseLDAPProvider" class="enterprise-directory-card">
+            <p class="enterprise-directory-title">
+              {{ $t('auth.loginWithEnterprise', { name: selectedEnterpriseLDAPProvider.name }) }}
+            </p>
+            <p class="enterprise-directory-subtitle">{{ $t('auth.enterpriseDirectoryLoginHint') }}</p>
+            <div class="enterprise-directory-form">
+              <input
+                v-model="enterpriseDirectoryUsername"
+                class="enterprise-discovery-input"
+                type="text"
+                :placeholder="$t('auth.enterpriseDirectoryUsernamePlaceholder')"
+              />
+              <input
+                v-model="enterpriseDirectoryPassword"
+                class="enterprise-discovery-input"
+                type="password"
+                :placeholder="$t('auth.enterpriseDirectoryPasswordPlaceholder')"
+                @keyup.enter="handleEnterpriseLDAPLogin"
+              />
+              <button
+                class="enterprise-discovery-submit"
+                type="button"
+                :disabled="enterpriseDirectoryLoading"
+                @click="handleEnterpriseLDAPLogin"
+              >
+                {{ enterpriseDirectoryLoading ? $t('common.loading') : $t('auth.enterpriseDirectoryLogin') }}
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -241,6 +271,36 @@
           </span>
         </button>
       </div>
+
+      <div v-if="selectedEnterpriseLDAPProvider" class="enterprise-directory-card">
+        <p class="enterprise-directory-title">
+          {{ $t('auth.loginWithEnterprise', { name: selectedEnterpriseLDAPProvider.name }) }}
+        </p>
+        <p class="enterprise-directory-subtitle">{{ $t('auth.enterpriseDirectoryLoginHint') }}</p>
+        <div class="enterprise-directory-form">
+          <input
+            v-model="enterpriseDirectoryUsername"
+            class="enterprise-discovery-input"
+            type="text"
+            :placeholder="$t('auth.enterpriseDirectoryUsernamePlaceholder')"
+          />
+          <input
+            v-model="enterpriseDirectoryPassword"
+            class="enterprise-discovery-input"
+            type="password"
+            :placeholder="$t('auth.enterpriseDirectoryPasswordPlaceholder')"
+            @keyup.enter="handleEnterpriseLDAPLogin"
+          />
+          <button
+            class="enterprise-discovery-submit"
+            type="button"
+            :disabled="enterpriseDirectoryLoading"
+            @click="handleEnterpriseLDAPLogin"
+          >
+            {{ enterpriseDirectoryLoading ? $t('common.loading') : $t('auth.enterpriseDirectoryLogin') }}
+          </button>
+        </div>
+      </div>
     </div>
     <div v-if="errorMessage" class="error-message">
       {{ errorMessage }}
@@ -283,6 +343,10 @@ const enterpriseEmail = ref('')
 const enterpriseDiscoveryLoading = ref(false)
 const enterpriseDiscoveryMessage = ref('')
 const discoveredEnterpriseOIDCProviders = ref<EnterpriseOIDCProvider[]>([])
+const selectedEnterpriseLDAPProvider = ref<EnterpriseOIDCProvider | null>(null)
+const enterpriseDirectoryUsername = ref('')
+const enterpriseDirectoryPassword = ref('')
+const enterpriseDirectoryLoading = ref(false)
 
 // 登录方式检查
 const hasProvider = (provider: AuthProvider) => context.hasProvider(provider)
@@ -359,6 +423,8 @@ const resetEnterpriseOIDCDiscovery = () => {
   discoveredEnterpriseOIDCProviders.value = []
   enterpriseDiscoveryMessage.value = ''
   errorMessage.value = ''
+  selectedEnterpriseLDAPProvider.value = null
+  enterpriseDirectoryPassword.value = ''
 }
 
 const enterpriseDiscoveryOrganizationName = (response: EnterpriseOIDCDiscoveryResponse) => {
@@ -455,13 +521,57 @@ const handleEnterpriseOIDCDomainDiscovery = async (domain: string) => {
   }
 }
 
+const openEnterpriseLDAPProvider = (provider: EnterpriseOIDCProvider) => {
+  selectedEnterpriseLDAPProvider.value = provider
+  enterpriseDirectoryPassword.value = ''
+  if (!enterpriseDirectoryUsername.value.trim()) {
+    enterpriseDirectoryUsername.value = enterpriseEmail.value.trim() || serverApi.loginHint.trim()
+  }
+  enterpriseDiscoveryMessage.value = t('auth.enterpriseDirectorySelected', {
+    name: provider.name,
+  })
+}
+
 const handleEnterpriseOIDCLogin = (provider: EnterpriseOIDCProvider | string) => {
   try {
     errorMessage.value = ''
+    const resolvedProvider = typeof provider === 'string'
+      ? visibleEnterpriseOIDCProviders.value.find(item => item.slug === provider)
+      : provider
+    if (resolvedProvider?.provider_type === 'ldap') {
+      openEnterpriseLDAPProvider(resolvedProvider)
+      return
+    }
+    selectedEnterpriseLDAPProvider.value = null
     serverApi.startEnterpriseOIDCLogin(provider)
   } catch (error) {
     console.error(t('errors.enterpriseOIDCLoginFailed'), error)
     errorMessage.value = t('errors.enterpriseOIDCLoginFailed')
+  }
+}
+
+const handleEnterpriseLDAPLogin = async () => {
+  if (!selectedEnterpriseLDAPProvider.value) {
+    errorMessage.value = t('errors.enterpriseLDAPLoginFailed')
+    return
+  }
+
+  const username = enterpriseDirectoryUsername.value.trim()
+  const password = enterpriseDirectoryPassword.value
+  if (!username || !password) {
+    errorMessage.value = t('errors.enterpriseDirectoryCredentialsRequired')
+    return
+  }
+
+  enterpriseDirectoryLoading.value = true
+  errorMessage.value = ''
+
+  try {
+    await serverApi.enterpriseLDAPLogin(selectedEnterpriseLDAPProvider.value, username, password)
+  } catch (error) {
+    errorMessage.value = getApiErrorMessage(error, t('errors.enterpriseLDAPLoginFailed'))
+  } finally {
+    enterpriseDirectoryLoading.value = false
   }
 }
 
@@ -822,6 +932,33 @@ input.error {
   flex-direction: column;
   gap: 10px;
   width: 100%;
+}
+
+.enterprise-directory-card {
+  padding: 14px;
+  border: 1px solid #d8e6ed;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #ffffff 0%, #f7fbfd 100%);
+}
+
+.enterprise-directory-title {
+  margin: 0 0 4px;
+  color: #113f54;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.enterprise-directory-subtitle {
+  margin: 0 0 12px;
+  color: #627b88;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.enterprise-directory-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
 .enterprise-login-btn {

@@ -12,7 +12,7 @@ import (
 	"gorm.io/gorm"
 )
 
-func EnterpriseProviders(enterpriseOIDC *EnterpriseOIDCManager, enterpriseSAML *EnterpriseSAMLManager) []EnterpriseOIDCProviderSummary {
+func EnterpriseProviders(enterpriseOIDC *EnterpriseOIDCManager, enterpriseSAML *EnterpriseSAMLManager, enterpriseLDAP *EnterpriseLDAPManager) []EnterpriseOIDCProviderSummary {
 	providers := make([]EnterpriseOIDCProviderSummary, 0)
 	if enterpriseOIDC != nil {
 		providers = append(providers, enterpriseOIDC.Providers()...)
@@ -20,11 +20,14 @@ func EnterpriseProviders(enterpriseOIDC *EnterpriseOIDCManager, enterpriseSAML *
 	if enterpriseSAML != nil {
 		providers = append(providers, enterpriseSAML.Providers()...)
 	}
+	if enterpriseLDAP != nil {
+		providers = append(providers, enterpriseLDAP.Providers()...)
+	}
 	sortEnterpriseOIDCProviderSummaries(providers)
 	return providers
 }
 
-func DiscoverEnterpriseIdentityByEmail(db *gorm.DB, email string, enterpriseOIDC *EnterpriseOIDCManager, enterpriseSAML *EnterpriseSAMLManager) (EnterpriseOIDCDiscoveryResult, error) {
+func DiscoverEnterpriseIdentityByEmail(db *gorm.DB, email string, enterpriseOIDC *EnterpriseOIDCManager, enterpriseSAML *EnterpriseSAMLManager, enterpriseLDAP *EnterpriseLDAPManager) (EnterpriseOIDCDiscoveryResult, error) {
 	result := EnterpriseOIDCDiscoveryResult{
 		Email:     strings.TrimSpace(strings.ToLower(email)),
 		Providers: []EnterpriseOIDCProviderSummary{},
@@ -34,10 +37,10 @@ func DiscoverEnterpriseIdentityByEmail(db *gorm.DB, email string, enterpriseOIDC
 	if err != nil {
 		return result, err
 	}
-	return DiscoverEnterpriseIdentityByDomain(db, domain, enterpriseOIDC, enterpriseSAML)
+	return DiscoverEnterpriseIdentityByDomain(db, domain, enterpriseOIDC, enterpriseSAML, enterpriseLDAP)
 }
 
-func DiscoverEnterpriseIdentityByDomain(db *gorm.DB, domain string, enterpriseOIDC *EnterpriseOIDCManager, enterpriseSAML *EnterpriseSAMLManager) (EnterpriseOIDCDiscoveryResult, error) {
+func DiscoverEnterpriseIdentityByDomain(db *gorm.DB, domain string, enterpriseOIDC *EnterpriseOIDCManager, enterpriseSAML *EnterpriseSAMLManager, enterpriseLDAP *EnterpriseLDAPManager) (EnterpriseOIDCDiscoveryResult, error) {
 	result := EnterpriseOIDCDiscoveryResult{
 		Providers: []EnterpriseOIDCProviderSummary{},
 	}
@@ -84,6 +87,9 @@ func DiscoverEnterpriseIdentityByDomain(db *gorm.DB, domain string, enterpriseOI
 	}
 	if enterpriseSAML != nil {
 		result.Providers = append(result.Providers, enterpriseSAML.ProvidersForOrganization(organization.OrganizationID)...)
+	}
+	if enterpriseLDAP != nil {
+		result.Providers = append(result.Providers, enterpriseLDAP.ProvidersForOrganization(organization.OrganizationID)...)
 	}
 	sortEnterpriseOIDCProviderSummaries(result.Providers)
 	if len(result.Providers) == 0 {

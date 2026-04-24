@@ -343,6 +343,96 @@ func TestOrganizationAdminHandlersManageGroups(t *testing.T) {
 	}
 }
 
+func TestOrganizationAdminHandlersManageLDAPIdentityProviders(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("failed to open sqlite: %v", err)
+	}
+	if err := iam.NewService(db).AutoMigrate(); err != nil {
+		t.Fatalf("failed to migrate iam tables: %v", err)
+	}
+
+	manager, err := iam.NewEnterpriseLDAPManager(config.IAMConfig{}, db, nil)
+	if err != nil {
+		t.Fatalf("failed to create enterprise ldap manager: %v", err)
+	}
+
+	server := &AdminServer{db: db, enterpriseLDAP: manager}
+	router := gin.New()
+	router.POST("/organizations", server.handleCreateOrganization)
+	router.GET("/organizations/:id/identity-providers", server.handleListOrganizationIdentityProviders)
+	router.POST("/organizations/:id/identity-providers", server.handleCreateOrganizationIdentityProvider)
+	router.PATCH("/organizations/:id/identity-providers/:provider_id", server.handleUpdateOrganizationIdentityProvider)
+
+	createOrgResp := performJSON(t, router, http.MethodPost, "/organizations", map[string]any{
+		"slug": "globex",
+		"name": "Globex Corp",
+	})
+	if createOrgResp.Code != http.StatusCreated {
+		t.Fatalf("expected create organization status 201, got %d: %s", createOrgResp.Code, createOrgResp.Body.String())
+	}
+
+	createProviderResp := performJSON(t, router, http.MethodPost, "/organizations/globex/identity-providers", map[string]any{
+		"provider_type":          "ldap",
+		"name":                   "Globex Directory",
+		"slug":                   "globex-ldap",
+		"priority":               5,
+		"is_default":             true,
+		"url":                    "ldaps://ldap.globex.test:636",
+		"base_dn":                "dc=globex,dc=test",
+		"bind_dn":                "cn=svc-bind,dc=globex,dc=test",
+		"bind_password":          "super-secret",
+		"user_filter":            "(&(objectClass=person)(uid={username}))",
+		"subject_attribute":      "entryUUID",
+		"email_attribute":        "mail",
+		"username_attribute":     "uid",
+		"display_name_attribute": "displayName",
+	})
+	if createProviderResp.Code != http.StatusCreated {
+		t.Fatalf("expected create ldap identity provider status 201, got %d: %s", createProviderResp.Code, createProviderResp.Body.String())
+	}
+
+	var createProviderBody struct {
+		IdentityProvider organizationIdentityProviderView `json:"identity_provider"`
+	}
+	if err := json.Unmarshal(createProviderResp.Body.Bytes(), &createProviderBody); err != nil {
+		t.Fatalf("failed to decode ldap identity provider body: %v", err)
+	}
+	if createProviderBody.IdentityProvider.ProviderType != "ldap" {
+		t.Fatalf("expected provider_type ldap, got %#v", createProviderBody.IdentityProvider)
+	}
+	if createProviderBody.IdentityProvider.Config.URL != "ldaps://ldap.globex.test:636" ||
+		createProviderBody.IdentityProvider.Config.BaseDN != "dc=globex,dc=test" ||
+		!createProviderBody.IdentityProvider.Config.BindPasswordConfigured {
+		t.Fatalf("unexpected ldap config view: %#v", createProviderBody.IdentityProvider.Config)
+	}
+	if !manager.HasProviders() {
+		t.Fatalf("expected enterprise ldap manager to reload created provider")
+	}
+
+	updateResp := performJSON(t, router, http.MethodPatch, "/organizations/globex/identity-providers/"+createProviderBody.IdentityProvider.IdentityProviderID, map[string]any{
+		"provider_type":          "ldap",
+		"name":                   "Globex Directory",
+		"slug":                   "globex-ldap",
+		"enabled":                false,
+		"url":                    "ldaps://ldap.globex.test:636",
+		"base_dn":                "dc=globex,dc=test",
+		"bind_dn":                "cn=svc-bind,dc=globex,dc=test",
+		"user_filter":            "(&(objectClass=person)(uid={username}))",
+		"subject_attribute":      "entryUUID",
+		"email_attribute":        "mail",
+		"username_attribute":     "uid",
+		"display_name_attribute": "displayName",
+	})
+	if updateResp.Code != http.StatusOK {
+		t.Fatalf("expected update ldap identity provider status 200, got %d: %s", updateResp.Code, updateResp.Body.String())
+	}
+	if manager.HasProviders() {
+		t.Fatalf("expected disabled ldap identity provider to be removed from runtime manager")
+	}
+}
+
 func performJSON(t *testing.T, router *gin.Engine, method, path string, body any) *httptest.ResponseRecorder {
 	t.Helper()
 	var payload []byte

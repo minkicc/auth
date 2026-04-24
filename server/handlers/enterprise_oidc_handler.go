@@ -28,7 +28,7 @@ func (h *AuthHandler) GetEnterpriseOIDCProviders(c *gin.Context) {
 }
 
 func (h *AuthHandler) GetEnterpriseProviders(c *gin.Context) {
-	providers := iam.EnterpriseProviders(h.enterpriseOIDC, h.enterpriseSAML)
+	providers := iam.EnterpriseProviders(h.enterpriseOIDC, h.enterpriseSAML, h.enterpriseLDAP)
 	if len(providers) == 0 {
 		c.JSON(http.StatusNotFound, gin.H{"error": "enterprise login is not enabled"})
 		return
@@ -48,7 +48,7 @@ func (h *AuthHandler) DiscoverEnterpriseProviders(c *gin.Context) {
 		return
 	}
 
-	if h.enterpriseOIDC == nil && h.enterpriseSAML == nil {
+	if h.enterpriseOIDC == nil && h.enterpriseSAML == nil && h.enterpriseLDAP == nil {
 		c.JSON(http.StatusOK, iam.EnterpriseOIDCDiscoveryResult{
 			Status:    iam.EnterpriseOIDCDiscoveryNoProvider,
 			Email:     strings.ToLower(email),
@@ -64,9 +64,9 @@ func (h *AuthHandler) DiscoverEnterpriseProviders(c *gin.Context) {
 		err    error
 	)
 	if email != "" {
-		result, err = iam.DiscoverEnterpriseIdentityByEmail(db, email, h.enterpriseOIDC, h.enterpriseSAML)
+		result, err = iam.DiscoverEnterpriseIdentityByEmail(db, email, h.enterpriseOIDC, h.enterpriseSAML, h.enterpriseLDAP)
 	} else {
-		result, err = iam.DiscoverEnterpriseIdentityByDomain(db, domain, h.enterpriseOIDC, h.enterpriseSAML)
+		result, err = iam.DiscoverEnterpriseIdentityByDomain(db, domain, h.enterpriseOIDC, h.enterpriseSAML, h.enterpriseLDAP)
 	}
 	if err != nil {
 		if errors.Is(err, iam.ErrInvalidEnterpriseOIDCEmail) {
@@ -93,7 +93,35 @@ func (h *AuthHandler) enterpriseDiscoveryDB() *gorm.DB {
 	if h != nil && h.enterpriseSAML != nil {
 		return h.enterpriseSAML.DB()
 	}
+	if h != nil && h.enterpriseLDAP != nil {
+		return h.enterpriseLDAP.DB()
+	}
 	return nil
+}
+
+func (h *AuthHandler) EnterpriseLDAPLogin(c *gin.Context) {
+	if h.enterpriseLDAP == nil || !h.enterpriseLDAP.HasProviders() {
+		c.JSON(http.StatusNotFound, gin.H{"error": "enterprise ldap is not enabled"})
+		return
+	}
+
+	var req struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid enterprise ldap login payload"})
+		return
+	}
+
+	user, err := h.enterpriseLDAP.Authenticate(c.Request.Context(), c.Param("slug"), req.Username, req.Password)
+	if err != nil {
+		h.logger.Printf("Enterprise LDAP login failed: %v", err)
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "enterprise ldap authentication failed"})
+		return
+	}
+
+	h.completeBrowserLogin(c, user, "")
 }
 
 func (h *AuthHandler) EnterpriseOIDCLogin(c *gin.Context) {

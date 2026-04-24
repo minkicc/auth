@@ -44,10 +44,11 @@ type AdminServer struct {
 	plugins        *plugins.Runtime
 	enterpriseOIDC *iam.EnterpriseOIDCManager
 	enterpriseSAML *iam.EnterpriseSAMLManager
+	enterpriseLDAP *iam.EnterpriseLDAPManager
 }
 
 // NewAdminServer Create admin server
-func NewAdminServer(cfg *config.Config, db *gorm.DB, logger *log.Logger, pluginRuntime *plugins.Runtime, enterpriseOIDC *iam.EnterpriseOIDCManager, enterpriseSAML *iam.EnterpriseSAMLManager, webFilePath string, port int) *AdminServer {
+func NewAdminServer(cfg *config.Config, db *gorm.DB, logger *log.Logger, pluginRuntime *plugins.Runtime, enterpriseOIDC *iam.EnterpriseOIDCManager, enterpriseSAML *iam.EnterpriseSAMLManager, enterpriseLDAP *iam.EnterpriseLDAPManager, webFilePath string, port int) *AdminServer {
 	if !cfg.Admin.Enabled {
 		return nil
 	}
@@ -92,6 +93,7 @@ func NewAdminServer(cfg *config.Config, db *gorm.DB, logger *log.Logger, pluginR
 		plugins:        pluginRuntime,
 		enterpriseOIDC: enterpriseOIDC,
 		enterpriseSAML: enterpriseSAML,
+		enterpriseLDAP: enterpriseLDAP,
 	}
 
 	// Set Gin mode

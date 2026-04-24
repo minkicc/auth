@@ -39,6 +39,14 @@ type organizationIdentityProviderPayload struct {
 	DisplayNameAttribute string   `json:"display_name_attribute"`
 	AllowIDPInitiated    *bool    `json:"allow_idp_initiated"`
 	DefaultRedirectURI   string   `json:"default_redirect_uri"`
+	URL                  string   `json:"url"`
+	BaseDN               string   `json:"base_dn"`
+	BindDN               string   `json:"bind_dn"`
+	BindPassword         string   `json:"bind_password"`
+	UserFilter           string   `json:"user_filter"`
+	StartTLS             *bool    `json:"start_tls"`
+	InsecureSkipVerify   *bool    `json:"insecure_skip_verify"`
+	SubjectAttribute     string   `json:"subject_attribute"`
 }
 
 type organizationIdentityProviderConfigView struct {
@@ -57,6 +65,14 @@ type organizationIdentityProviderConfigView struct {
 	DisplayNameAttribute     string   `json:"display_name_attribute"`
 	AllowIDPInitiated        bool     `json:"allow_idp_initiated"`
 	DefaultRedirectURI       string   `json:"default_redirect_uri"`
+	URL                      string   `json:"url"`
+	BaseDN                   string   `json:"base_dn"`
+	BindDN                   string   `json:"bind_dn"`
+	BindPasswordConfigured   bool     `json:"bind_password_configured"`
+	UserFilter               string   `json:"user_filter"`
+	StartTLS                 bool     `json:"start_tls"`
+	InsecureSkipVerify       bool     `json:"insecure_skip_verify"`
+	SubjectAttribute         string   `json:"subject_attribute"`
 }
 
 type organizationIdentityProviderView struct {
@@ -197,7 +213,9 @@ func (s *AdminServer) organizationIdentityProviderFromPayload(organizationID str
 	if providerType == "" {
 		providerType = string(iam.IdentityProviderTypeOIDC)
 	}
-	if providerType != string(iam.IdentityProviderTypeOIDC) && providerType != string(iam.IdentityProviderTypeSAML) {
+	if providerType != string(iam.IdentityProviderTypeOIDC) &&
+		providerType != string(iam.IdentityProviderTypeSAML) &&
+		providerType != string(iam.IdentityProviderTypeLDAP) {
 		return iam.OrganizationIdentityProvider{}, fmt.Errorf("unsupported identity provider type %q", providerType)
 	}
 
@@ -361,6 +379,72 @@ func (s *AdminServer) organizationIdentityProviderFromPayload(organizationID str
 		if err != nil {
 			return iam.OrganizationIdentityProvider{}, err
 		}
+	case string(iam.IdentityProviderTypeLDAP):
+		existingConfig := config.EnterpriseLDAPProviderConfig{}
+		if current != nil && current.ProviderType == iam.IdentityProviderTypeLDAP {
+			decoded, err := decodeStoredEnterpriseLDAPConfig(*current)
+			if err != nil {
+				return iam.OrganizationIdentityProvider{}, err
+			}
+			existingConfig = decoded
+		}
+
+		bindPassword := strings.TrimSpace(req.BindPassword)
+		if bindPassword == "" {
+			bindPassword = strings.TrimSpace(existingConfig.BindPassword)
+		}
+
+		startTLS := existingConfig.StartTLS
+		if req.StartTLS != nil {
+			startTLS = *req.StartTLS
+		}
+
+		insecureSkipVerify := existingConfig.InsecureSkipVerify
+		if req.InsecureSkipVerify != nil {
+			insecureSkipVerify = *req.InsecureSkipVerify
+		}
+
+		providerConfig := config.EnterpriseLDAPProviderConfig{
+			Slug:                 slug,
+			Name:                 name,
+			OrganizationID:       organizationID,
+			Priority:             priority,
+			IsDefault:            isDefault,
+			AutoRedirect:         autoRedirect,
+			URL:                  strings.TrimSpace(req.URL),
+			BaseDN:               strings.TrimSpace(req.BaseDN),
+			BindDN:               strings.TrimSpace(req.BindDN),
+			BindPassword:         bindPassword,
+			UserFilter:           strings.TrimSpace(req.UserFilter),
+			StartTLS:             startTLS,
+			InsecureSkipVerify:   insecureSkipVerify,
+			SubjectAttribute:     strings.TrimSpace(req.SubjectAttribute),
+			EmailAttribute:       strings.TrimSpace(req.EmailAttribute),
+			UsernameAttribute:    strings.TrimSpace(req.UsernameAttribute),
+			DisplayNameAttribute: strings.TrimSpace(req.DisplayNameAttribute),
+		}
+		if _, err := iam.NewEnterpriseLDAPProvider(providerConfig, nil); err != nil {
+			return iam.OrganizationIdentityProvider{}, err
+		}
+
+		storedConfig := config.EnterpriseLDAPProviderConfig{
+			URL:                  providerConfig.URL,
+			BaseDN:               providerConfig.BaseDN,
+			BindDN:               providerConfig.BindDN,
+			BindPassword:         providerConfig.BindPassword,
+			UserFilter:           providerConfig.UserFilter,
+			StartTLS:             providerConfig.StartTLS,
+			InsecureSkipVerify:   providerConfig.InsecureSkipVerify,
+			SubjectAttribute:     providerConfig.SubjectAttribute,
+			EmailAttribute:       providerConfig.EmailAttribute,
+			UsernameAttribute:    providerConfig.UsernameAttribute,
+			DisplayNameAttribute: providerConfig.DisplayNameAttribute,
+		}
+		var err error
+		configJSON, err = json.Marshal(storedConfig)
+		if err != nil {
+			return iam.OrganizationIdentityProvider{}, err
+		}
 	}
 
 	if current != nil {
@@ -396,6 +480,9 @@ func (s *AdminServer) ensureIdentityProviderSlugAvailable(slug, currentID string
 	if s.enterpriseSAML != nil && s.enterpriseSAML.HasStaticProviderSlug(slug) {
 		return fmt.Errorf("slug %q is reserved by static enterprise saml configuration", slug)
 	}
+	if s.enterpriseLDAP != nil && s.enterpriseLDAP.HasStaticProviderSlug(slug) {
+		return fmt.Errorf("slug %q is reserved by static enterprise ldap configuration", slug)
+	}
 	query := s.db.Model(&iam.OrganizationIdentityProvider{}).Where("slug = ?", slug)
 	if currentID != "" {
 		query = query.Where("identity_provider_id <> ?", currentID)
@@ -429,10 +516,15 @@ func (s *AdminServer) reloadEnterpriseIdentityProviders() error {
 		return err
 	}
 saml:
-	if s.enterpriseSAML == nil {
+	if s.enterpriseSAML != nil {
+		if err := s.enterpriseSAML.Reload(); err != nil {
+			return err
+		}
+	}
+	if s.enterpriseLDAP == nil {
 		return nil
 	}
-	return s.enterpriseSAML.Reload()
+	return s.enterpriseLDAP.Reload()
 }
 
 func organizationIdentityProviderToView(record iam.OrganizationIdentityProvider) (organizationIdentityProviderView, error) {
@@ -479,6 +571,24 @@ func organizationIdentityProviderToView(record iam.OrganizationIdentityProvider)
 			AllowIDPInitiated:        storedConfig.AllowIDPInitiated,
 			DefaultRedirectURI:       strings.TrimSpace(storedConfig.DefaultRedirectURI),
 		}
+	case iam.IdentityProviderTypeLDAP:
+		storedConfig, err := decodeStoredEnterpriseLDAPConfig(record)
+		if err != nil {
+			return organizationIdentityProviderView{}, err
+		}
+		view.Config = organizationIdentityProviderConfigView{
+			URL:                    strings.TrimSpace(storedConfig.URL),
+			BaseDN:                 strings.TrimSpace(storedConfig.BaseDN),
+			BindDN:                 strings.TrimSpace(storedConfig.BindDN),
+			BindPasswordConfigured: strings.TrimSpace(storedConfig.BindPassword) != "",
+			UserFilter:             strings.TrimSpace(storedConfig.UserFilter),
+			StartTLS:               storedConfig.StartTLS,
+			InsecureSkipVerify:     storedConfig.InsecureSkipVerify,
+			SubjectAttribute:       strings.TrimSpace(storedConfig.SubjectAttribute),
+			EmailAttribute:         strings.TrimSpace(storedConfig.EmailAttribute),
+			UsernameAttribute:      strings.TrimSpace(storedConfig.UsernameAttribute),
+			DisplayNameAttribute:   strings.TrimSpace(storedConfig.DisplayNameAttribute),
+		}
 	}
 	return view, nil
 }
@@ -501,6 +611,17 @@ func decodeStoredEnterpriseSAMLConfig(record iam.OrganizationIdentityProvider) (
 	var providerConfig config.EnterpriseSAMLProviderConfig
 	if err := json.Unmarshal([]byte(record.ConfigJSON), &providerConfig); err != nil {
 		return config.EnterpriseSAMLProviderConfig{}, fmt.Errorf("decode identity provider %q config: %w", record.Slug, err)
+	}
+	return providerConfig, nil
+}
+
+func decodeStoredEnterpriseLDAPConfig(record iam.OrganizationIdentityProvider) (config.EnterpriseLDAPProviderConfig, error) {
+	if strings.TrimSpace(record.ConfigJSON) == "" {
+		return config.EnterpriseLDAPProviderConfig{}, fmt.Errorf("identity provider %q is missing config", record.Slug)
+	}
+	var providerConfig config.EnterpriseLDAPProviderConfig
+	if err := json.Unmarshal([]byte(record.ConfigJSON), &providerConfig); err != nil {
+		return config.EnterpriseLDAPProviderConfig{}, fmt.Errorf("decode identity provider %q config: %w", record.Slug, err)
 	}
 	return providerConfig, nil
 }

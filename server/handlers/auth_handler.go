@@ -36,6 +36,7 @@ type AuthHandler struct {
 	oidcProvider    *oidc.Provider
 	enterpriseOIDC  *iam.EnterpriseOIDCManager
 	enterpriseSAML  *iam.EnterpriseSAMLManager
+	enterpriseLDAP  *iam.EnterpriseLDAPManager
 	hookRegistry    *iam.HookRegistry
 	pluginRegistry  *plugins.Registry
 	config          *config.Config
@@ -65,6 +66,7 @@ func NewAuthHandler(
 	oidcProvider *oidc.Provider,
 	enterpriseOIDC *iam.EnterpriseOIDCManager,
 	enterpriseSAML *iam.EnterpriseSAMLManager,
+	enterpriseLDAP *iam.EnterpriseLDAPManager,
 	hookRegistry *iam.HookRegistry,
 	pluginRegistry *plugins.Registry,
 	config *config.Config) *AuthHandler {
@@ -84,6 +86,7 @@ func NewAuthHandler(
 		oidcProvider:    oidcProvider,
 		enterpriseOIDC:  enterpriseOIDC,
 		enterpriseSAML:  enterpriseSAML,
+		enterpriseLDAP:  enterpriseLDAP,
 		hookRegistry:    hookRegistry,
 		pluginRegistry:  pluginRegistry,
 		config:          config,
@@ -138,7 +141,7 @@ func (h *AuthHandler) RegisterRoutes(authGroup *gin.RouterGroup, cfg *config.Con
 		authGroup.GET("/weixin/miniprogram", h.WeixinMiniLogin)
 	}
 
-	if h.enterpriseOIDC != nil || h.enterpriseSAML != nil {
+	if h.enterpriseOIDC != nil || h.enterpriseSAML != nil || h.enterpriseLDAP != nil {
 		authGroup.GET("/enterprise/discover", h.DiscoverEnterpriseProviders)
 		authGroup.GET("/enterprise/providers", h.GetEnterpriseProviders)
 		authGroup.GET("/enterprise/oidc/discover", h.DiscoverEnterpriseOIDC)
@@ -149,6 +152,7 @@ func (h *AuthHandler) RegisterRoutes(authGroup *gin.RouterGroup, cfg *config.Con
 		authGroup.GET("/enterprise/saml/:slug/metadata", h.EnterpriseSAMLMetadata)
 		authGroup.POST("/enterprise/saml/:slug/acs", h.EnterpriseSAMLACS)
 		authGroup.GET("/enterprise/saml/:slug/acs", h.EnterpriseSAMLACS)
+		authGroup.POST("/enterprise/ldap/:slug/login", rejectCrossOriginSessionCreation, h.EnterpriseLDAPLogin)
 	}
 
 	// Phone login related routes
@@ -217,7 +221,9 @@ func (h *AuthHandler) GetSupportedProviders(c *gin.Context) {
 		providers = append(providers, "weixin_mini")
 	}
 
-	if (h.enterpriseOIDC != nil && h.enterpriseOIDC.HasProviders()) || (h.enterpriseSAML != nil && h.enterpriseSAML.HasProviders()) {
+	if (h.enterpriseOIDC != nil && h.enterpriseOIDC.HasProviders()) ||
+		(h.enterpriseSAML != nil && h.enterpriseSAML.HasProviders()) ||
+		(h.enterpriseLDAP != nil && h.enterpriseLDAP.HasProviders()) {
 		providers = append(providers, "enterprise_oidc")
 	}
 

@@ -46,7 +46,7 @@ oidc:
         - "email"
 
 iam:
-  # Optional static bootstrap. You can also create enterprise OIDC/SAML
+  # Optional static bootstrap. You can also create enterprise OIDC/SAML/LDAP
   # providers later from the admin console under Organizations -> Enterprise Login.
   enterprise_oidc:
     - slug: "acme"
@@ -82,6 +82,25 @@ iam:
       display_name_attribute: "displayName"
       allow_idp_initiated: false
       default_redirect_uri: "https://app.example.com/login/callback"
+  enterprise_ldap:
+    - slug: "acme-ldap"
+      name: "Acme Directory"
+      organization_id: "org_acme000000000000"
+      # Optional multi-IdP policy. Lower priority wins.
+      priority: 30
+      is_default: false
+      auto_redirect: false
+      url: "ldaps://ldap.example.com:636"
+      base_dn: "dc=example,dc=com"
+      bind_dn: "cn=svc-bind,ou=system,dc=example,dc=com"
+      bind_password: "YOUR_LDAP_BIND_PASSWORD"
+      user_filter: "(&(objectClass=person)(uid={username}))"
+      subject_attribute: "entryUUID"
+      email_attribute: "mail"
+      username_attribute: "uid"
+      display_name_attribute: "displayName"
+      start_tls: false
+      insecure_skip_verify: false
   scim_inbound:
     - enabled: false
       slug: "acme-scim"

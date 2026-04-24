@@ -318,7 +318,7 @@ func main() {
 	}
 
 	// Initialize authentication handler
-	authHandler, enterpriseOIDC, enterpriseSAML, err := initAuthHandler(cfg, accountAuth, oidcProvider, hookRegistry, pluginRegistry)
+	authHandler, enterpriseOIDC, enterpriseSAML, enterpriseLDAP, err := initAuthHandler(cfg, accountAuth, oidcProvider, hookRegistry, pluginRegistry)
 	if err != nil {
 		log.Fatalf("Failed to initialize authentication handler: %v", err)
 	}
@@ -340,7 +340,7 @@ func main() {
 	var adminServer *admin.AdminServer
 	if cfg.Admin.Enabled {
 		logger := log.New(os.Stdout, "[ADMIN] ", log.LstdFlags)
-		adminServer = admin.NewAdminServer(cfg, globalDB, logger, pluginRuntime, enterpriseOIDC, enterpriseSAML, *adminWebFilePath, *adminPort)
+		adminServer = admin.NewAdminServer(cfg, globalDB, logger, pluginRuntime, enterpriseOIDC, enterpriseSAML, enterpriseLDAP, *adminWebFilePath, *adminPort)
 
 		if adminServer != nil {
 			go func() {
@@ -390,7 +390,7 @@ func initAuthHandler(
 	oidcProvider *oidc.Provider,
 	hookRegistry *iam.HookRegistry,
 	pluginRegistry *plugins.Registry,
-) (*handlers.AuthHandler, *iam.EnterpriseOIDCManager, *iam.EnterpriseSAMLManager, error) {
+) (*handlers.AuthHandler, *iam.EnterpriseOIDCManager, *iam.EnterpriseSAMLManager, *iam.EnterpriseLDAPManager, error) {
 	// Initialize email authentication
 	var emailAuth *auth.EmailAuth
 	if containsProvider(cfg.Auth.EnabledProviders, "email") && cfg.Auth.Smtp.Host != "" {
@@ -411,14 +411,14 @@ func initAuthHandler(
 
 		// Execute table structure migration
 		if err := emailAuth.AutoMigrate(); err != nil {
-			return nil, nil, nil, fmt.Errorf("email account table migration failed: %v", err)
+			return nil, nil, nil, nil, fmt.Errorf("email account table migration failed: %v", err)
 		}
 	}
 
 	// Initialize storage client
 	storageClient, err := storage.NewStorageClient(&cfg.Storage)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to initialize Storage: %v", err)
+		return nil, nil, nil, nil, fmt.Errorf("failed to initialize Storage: %v", err)
 	}
 
 	// Initialize avatar service
@@ -436,12 +436,12 @@ func initAuthHandler(
 			AvatarService: avatarService,
 		})
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("failed to initialize Google OAuth: %v", err)
+			return nil, nil, nil, nil, fmt.Errorf("failed to initialize Google OAuth: %v", err)
 		}
 
 		// Execute table structure migration
 		if err := googleOAuth.AutoMigrate(); err != nil {
-			return nil, nil, nil, fmt.Errorf("google OAuth table migration failed: %v", err)
+			return nil, nil, nil, nil, fmt.Errorf("google OAuth table migration failed: %v", err)
 		}
 	}
 
@@ -455,12 +455,12 @@ func initAuthHandler(
 			DomainVerifyToken: cfg.Auth.Weixin.DomainVerifyToken,
 		}, avatarService)
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("failed to initialize WeChat login: %v", err)
+			return nil, nil, nil, nil, fmt.Errorf("failed to initialize WeChat login: %v", err)
 		}
 
 		// Execute table structure migration
 		if err := weixinLogin.AutoMigrate(); err != nil {
-			return nil, nil, nil, fmt.Errorf("WeChat login table migration failed: %v", err)
+			return nil, nil, nil, nil, fmt.Errorf("WeChat login table migration failed: %v", err)
 		}
 	}
 
@@ -473,12 +473,12 @@ func initAuthHandler(
 			GrantType: "authorization_code",
 		}, avatarService)
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("failed to initialize WeChat mini program login: %v", err)
+			return nil, nil, nil, nil, fmt.Errorf("failed to initialize WeChat mini program login: %v", err)
 		}
 
 		// Execute table structure migration
 		if err := weixinMiniLogin.AutoMigrate(); err != nil {
-			return nil, nil, nil, fmt.Errorf("WeChat mini program login table migration failed: %v", err)
+			return nil, nil, nil, nil, fmt.Errorf("WeChat mini program login table migration failed: %v", err)
 		}
 	}
 
@@ -503,7 +503,7 @@ func initAuthHandler(
 
 		// Execute table structure migration
 		if err := phoneAuth.AutoMigrate(); err != nil {
-			return nil, nil, nil, fmt.Errorf("phone login table migration failed: %v", err)
+			return nil, nil, nil, nil, fmt.Errorf("phone login table migration failed: %v", err)
 		}
 	}
 
@@ -512,11 +512,15 @@ func initAuthHandler(
 
 	enterpriseOIDC, err := iam.NewEnterpriseOIDCManager(cfg.IAM, globalDB, avatarService)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to initialize enterprise OIDC: %v", err)
+		return nil, nil, nil, nil, fmt.Errorf("failed to initialize enterprise OIDC: %v", err)
 	}
 	enterpriseSAML, err := iam.NewEnterpriseSAMLManager(cfg.IAM, cfg.OIDC.Issuer, globalDB, avatarService)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to initialize enterprise SAML: %v", err)
+		return nil, nil, nil, nil, fmt.Errorf("failed to initialize enterprise SAML: %v", err)
+	}
+	enterpriseLDAP, err := iam.NewEnterpriseLDAPManager(cfg.IAM, globalDB, avatarService)
+	if err != nil {
+		return nil, nil, nil, nil, fmt.Errorf("failed to initialize enterprise LDAP: %v", err)
 	}
 
 	// Initialize auth handler
@@ -535,12 +539,13 @@ func initAuthHandler(
 		oidcProvider,
 		enterpriseOIDC,
 		enterpriseSAML,
+		enterpriseLDAP,
 		hookRegistry,
 		pluginRegistry,
 		cfg,
 	)
 
-	return handler, enterpriseOIDC, enterpriseSAML, nil
+	return handler, enterpriseOIDC, enterpriseSAML, enterpriseLDAP, nil
 }
 
 func containsProvider(providers []string, provider string) bool {

@@ -215,6 +215,14 @@ export interface OrganizationIdentityProviderConfig {
   display_name_attribute?: string
   allow_idp_initiated?: boolean
   default_redirect_uri?: string
+  url?: string
+  base_dn?: string
+  bind_dn?: string
+  bind_password_configured?: boolean
+  user_filter?: string
+  start_tls?: boolean
+  insecure_skip_verify?: boolean
+  subject_attribute?: string
 }
 
 export interface OrganizationIdentityProvider {
@@ -524,6 +532,14 @@ class ServerApi {
     entity_id?: string
     acs_url?: string
     name_id_format?: string
+    url?: string
+    base_dn?: string
+    bind_dn?: string
+    bind_password?: string
+    user_filter?: string
+    start_tls?: boolean
+    insecure_skip_verify?: boolean
+    subject_attribute?: string
     email_attribute?: string
     username_attribute?: string
     display_name_attribute?: string
@@ -552,6 +568,14 @@ class ServerApi {
     entity_id?: string
     acs_url?: string
     name_id_format?: string
+    url?: string
+    base_dn?: string
+    bind_dn?: string
+    bind_password?: string
+    user_filter?: string
+    start_tls?: boolean
+    insecure_skip_verify?: boolean
+    subject_attribute?: string
     email_attribute?: string
     username_attribute?: string
     display_name_attribute?: string

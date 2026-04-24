@@ -35,7 +35,7 @@ export interface EnterpriseOIDCProvider {
     slug: string
     name: string
     organization_id?: string
-    provider_type?: 'oidc' | 'saml' | string
+    provider_type?: 'oidc' | 'saml' | 'ldap' | string
     priority?: number
     is_default?: boolean
     auto_redirect?: boolean
@@ -446,6 +446,17 @@ class ServerApi {
         const params = new URLSearchParams()
         params.set('return_uri', this.isOIDCFlow() ? this.redirectUri : this.routePath('/profile'))
         window.location.href = this.buildApiURL(basePath, params)
+    }
+
+    async enterpriseLDAPLogin(provider: EnterpriseOIDCProvider | string, username: string, password: string): Promise<AuthResponse> {
+        const providerSlug = typeof provider === 'string' ? provider : provider.slug
+        const response = await axios.post(`/enterprise/ldap/${encodeURIComponent(providerSlug)}/login`, {
+            username,
+            password,
+        })
+        const authResponse = this.normalizeAuthResponse(response.data)
+        this.updateUserInfo(authResponse)
+        return authResponse
     }
 
     // 账号密码登录
