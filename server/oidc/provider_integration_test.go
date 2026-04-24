@@ -272,6 +272,33 @@ func responseCookie(recorder *httptest.ResponseRecorder, name string) *http.Cook
 	return nil
 }
 
+func exchangeAuthorizationCode(t *testing.T, env *integrationEnv, code string) (string, string) {
+	t.Helper()
+
+	tokenResp := performRequest(t, env.router, http.MethodPost, "/oauth2/token", url.Values{
+		"grant_type":    {"authorization_code"},
+		"client_id":     {"demo-spa"},
+		"code":          {code},
+		"redirect_uri":  {testRedirectURI},
+		"code_verifier": {testCodeVerifier},
+	}, nil)
+	if tokenResp.Code != http.StatusOK {
+		t.Fatalf("expected token status 200, got %d with body %s", tokenResp.Code, tokenResp.Body.String())
+	}
+
+	var tokenBody map[string]interface{}
+	if err := json.Unmarshal(tokenResp.Body.Bytes(), &tokenBody); err != nil {
+		t.Fatalf("failed to decode token response: %v", err)
+	}
+
+	accessToken, _ := tokenBody["access_token"].(string)
+	idToken, _ := tokenBody["id_token"].(string)
+	if accessToken == "" || idToken == "" {
+		t.Fatalf("expected access_token and id_token in response")
+	}
+	return accessToken, idToken
+}
+
 func TestAuthorizeReusesBrowserSessionAndTokenExchangeSucceeds(t *testing.T) {
 	env := newIntegrationEnv(t)
 	defer env.Close()
@@ -779,6 +806,99 @@ func TestAuthorizeRejectsOrgHintWithoutMembership(t *testing.T) {
 		t.Fatalf("expected access_denied, got %q in location %s", redirectLocation.Query().Get("error"), location)
 	}
 	if redirectLocation.Query().Get("state") != "org-denied" {
+		t.Fatalf("expected state to round-trip, got %q", redirectLocation.Query().Get("state"))
+	}
+}
+
+func TestAuthorizeAutomaticallyPinsSingleEligibleOrganizationForClientPolicy(t *testing.T) {
+	env := newIntegrationEnv(t)
+	defer env.Close()
+
+	env.provider.cfg.Clients[0].RequireOrganization = true
+	env.provider.cfg.Clients[0].RequiredOrgRoles = []string{"admin"}
+
+	user := env.createAccountUser(t, "demo")
+	env.createOrganizationMembershipRecord(t, user.UserID, "org_alpha0000000000", "alpha", []string{"viewer"})
+	env.createOrganizationMembershipRecord(t, user.UserID, "org_beta00000000000", "beta", []string{"admin"})
+	sessionCookie := env.createBrowserSessionCookie(t, user.UserID)
+
+	authorizeURL := "/oauth2/authorize?client_id=demo-spa" +
+		"&redirect_uri=" + url.QueryEscape(testRedirectURI) +
+		"&response_type=code" +
+		"&scope=" + url.QueryEscape("openid profile") +
+		"&code_challenge=" + testCodeChallenge +
+		"&code_challenge_method=S256" +
+		"&state=policy-admin"
+
+	authorizeResp := performRequest(t, env.router, http.MethodGet, authorizeURL, nil, sessionCookie)
+	if authorizeResp.Code != http.StatusFound {
+		t.Fatalf("expected authorize status 302, got %d with body %s", authorizeResp.Code, authorizeResp.Body.String())
+	}
+
+	redirectLocation, err := url.Parse(authorizeResp.Header().Get("Location"))
+	if err != nil {
+		t.Fatalf("failed to parse authorize redirect: %v", err)
+	}
+	if redirectLocation.Path != "/callback" || redirectLocation.Host != "127.0.0.1:3000" {
+		t.Fatalf("expected direct callback redirect, got %s", redirectLocation.String())
+	}
+	code := redirectLocation.Query().Get("code")
+	if code == "" {
+		t.Fatalf("expected authorization code in redirect location %s", redirectLocation.String())
+	}
+
+	accessToken, idToken := exchangeAuthorizationCode(t, env, code)
+
+	accessClaims, err := env.provider.ParseAccessToken(accessToken)
+	if err != nil {
+		t.Fatalf("failed to parse access token: %v", err)
+	}
+	if accessClaims.OrgID != "org_beta00000000000" || accessClaims.OrgSlug != "beta" {
+		t.Fatalf("expected policy-selected beta organization in access token, got %#v", accessClaims)
+	}
+
+	idTokenClaims := env.parseIDToken(t, idToken)
+	if idTokenClaims.OrgID != "org_beta00000000000" || idTokenClaims.OrgSlug != "beta" {
+		t.Fatalf("expected policy-selected beta organization in id token, got %#v", idTokenClaims)
+	}
+	if !stringSliceEqual(idTokenClaims.OrgRoles, []string{"admin"}) {
+		t.Fatalf("expected id token org_roles admin, got %#v", idTokenClaims.OrgRoles)
+	}
+}
+
+func TestAuthorizeRejectsWhenClientOrganizationPolicyHasNoEligibleMembership(t *testing.T) {
+	env := newIntegrationEnv(t)
+	defer env.Close()
+
+	env.provider.cfg.Clients[0].RequireOrganization = true
+	env.provider.cfg.Clients[0].AllowedOrganizations = []string{"beta"}
+
+	user := env.createAccountUser(t, "demo")
+	env.createOrganizationMembershipRecord(t, user.UserID, "org_alpha0000000000", "alpha", []string{"viewer"})
+	sessionCookie := env.createBrowserSessionCookie(t, user.UserID)
+
+	authorizeURL := "/oauth2/authorize?client_id=demo-spa" +
+		"&redirect_uri=" + url.QueryEscape(testRedirectURI) +
+		"&response_type=code" +
+		"&scope=" + url.QueryEscape("openid profile") +
+		"&code_challenge=" + testCodeChallenge +
+		"&code_challenge_method=S256" +
+		"&state=policy-denied"
+
+	authorizeResp := performRequest(t, env.router, http.MethodGet, authorizeURL, nil, sessionCookie)
+	if authorizeResp.Code != http.StatusFound {
+		t.Fatalf("expected authorize status 302, got %d with body %s", authorizeResp.Code, authorizeResp.Body.String())
+	}
+
+	location := authorizeResp.Header().Get("Location")
+	redirectLocation, err := url.Parse(location)
+	if err != nil {
+		t.Fatalf("failed to parse redirect location %q: %v", location, err)
+	}
+	if redirectLocation.Query().Get("error") != "access_denied" {
+		t.Fatalf("expected access_denied, got %q in location %s", redirectLocation.Query().Get("error"), location)
+	}
+	if redirectLocation.Query().Get("state") != "policy-denied" {
 		t.Fatalf("expected state to round-trip, got %q", redirectLocation.Query().Get("state"))
 	}
 }

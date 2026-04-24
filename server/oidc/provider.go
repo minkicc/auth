@@ -220,7 +220,7 @@ func (p *Provider) authorize(c *gin.Context) {
 		return
 	}
 
-	if p.requiresOrganizationSelection(user.UserID, c.Query("org_hint")) {
+	if p.requiresOrganizationSelection(client, user.UserID, c.Query("org_hint")) {
 		if c.Query("prompt") == "none" {
 			p.redirectAuthorizeError(c, redirectURI, "interaction_required", c.Query("state"))
 			return
@@ -230,7 +230,7 @@ func (p *Provider) authorize(c *gin.Context) {
 		return
 	}
 
-	selectedOrgID, ok := p.resolveAuthorizeOrganization(c, user.UserID, redirectURI)
+	selectedOrgID, ok := p.resolveAuthorizeOrganization(c, user.UserID, client, redirectURI)
 	if !ok {
 		return
 	}
@@ -664,8 +664,33 @@ func (p *Provider) validAuthorizeRequest(c *gin.Context) (config.OIDCClientConfi
 	return client, redirectURI, true
 }
 
-func (p *Provider) resolveAuthorizeOrganization(c *gin.Context, userID, redirectURI string) (string, bool) {
+func (p *Provider) resolveAuthorizeOrganization(c *gin.Context, userID string, client config.OIDCClientConfig, redirectURI string) (string, bool) {
 	orgHint := strings.TrimSpace(c.Query("org_hint"))
+	if p.clientUsesOrganizationPolicy(client) {
+		organizations, err := p.listAuthorizedOrganizations(userID, client)
+		if err != nil {
+			p.redirectAuthorizeError(c, redirectURI, "server_error", c.Query("state"))
+			return "", false
+		}
+		if orgHint != "" {
+			for _, organization := range organizations {
+				if organizationClaimsMatchHint(organization, orgHint) {
+					return organization.OrgID, true
+				}
+			}
+			p.redirectAuthorizeError(c, redirectURI, "access_denied", c.Query("state"))
+			return "", false
+		}
+		switch len(organizations) {
+		case 0:
+			p.redirectAuthorizeError(c, redirectURI, "access_denied", c.Query("state"))
+			return "", false
+		case 1:
+			return organizations[0].OrgID, true
+		default:
+			return "", true
+		}
+	}
 	if orgHint == "" {
 		return "", true
 	}
@@ -677,9 +702,16 @@ func (p *Provider) resolveAuthorizeOrganization(c *gin.Context, userID, redirect
 	return orgClaims.OrgID, true
 }
 
-func (p *Provider) requiresOrganizationSelection(userID, orgHint string) bool {
+func (p *Provider) requiresOrganizationSelection(client config.OIDCClientConfig, userID, orgHint string) bool {
 	if strings.TrimSpace(orgHint) != "" || p.db == nil || userID == "" || !p.db.Migrator().HasTable(&iam.OrganizationMembership{}) {
 		return false
+	}
+	if p.clientUsesOrganizationPolicy(client) {
+		organizations, err := p.listAuthorizedOrganizations(userID, client)
+		if err != nil {
+			return false
+		}
+		return len(organizations) > 1
 	}
 
 	var memberships []iam.OrganizationMembership

@@ -22,6 +22,7 @@ Implemented:
 - HRD (Home Realm Discovery) from verified organization domains to Enterprise OIDC, Enterprise SAML, and Enterprise LDAP providers.
 - Organization-level default provider, provider priority, and optional auto-redirect policy for enterprise provider discovery.
 - Organization claim injection into ID Token and `/oauth2/userinfo`, including `org_groups`.
+- OIDC client-level organization access policy using `require_organization`, `allowed_organizations`, `required_org_roles`, and `required_org_groups`.
 - Downstream OIDC organization pinning through `org_hint`.
 - Interactive organization chooser for users who belong to multiple organizations.
 - Admin API and admin console page for organization, domain, membership, group, and enterprise identity provider management.

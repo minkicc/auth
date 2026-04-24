@@ -54,6 +54,12 @@ oidc:
         - "openid"
         - "profile"
         - "email"
+      # Example organization policy for B2B apps:
+      # require_organization: true
+      # allowed_organizations:
+      #   - "acme"
+      # required_org_roles:
+      #   - "admin"
 
 auth:
   enabled_providers:
