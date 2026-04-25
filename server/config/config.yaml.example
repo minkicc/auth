@@ -15,6 +15,17 @@ redis:
   password: "YOUR_REDIS_PASSWORD"
   db: 0
 
+secrets:
+  # Optional but recommended. When configured, admin-managed OIDC clients and
+  # enterprise identity provider secrets are encrypted before being stored in DB.
+  # Prefer loading from an environment variable in production.
+  encryption_key_env: "MKAUTH_SECRETS_KEY"
+  # encryption_key: "CHANGE_THIS_TO_A_LONG_RANDOM_SECRET"
+  # Optional key rotation fallback list. MKAuth still encrypts new writes with
+  # the primary key above, but can decrypt older rows with these previous keys.
+  decryption_key_envs: []
+  #   - "MKAUTH_OLD_SECRETS_KEY"
+
 oidc:
   enabled: true
   issuer: "https://auth.example.com"
@@ -25,7 +36,8 @@ oidc:
   access_token_ttl_seconds: 900
   id_token_ttl_seconds: 900
   clients:
-    - client_id: "demo-spa"
+    - name: "Demo SPA"
+      client_id: "demo-spa"
       public: true
       require_pkce: true
       redirect_uris:
@@ -43,9 +55,23 @@ oidc:
       #   - "org_acme000000000000"
       # required_org_roles:
       #   - "admin"
+      # required_org_roles_all:
+      #   - "security"
       # required_org_groups:
       #   - "Engineering Team"
-    - client_id: "demo-backend"
+      # required_org_groups_all:
+      #   - "Employees"
+      # scope_policies:
+      #   email:
+      #     required_org_roles_all:
+      #       - "security"
+      #   admin_api:
+      #     required_org_roles:
+      #       - "admin"
+    # Static bootstrap is optional. You can also manage downstream OIDC clients
+    # later from the admin console under Settings -> OIDC Clients.
+    - name: "Demo Backend"
+      client_id: "demo-backend"
       client_secret: "CHANGE_ME"
       public: false
       require_pkce: true
@@ -239,6 +265,8 @@ auth:
 auth_admin:
   enabled: true
   secret_key: "YOUR_ADMIN_SECRET_KEY"
+  security_audit_export_job_retention_days: 7
+  security_audit_export_job_auto_cleanup: true
   accounts:
     - username: "admin"
       password: "YOUR_ADMIN_PASSWORD_HASH"

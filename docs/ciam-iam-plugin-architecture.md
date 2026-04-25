@@ -2,6 +2,8 @@
 
 MKAuth's current core is an OIDC-first authentication service. The CIAM/IAM path should keep that core small and add extension points around it instead of turning every integration into hard-coded login logic.
 
+For the near-term execution plan and backlog, see [docs/roadmap.md](roadmap.md).
+
 ## Goals
 
 - Keep existing OIDC, browser session, and local login flows stable.
@@ -22,7 +24,13 @@ Implemented:
 - HRD (Home Realm Discovery) from verified organization domains to Enterprise OIDC, Enterprise SAML, and Enterprise LDAP providers.
 - Organization-level default provider, provider priority, and optional auto-redirect policy for enterprise provider discovery.
 - Organization claim injection into ID Token and `/oauth2/userinfo`, including `org_groups`.
-- OIDC client-level organization access policy using `require_organization`, `allowed_organizations`, `required_org_roles`, and `required_org_groups`.
+- OIDC client-level organization access policy using `require_organization`, `allowed_organizations`, `required_org_roles`, `required_org_roles_all`, `required_org_groups`, `required_org_groups_all`, and scope-specific policy overlays.
+- Unified organization authorization resolution for memberships, groups, first-class role bindings, and permission keys, plus reusable organization authorization middleware/helpers for future API enforcement.
+- Admin-managed downstream OIDC clients with runtime reload, so relying party registration no longer has to live only in YAML.
+- Optional at-rest encryption for admin-managed OIDC client secrets and enterprise identity provider secrets.
+- Key rotation fallback support plus an admin-triggered reseal operation for managed secrets.
+- Admin audit visibility for managed secret reseal operations plus admin-managed OIDC client and enterprise identity provider CRUD activity.
+- Filterable admin security audit endpoint at `GET /admin-api/security/audit` with pagination, exact `client_id` / `provider_id` / `organization_id` filters, `actor_id`, keyword search, and `time_from` / `time_to` range filters for operational review, plus direct CSV export through `GET /admin-api/security/audit/export` and background export jobs through `GET /admin-api/security/audit/export-jobs`, `POST /admin-api/security/audit/export-jobs`, `POST /admin-api/security/audit/export-jobs/cleanup`, `GET /admin-api/security/audit/export-jobs/:job_id`, `DELETE /admin-api/security/audit/export-jobs/:job_id`, and `GET /admin-api/security/audit/export-jobs/:job_id/download`; the cleanup policy is now configurable through `auth_admin.security_audit_export_job_retention_days`, with automatic hourly cleanup controlled by `auth_admin.security_audit_export_job_auto_cleanup`. The admin Settings UI persists those filters into the page URL, can copy a shareable filtered link, inspect full entry details, copy key identifiers, jump back into filtered related history, deep-link into managed OIDC client or enterprise identity provider configuration through a detail drawer, now supports non-blocking background export jobs, keeps a recent job list across refreshes, and supports deleting a settled job or cleaning up older completed/failed jobs, while the admin Organizations UI mirrors that URL-persisted audit experience for organization-scoped identity-provider troubleshooting, including shareable failed-provider deep links, the same background export flow, recent export jobs scoped to the current organization, and the same cleanup operations.
 - Downstream OIDC organization pinning through `org_hint`.
 - Interactive organization chooser for users who belong to multiple organizations.
 - Admin API and admin console page for organization, domain, membership, group, and enterprise identity provider management.

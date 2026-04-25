@@ -210,6 +210,52 @@ func (e *integrationEnv) createOrganizationGroupRecord(t *testing.T, organizatio
 	}
 }
 
+func (e *integrationEnv) createOrganizationRoleRecord(t *testing.T, organizationID, roleID, name, slug string, permissions []string) {
+	t.Helper()
+
+	now := time.Now()
+	if err := e.db.Create(&iam.OrganizationRole{
+		RoleID:         roleID,
+		OrganizationID: organizationID,
+		Name:           name,
+		Slug:           slug,
+		Enabled:        true,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}).Error; err != nil {
+		t.Fatalf("failed to create organization role: %v", err)
+	}
+
+	for _, permission := range permissions {
+		if err := e.db.Create(&iam.OrganizationRolePermission{
+			OrganizationID: organizationID,
+			RoleID:         roleID,
+			PermissionKey:  permission,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}).Error; err != nil {
+			t.Fatalf("failed to create organization role permission: %v", err)
+		}
+	}
+}
+
+func (e *integrationEnv) bindOrganizationRoleToMembership(t *testing.T, organizationID, bindingID, roleID, userID string) {
+	t.Helper()
+
+	now := time.Now()
+	if err := e.db.Create(&iam.OrganizationRoleBinding{
+		BindingID:      bindingID,
+		OrganizationID: organizationID,
+		RoleID:         roleID,
+		SubjectType:    iam.RoleBindingSubjectMembership,
+		SubjectID:      userID,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}).Error; err != nil {
+		t.Fatalf("failed to create organization role binding: %v", err)
+	}
+}
+
 func (e *integrationEnv) parseIDToken(t *testing.T, token string) *idTokenClaims {
 	t.Helper()
 
@@ -419,8 +465,8 @@ func TestAuthorizeReusesBrowserSessionAndTokenExchangeSucceeds(t *testing.T) {
 	if idTokenClaims.OrgSlug != "acme" {
 		t.Fatalf("expected id token org_slug acme, got %q", idTokenClaims.OrgSlug)
 	}
-	if !stringSliceEqual(idTokenClaims.OrgRoles, []string{"owner", "billing_admin"}) {
-		t.Fatalf("expected id token org_roles owner/billing_admin, got %#v", idTokenClaims.OrgRoles)
+	if !stringSliceEqual(idTokenClaims.OrgRoles, []string{"billing_admin", "owner", "platform-team"}) {
+		t.Fatalf("expected id token org_roles owner/billing_admin/platform-team, got %#v", idTokenClaims.OrgRoles)
 	}
 	if !stringSliceEqual(idTokenClaims.OrgGroups, []string{"Platform Team"}) {
 		t.Fatalf("expected id token org_groups Platform Team, got %#v", idTokenClaims.OrgGroups)
@@ -456,8 +502,8 @@ func TestAuthorizeReusesBrowserSessionAndTokenExchangeSucceeds(t *testing.T) {
 		t.Fatalf("expected userinfo org_slug acme, got %#v", userInfoBody["org_slug"])
 	}
 	userInfoRoles, ok := userInfoBody["org_roles"].([]interface{})
-	if !ok || len(userInfoRoles) != 2 || userInfoRoles[0] != "owner" || userInfoRoles[1] != "billing_admin" {
-		t.Fatalf("expected userinfo org_roles owner/billing_admin, got %#v", userInfoBody["org_roles"])
+	if !ok || len(userInfoRoles) != 3 || userInfoRoles[0] != "billing_admin" || userInfoRoles[1] != "owner" || userInfoRoles[2] != "platform-team" {
+		t.Fatalf("expected userinfo org_roles owner/billing_admin/platform-team, got %#v", userInfoBody["org_roles"])
 	}
 	userInfoGroups, ok := userInfoBody["org_groups"].([]interface{})
 	if !ok || len(userInfoGroups) != 1 || userInfoGroups[0] != "Platform Team" {
@@ -744,8 +790,8 @@ func TestAuthorizeSelectsOrganizationFromOrgHint(t *testing.T) {
 	if idTokenClaims.OrgSlug != "beta" {
 		t.Fatalf("expected id token org_slug beta, got %q", idTokenClaims.OrgSlug)
 	}
-	if !stringSliceEqual(idTokenClaims.OrgRoles, []string{"admin"}) {
-		t.Fatalf("expected id token org_roles admin, got %#v", idTokenClaims.OrgRoles)
+	if !stringSliceEqual(idTokenClaims.OrgRoles, []string{"admin", "beta-team"}) {
+		t.Fatalf("expected id token org_roles admin/beta-team, got %#v", idTokenClaims.OrgRoles)
 	}
 	if !stringSliceEqual(idTokenClaims.OrgGroups, []string{"Beta Team"}) {
 		t.Fatalf("expected id token org_groups Beta Team, got %#v", idTokenClaims.OrgGroups)
@@ -766,8 +812,8 @@ func TestAuthorizeSelectsOrganizationFromOrgHint(t *testing.T) {
 		t.Fatalf("expected userinfo org_slug beta, got %#v", userInfoBody["org_slug"])
 	}
 	userInfoRoles, ok := userInfoBody["org_roles"].([]interface{})
-	if !ok || len(userInfoRoles) != 1 || userInfoRoles[0] != "admin" {
-		t.Fatalf("expected userinfo org_roles admin, got %#v", userInfoBody["org_roles"])
+	if !ok || len(userInfoRoles) != 2 || userInfoRoles[0] != "admin" || userInfoRoles[1] != "beta-team" {
+		t.Fatalf("expected userinfo org_roles admin/beta-team, got %#v", userInfoBody["org_roles"])
 	}
 	userInfoGroups, ok := userInfoBody["org_groups"].([]interface{})
 	if !ok || len(userInfoGroups) != 1 || userInfoGroups[0] != "Beta Team" {
@@ -863,6 +909,177 @@ func TestAuthorizeAutomaticallyPinsSingleEligibleOrganizationForClientPolicy(t *
 	}
 	if !stringSliceEqual(idTokenClaims.OrgRoles, []string{"admin"}) {
 		t.Fatalf("expected id token org_roles admin, got %#v", idTokenClaims.OrgRoles)
+	}
+}
+
+func TestAuthorizeUsesFirstClassRoleBindingForClaimsAndClientPolicy(t *testing.T) {
+	env := newIntegrationEnv(t)
+	defer env.Close()
+
+	env.provider.cfg.Clients[0].RequireOrganization = true
+	env.provider.cfg.Clients[0].RequiredOrgRoles = []string{"admin"}
+
+	user := env.createAccountUser(t, "bound-role-user")
+	env.createOrganizationMembershipRecord(t, user.UserID, "org_bound0000000000", "bound", nil)
+	env.createOrganizationRoleRecord(t, "org_bound0000000000", "rol_adminbound0000", "Admin", "admin", []string{"settings.manage"})
+	env.bindOrganizationRoleToMembership(t, "org_bound0000000000", "rbd_adminbound0000", "rol_adminbound0000", user.UserID)
+	sessionCookie := env.createBrowserSessionCookie(t, user.UserID)
+
+	authorizeURL := "/oauth2/authorize?client_id=demo-spa" +
+		"&redirect_uri=" + url.QueryEscape(testRedirectURI) +
+		"&response_type=code" +
+		"&scope=" + url.QueryEscape("openid profile") +
+		"&code_challenge=" + testCodeChallenge +
+		"&code_challenge_method=S256" +
+		"&state=bound-role"
+
+	authorizeResp := performRequest(t, env.router, http.MethodGet, authorizeURL, nil, sessionCookie)
+	if authorizeResp.Code != http.StatusFound {
+		t.Fatalf("expected authorize status 302, got %d with body %s", authorizeResp.Code, authorizeResp.Body.String())
+	}
+
+	redirectLocation, err := url.Parse(authorizeResp.Header().Get("Location"))
+	if err != nil {
+		t.Fatalf("failed to parse authorize redirect: %v", err)
+	}
+	code := redirectLocation.Query().Get("code")
+	if code == "" {
+		t.Fatalf("expected authorization code in redirect location %s", redirectLocation.String())
+	}
+
+	accessToken, idToken := exchangeAuthorizationCode(t, env, code)
+
+	idTokenClaims := env.parseIDToken(t, idToken)
+	if idTokenClaims.OrgID != "org_bound0000000000" || idTokenClaims.OrgSlug != "bound" {
+		t.Fatalf("expected bound organization claims, got %#v", idTokenClaims)
+	}
+	if !stringSliceEqual(idTokenClaims.OrgRoles, []string{"admin"}) {
+		t.Fatalf("expected id token org_roles admin from first-class role binding, got %#v", idTokenClaims.OrgRoles)
+	}
+
+	userInfoResp := performBearerRequest(t, env.router, http.MethodGet, "/oauth2/userinfo", accessToken)
+	if userInfoResp.Code != http.StatusOK {
+		t.Fatalf("expected userinfo status 200, got %d with body %s", userInfoResp.Code, userInfoResp.Body.String())
+	}
+	var userInfoBody map[string]interface{}
+	if err := json.Unmarshal(userInfoResp.Body.Bytes(), &userInfoBody); err != nil {
+		t.Fatalf("failed to decode userinfo response: %v", err)
+	}
+	userInfoRoles, ok := userInfoBody["org_roles"].([]interface{})
+	if !ok || len(userInfoRoles) != 1 || userInfoRoles[0] != "admin" {
+		t.Fatalf("expected userinfo org_roles admin from first-class role binding, got %#v", userInfoBody["org_roles"])
+	}
+}
+
+func TestAuthorizeSupportsAllOfOrganizationPolicy(t *testing.T) {
+	env := newIntegrationEnv(t)
+	defer env.Close()
+
+	env.provider.cfg.Clients[0].RequireOrganization = true
+	env.provider.cfg.Clients[0].RequiredOrgRolesAll = []string{"admin", "security"}
+	env.provider.cfg.Clients[0].RequiredOrgGroupsAll = []string{"Employees"}
+
+	user := env.createAccountUser(t, "all-of-user")
+	env.createOrganizationMembershipRecord(t, user.UserID, "org_alpha0000000000", "alpha", []string{"admin"})
+	env.createOrganizationMembershipRecord(t, user.UserID, "org_beta00000000000", "beta", []string{"admin", "security"})
+	env.createOrganizationGroupRecord(t, "org_beta00000000000", "grp_betaemployees00", user.UserID, "Employees", "employees")
+	sessionCookie := env.createBrowserSessionCookie(t, user.UserID)
+
+	authorizeURL := "/oauth2/authorize?client_id=demo-spa" +
+		"&redirect_uri=" + url.QueryEscape(testRedirectURI) +
+		"&response_type=code" +
+		"&scope=" + url.QueryEscape("openid profile") +
+		"&code_challenge=" + testCodeChallenge +
+		"&code_challenge_method=S256" +
+		"&state=all-of"
+
+	authorizeResp := performRequest(t, env.router, http.MethodGet, authorizeURL, nil, sessionCookie)
+	if authorizeResp.Code != http.StatusFound {
+		t.Fatalf("expected authorize status 302, got %d with body %s", authorizeResp.Code, authorizeResp.Body.String())
+	}
+
+	redirectLocation, err := url.Parse(authorizeResp.Header().Get("Location"))
+	if err != nil {
+		t.Fatalf("failed to parse authorize redirect: %v", err)
+	}
+	code := redirectLocation.Query().Get("code")
+	if code == "" {
+		t.Fatalf("expected authorization code in redirect location %s", redirectLocation.String())
+	}
+
+	accessToken, idToken := exchangeAuthorizationCode(t, env, code)
+	accessClaims, err := env.provider.ParseAccessToken(accessToken)
+	if err != nil {
+		t.Fatalf("failed to parse access token: %v", err)
+	}
+	if accessClaims.OrgID != "org_beta00000000000" {
+		t.Fatalf("expected all-of policy to pin beta organization, got %#v", accessClaims)
+	}
+
+	idTokenClaims := env.parseIDToken(t, idToken)
+	if !stringSliceEqual(idTokenClaims.OrgRoles, []string{"admin", "employees", "security"}) {
+		t.Fatalf("expected merged all-of roles in id token, got %#v", idTokenClaims.OrgRoles)
+	}
+	if !stringSliceEqual(idTokenClaims.OrgGroups, []string{"Employees"}) {
+		t.Fatalf("expected all-of groups in id token, got %#v", idTokenClaims.OrgGroups)
+	}
+}
+
+func TestAuthorizeAppliesScopeSpecificOrganizationPolicy(t *testing.T) {
+	env := newIntegrationEnv(t)
+	defer env.Close()
+
+	env.provider.cfg.Clients[0].Scopes = []string{"openid", "profile", "email"}
+	env.provider.cfg.Clients[0].RequireOrganization = true
+	env.provider.cfg.Clients[0].ScopePolicies = map[string]config.OIDCOrganizationPolicy{
+		"email": {
+			RequiredOrgRolesAll: []string{"admin", "security"},
+		},
+	}
+
+	user := env.createAccountUser(t, "scope-policy-user")
+	env.createOrganizationMembershipRecord(t, user.UserID, "org_scope0000000000", "scope", []string{"admin"})
+	sessionCookie := env.createBrowserSessionCookie(t, user.UserID)
+
+	authorizeURL := "/oauth2/authorize?client_id=demo-spa" +
+		"&redirect_uri=" + url.QueryEscape(testRedirectURI) +
+		"&response_type=code" +
+		"&scope=" + url.QueryEscape("openid profile email") +
+		"&code_challenge=" + testCodeChallenge +
+		"&code_challenge_method=S256" +
+		"&state=scope-email-denied"
+
+	authorizeResp := performRequest(t, env.router, http.MethodGet, authorizeURL, nil, sessionCookie)
+	if authorizeResp.Code != http.StatusFound {
+		t.Fatalf("expected authorize status 302, got %d with body %s", authorizeResp.Code, authorizeResp.Body.String())
+	}
+
+	redirectLocation, err := url.Parse(authorizeResp.Header().Get("Location"))
+	if err != nil {
+		t.Fatalf("failed to parse authorize redirect: %v", err)
+	}
+	if redirectLocation.Query().Get("error") != "access_denied" {
+		t.Fatalf("expected scope-specific access_denied, got %q in %s", redirectLocation.Query().Get("error"), redirectLocation.String())
+	}
+
+	profileAuthorizeURL := "/oauth2/authorize?client_id=demo-spa" +
+		"&redirect_uri=" + url.QueryEscape(testRedirectURI) +
+		"&response_type=code" +
+		"&scope=" + url.QueryEscape("openid profile") +
+		"&code_challenge=" + testCodeChallenge +
+		"&code_challenge_method=S256" +
+		"&state=scope-profile-ok"
+
+	profileAuthorizeResp := performRequest(t, env.router, http.MethodGet, profileAuthorizeURL, nil, sessionCookie)
+	if profileAuthorizeResp.Code != http.StatusFound {
+		t.Fatalf("expected profile-only authorize status 302, got %d with body %s", profileAuthorizeResp.Code, profileAuthorizeResp.Body.String())
+	}
+	profileRedirect, err := url.Parse(profileAuthorizeResp.Header().Get("Location"))
+	if err != nil {
+		t.Fatalf("failed to parse profile authorize redirect: %v", err)
+	}
+	if profileRedirect.Query().Get("error") != "" {
+		t.Fatalf("expected profile-only request to succeed, got redirect %s", profileRedirect.String())
 	}
 }
 

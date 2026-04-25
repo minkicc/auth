@@ -39,6 +39,7 @@ import (
 	"minki.cc/mkauth/server/middleware"
 	"minki.cc/mkauth/server/oidc"
 	"minki.cc/mkauth/server/plugins"
+	"minki.cc/mkauth/server/secureconfig"
 )
 
 // Global variables - reduce multiple passing of DB
@@ -195,6 +196,17 @@ func main() {
 	} else {
 		log.Printf("Using mysql database %s on host %s", cfg.Database.Database, cfg.Database.Host)
 	}
+	secretCodec, err := secureconfig.New(cfg.Secrets.EffectiveEncryptionKeys()...)
+	if err != nil {
+		log.Fatalf("Failed to initialize secrets encryption codec: %v", err)
+	}
+	secureconfig.SetDefault(secretCodec)
+	if secretCodec != nil {
+		log.Printf("Sensitive runtime configuration encryption is enabled")
+		if fallbackKeyCount := cfg.Secrets.FallbackKeyCount(); fallbackKeyCount > 0 {
+			log.Printf("Sensitive runtime configuration decryption fallbacks enabled: %d", fallbackKeyCount)
+		}
+	}
 
 	// Initialize Redis connection
 	globalRedisStore, err = auth.NewRedisStore(
@@ -237,8 +249,15 @@ func main() {
 	// Add CORS middleware
 	corsConfig := cors.DefaultConfig()
 	allowedOrigins := collectAllowedOrigins(cfg)
+	var oidcProvider *oidc.Provider
 	corsConfig.AllowOriginFunc = func(origin string) bool {
-		return slices.Contains(allowedOrigins, origin)
+		if slices.Contains(allowedOrigins, origin) {
+			return true
+		}
+		if oidcProvider != nil {
+			return slices.Contains(oidcProvider.AllowedOrigins(), origin)
+		}
+		return false
 	}
 	corsConfig.AllowMethods = []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"}
 	corsConfig.AllowHeaders = []string{"Origin", "Content-Type", "Accept", "Authorization"}
@@ -309,7 +328,7 @@ func main() {
 	pluginRegistry := pluginRuntime.Registry()
 	hookRegistry := pluginRuntime.Hooks()
 
-	oidcProvider, err := oidc.NewProvider(cfg.OIDC, globalDB, globalRedisStore, accountAuth)
+	oidcProvider, err = oidc.NewProvider(cfg.OIDC, globalDB, globalRedisStore, accountAuth)
 	if err != nil {
 		log.Fatalf("Failed to initialize OIDC provider: %v", err)
 	}
@@ -340,7 +359,7 @@ func main() {
 	var adminServer *admin.AdminServer
 	if cfg.Admin.Enabled {
 		logger := log.New(os.Stdout, "[ADMIN] ", log.LstdFlags)
-		adminServer = admin.NewAdminServer(cfg, globalDB, logger, pluginRuntime, enterpriseOIDC, enterpriseSAML, enterpriseLDAP, *adminWebFilePath, *adminPort)
+		adminServer = admin.NewAdminServer(cfg, globalDB, logger, pluginRuntime, oidcProvider, enterpriseOIDC, enterpriseSAML, enterpriseLDAP, *adminWebFilePath, *adminPort)
 
 		if adminServer != nil {
 			go func() {

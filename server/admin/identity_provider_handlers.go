@@ -1,7 +1,6 @@
 package admin
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"sort"
@@ -12,6 +11,7 @@ import (
 
 	"minki.cc/mkauth/server/config"
 	"minki.cc/mkauth/server/iam"
+	"minki.cc/mkauth/server/secureconfig"
 )
 
 var defaultAdminOIDCScopes = []string{"openid", "profile", "email"}
@@ -128,42 +128,71 @@ func (s *AdminServer) handleListOrganizationIdentityProviders(c *gin.Context) {
 }
 
 func (s *AdminServer) handleCreateOrganizationIdentityProvider(c *gin.Context) {
+	actor := pluginAuditActor(c)
 	org, ok := s.loadOrganization(c, c.Param("id"))
 	if !ok {
 		return
 	}
 	var req organizationIdentityProviderPayload
 	if err := c.ShouldBindJSON(&req); err != nil {
+		s.appendSecurityAudit(securityAuditActionIdentityProviderCreate, actor, false, err, map[string]string{
+			"resource_type":   "identity_provider",
+			"organization_id": org.OrganizationID,
+			"stage":           "bind_payload",
+		})
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid identity provider payload"})
 		return
 	}
 	record, err := s.organizationIdentityProviderFromPayload(org.OrganizationID, req, nil)
 	if err != nil {
+		s.appendSecurityAudit(securityAuditActionIdentityProviderCreate, actor, false, err, securityAuditDetailsWithExtras(map[string]string{
+			"resource_type":   "identity_provider",
+			"organization_id": org.OrganizationID,
+			"provider_type":   strings.TrimSpace(strings.ToLower(req.ProviderType)),
+			"slug":            normalizeIdentityProviderSlug(req.Slug),
+			"name":            strings.TrimSpace(req.Name),
+		}, map[string]string{
+			"stage": "config_validation",
+		}))
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 	record.IdentityProviderID, err = iam.NewService(s.db).GenerateIdentityProviderID()
 	if err != nil {
+		s.appendSecurityAudit(securityAuditActionIdentityProviderCreate, actor, false, err, securityAuditDetailsWithExtras(securityAuditDetailsForIdentityProviderRecord(record), map[string]string{
+			"stage": "generate_identity_provider_id",
+		}))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 	if err := s.db.Create(&record).Error; err != nil {
+		s.appendSecurityAudit(securityAuditActionIdentityProviderCreate, actor, false, err, securityAuditDetailsWithExtras(securityAuditDetailsForIdentityProviderRecord(record), map[string]string{
+			"stage": "persist_record",
+		}))
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 	if err := s.reloadEnterpriseIdentityProviders(); err != nil {
+		s.appendSecurityAudit(securityAuditActionIdentityProviderCreate, actor, false, err, securityAuditDetailsWithExtras(securityAuditDetailsForIdentityProviderRecord(record), map[string]string{
+			"stage": "reload_enterprise_identity_providers",
+		}))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 	view, err := organizationIdentityProviderToView(record)
 	if err != nil {
+		s.appendSecurityAudit(securityAuditActionIdentityProviderCreate, actor, false, err, securityAuditDetailsWithExtras(securityAuditDetailsForIdentityProviderRecord(record), map[string]string{
+			"stage": "load_view",
+		}))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	s.appendSecurityAudit(securityAuditActionIdentityProviderCreate, actor, true, nil, securityAuditDetailsForIdentityProviderView(view, ""))
 	c.JSON(http.StatusCreated, gin.H{"identity_provider": view})
 }
 
 func (s *AdminServer) handleUpdateOrganizationIdentityProvider(c *gin.Context) {
+	actor := pluginAuditActor(c)
 	org, ok := s.loadOrganization(c, c.Param("id"))
 	if !ok {
 		return
@@ -174,31 +203,49 @@ func (s *AdminServer) handleUpdateOrganizationIdentityProvider(c *gin.Context) {
 	}
 	var req organizationIdentityProviderPayload
 	if err := c.ShouldBindJSON(&req); err != nil {
+		s.appendSecurityAudit(securityAuditActionIdentityProviderUpdate, actor, false, err, securityAuditDetailsWithExtras(securityAuditDetailsForIdentityProviderRecord(current), map[string]string{
+			"stage": "bind_payload",
+		}))
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid identity provider payload"})
 		return
 	}
 	updated, err := s.organizationIdentityProviderFromPayload(org.OrganizationID, req, &current)
 	if err != nil {
+		s.appendSecurityAudit(securityAuditActionIdentityProviderUpdate, actor, false, err, securityAuditDetailsWithExtras(securityAuditDetailsForIdentityProviderRecord(current), map[string]string{
+			"requested_slug": normalizeIdentityProviderSlug(req.Slug),
+			"stage":          "config_validation",
+		}))
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 	if err := s.db.Save(&updated).Error; err != nil {
+		s.appendSecurityAudit(securityAuditActionIdentityProviderUpdate, actor, false, err, securityAuditDetailsWithExtras(securityAuditDetailsForIdentityProviderRecord(updated), map[string]string{
+			"stage": "persist_record",
+		}))
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 	if err := s.reloadEnterpriseIdentityProviders(); err != nil {
+		s.appendSecurityAudit(securityAuditActionIdentityProviderUpdate, actor, false, err, securityAuditDetailsWithExtras(securityAuditDetailsForIdentityProviderRecord(updated), map[string]string{
+			"stage": "reload_enterprise_identity_providers",
+		}))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 	view, err := organizationIdentityProviderToView(updated)
 	if err != nil {
+		s.appendSecurityAudit(securityAuditActionIdentityProviderUpdate, actor, false, err, securityAuditDetailsWithExtras(securityAuditDetailsForIdentityProviderRecord(updated), map[string]string{
+			"stage": "load_view",
+		}))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	s.appendSecurityAudit(securityAuditActionIdentityProviderUpdate, actor, true, nil, securityAuditDetailsForIdentityProviderView(view, current.Slug))
 	c.JSON(http.StatusOK, gin.H{"identity_provider": view})
 }
 
 func (s *AdminServer) handleDeleteOrganizationIdentityProvider(c *gin.Context) {
+	actor := pluginAuditActor(c)
 	org, ok := s.loadOrganization(c, c.Param("id"))
 	if !ok {
 		return
@@ -208,13 +255,20 @@ func (s *AdminServer) handleDeleteOrganizationIdentityProvider(c *gin.Context) {
 		return
 	}
 	if err := s.db.Delete(&iam.OrganizationIdentityProvider{}, "identity_provider_id = ?", record.IdentityProviderID).Error; err != nil {
+		s.appendSecurityAudit(securityAuditActionIdentityProviderDelete, actor, false, err, securityAuditDetailsWithExtras(securityAuditDetailsForIdentityProviderRecord(record), map[string]string{
+			"stage": "delete_record",
+		}))
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 	if err := s.reloadEnterpriseIdentityProviders(); err != nil {
+		s.appendSecurityAudit(securityAuditActionIdentityProviderDelete, actor, false, err, securityAuditDetailsWithExtras(securityAuditDetailsForIdentityProviderRecord(record), map[string]string{
+			"stage": "reload_enterprise_identity_providers",
+		}))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	s.appendSecurityAudit(securityAuditActionIdentityProviderDelete, actor, true, nil, securityAuditDetailsForIdentityProviderRecord(record))
 	c.JSON(http.StatusOK, gin.H{"message": "organization identity provider deleted successfully"})
 }
 
@@ -321,11 +375,11 @@ func (s *AdminServer) organizationIdentityProviderFromPayload(organizationID str
 			RedirectURI:  providerConfig.RedirectURI,
 			Scopes:       providerConfig.Scopes,
 		}
-		var err error
-		configJSON, err = json.Marshal(storedConfig)
+		encoded, err := encodeStoredEnterpriseOIDCConfig(storedConfig)
 		if err != nil {
 			return iam.OrganizationIdentityProvider{}, err
 		}
+		configJSON = []byte(encoded)
 	case string(iam.IdentityProviderTypeSAML):
 		existingConfig := config.EnterpriseSAMLProviderConfig{}
 		if current != nil && current.ProviderType == iam.IdentityProviderTypeSAML {
@@ -384,11 +438,11 @@ func (s *AdminServer) organizationIdentityProviderFromPayload(organizationID str
 			AllowIDPInitiated:    providerConfig.AllowIDPInitiated,
 			DefaultRedirectURI:   providerConfig.DefaultRedirectURI,
 		}
-		var err error
-		configJSON, err = json.Marshal(storedConfig)
+		encoded, err := encodeStoredEnterpriseSAMLConfig(storedConfig)
 		if err != nil {
 			return iam.OrganizationIdentityProvider{}, err
 		}
+		configJSON = []byte(encoded)
 	case string(iam.IdentityProviderTypeLDAP):
 		existingConfig := config.EnterpriseLDAPProviderConfig{}
 		if current != nil && current.ProviderType == iam.IdentityProviderTypeLDAP {
@@ -460,11 +514,11 @@ func (s *AdminServer) organizationIdentityProviderFromPayload(organizationID str
 			UsernameAttribute:    providerConfig.UsernameAttribute,
 			DisplayNameAttribute: providerConfig.DisplayNameAttribute,
 		}
-		var err error
-		configJSON, err = json.Marshal(storedConfig)
+		encoded, err := encodeStoredEnterpriseLDAPConfig(storedConfig)
 		if err != nil {
 			return iam.OrganizationIdentityProvider{}, err
 		}
+		configJSON = []byte(encoded)
 	}
 
 	if current != nil {
@@ -623,10 +677,14 @@ func decodeStoredEnterpriseOIDCConfig(record iam.OrganizationIdentityProvider) (
 		return config.EnterpriseOIDCProviderConfig{}, fmt.Errorf("identity provider %q is missing config", record.Slug)
 	}
 	var providerConfig config.EnterpriseOIDCProviderConfig
-	if err := json.Unmarshal([]byte(record.ConfigJSON), &providerConfig); err != nil {
+	if err := secureconfig.OpenJSON(record.ConfigJSON, &providerConfig); err != nil {
 		return config.EnterpriseOIDCProviderConfig{}, fmt.Errorf("decode identity provider %q config: %w", record.Slug, err)
 	}
 	return providerConfig, nil
+}
+
+func encodeStoredEnterpriseOIDCConfig(providerConfig config.EnterpriseOIDCProviderConfig) (string, error) {
+	return secureconfig.SealJSON(providerConfig)
 }
 
 func decodeStoredEnterpriseSAMLConfig(record iam.OrganizationIdentityProvider) (config.EnterpriseSAMLProviderConfig, error) {
@@ -634,10 +692,14 @@ func decodeStoredEnterpriseSAMLConfig(record iam.OrganizationIdentityProvider) (
 		return config.EnterpriseSAMLProviderConfig{}, fmt.Errorf("identity provider %q is missing config", record.Slug)
 	}
 	var providerConfig config.EnterpriseSAMLProviderConfig
-	if err := json.Unmarshal([]byte(record.ConfigJSON), &providerConfig); err != nil {
+	if err := secureconfig.OpenJSON(record.ConfigJSON, &providerConfig); err != nil {
 		return config.EnterpriseSAMLProviderConfig{}, fmt.Errorf("decode identity provider %q config: %w", record.Slug, err)
 	}
 	return providerConfig, nil
+}
+
+func encodeStoredEnterpriseSAMLConfig(providerConfig config.EnterpriseSAMLProviderConfig) (string, error) {
+	return secureconfig.SealJSON(providerConfig)
 }
 
 func decodeStoredEnterpriseLDAPConfig(record iam.OrganizationIdentityProvider) (config.EnterpriseLDAPProviderConfig, error) {
@@ -645,10 +707,14 @@ func decodeStoredEnterpriseLDAPConfig(record iam.OrganizationIdentityProvider) (
 		return config.EnterpriseLDAPProviderConfig{}, fmt.Errorf("identity provider %q is missing config", record.Slug)
 	}
 	var providerConfig config.EnterpriseLDAPProviderConfig
-	if err := json.Unmarshal([]byte(record.ConfigJSON), &providerConfig); err != nil {
+	if err := secureconfig.OpenJSON(record.ConfigJSON, &providerConfig); err != nil {
 		return config.EnterpriseLDAPProviderConfig{}, fmt.Errorf("decode identity provider %q config: %w", record.Slug, err)
 	}
 	return providerConfig, nil
+}
+
+func encodeStoredEnterpriseLDAPConfig(providerConfig config.EnterpriseLDAPProviderConfig) (string, error) {
+	return secureconfig.SealJSON(providerConfig)
 }
 
 func normalizeIdentityProviderSlug(raw string) string {

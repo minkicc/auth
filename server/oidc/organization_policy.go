@@ -7,7 +7,10 @@ package oidc
 
 import (
 	"errors"
+	"sort"
 	"strings"
+
+	"gorm.io/gorm"
 
 	"minki.cc/mkauth/server/config"
 	"minki.cc/mkauth/server/iam"
@@ -15,23 +18,21 @@ import (
 
 var ErrClientNotFound = errors.New("oidc client not found")
 
-func (p *Provider) clientUsesOrganizationPolicy(client config.OIDCClientConfig) bool {
-	return client.RequireOrganization ||
-		len(client.AllowedOrganizations) > 0 ||
-		len(client.RequiredOrgRoles) > 0 ||
-		len(client.RequiredOrgGroups) > 0
+func (p *Provider) clientUsesOrganizationPolicy(client config.OIDCClientConfig, requestedScopes []string) bool {
+	return len(p.organizationPoliciesForScopes(client, requestedScopes)) > 0
 }
 
-func (p *Provider) AuthorizedOrganizationIDsForClient(userID, clientID string) (map[string]struct{}, bool, error) {
+func (p *Provider) AuthorizedOrganizationIDsForClient(userID, clientID, scope string) (map[string]struct{}, bool, error) {
 	client, ok := p.findClient(strings.TrimSpace(clientID))
 	if !ok {
 		return nil, false, ErrClientNotFound
 	}
-	if !p.clientUsesOrganizationPolicy(client) {
+	requestedScopes := normalizeRequestedScopes(strings.Fields(scope))
+	if !p.clientUsesOrganizationPolicy(client, requestedScopes) {
 		return nil, false, nil
 	}
 
-	organizations, err := p.listAuthorizedOrganizations(userID, client)
+	organizations, err := p.listAuthorizedOrganizations(userID, client, requestedScopes)
 	if err != nil {
 		return nil, true, err
 	}
@@ -42,7 +43,7 @@ func (p *Provider) AuthorizedOrganizationIDsForClient(userID, clientID string) (
 	return allowed, true, nil
 }
 
-func (p *Provider) listAuthorizedOrganizations(userID string, client config.OIDCClientConfig) ([]organizationClaims, error) {
+func (p *Provider) listAuthorizedOrganizations(userID string, client config.OIDCClientConfig, requestedScopes []string) ([]organizationClaims, error) {
 	if p.db == nil || userID == "" || !p.db.Migrator().HasTable(&iam.OrganizationMembership{}) {
 		return nil, nil
 	}
@@ -66,40 +67,50 @@ func (p *Provider) listAuthorizedOrganizations(userID string, client config.OIDC
 	if err != nil {
 		return nil, err
 	}
-	groupMap, err := p.organizationGroupDisplayNamesForUser(userID, orgIDs)
-	if err != nil {
-		return nil, err
-	}
-
 	claimsList := make([]organizationClaims, 0, len(memberships))
 	for _, membership := range memberships {
-		claims := organizationClaims{
-			OrgID:    membership.OrganizationID,
-			OrgRoles: parseOrganizationRoles(membership.RolesJSON),
-		}
+		claims := organizationClaims{OrgID: membership.OrganizationID}
 		if organization, ok := orgMap[membership.OrganizationID]; ok {
 			if organization.Status != iam.OrganizationStatusActive {
 				continue
 			}
 			claims.OrgSlug = organization.Slug
 		}
-		if groups, ok := groupMap[membership.OrganizationID]; ok {
-			claims.OrgGroups = groups
+		authz, err := iam.NewService(p.db).ResolveOrganizationAuthorization(userID, membership.OrganizationID)
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, err
 		}
-		if p.organizationAllowedForClient(client, claims) {
+		if err == nil {
+			claims.OrgRoles = authz.RoleSlugs
+			claims.OrgGroups = authz.GroupNames
+		}
+		if p.organizationAllowedForClient(client, claims, requestedScopes) {
 			claimsList = append(claimsList, claims)
 		}
 	}
 	return claimsList, nil
 }
 
-func (p *Provider) organizationAllowedForClient(client config.OIDCClientConfig, claims organizationClaims) bool {
-	if claims.OrgID == "" {
-		return !p.clientUsesOrganizationPolicy(client)
+func (p *Provider) organizationAllowedForClient(client config.OIDCClientConfig, claims organizationClaims, requestedScopes []string) bool {
+	policies := p.organizationPoliciesForScopes(client, requestedScopes)
+	if len(policies) == 0 {
+		return claims.OrgID != ""
 	}
-	if len(client.AllowedOrganizations) > 0 {
+	if claims.OrgID == "" {
+		return false
+	}
+	for _, policy := range policies {
+		if !organizationAllowedForPolicy(policy, claims) {
+			return false
+		}
+	}
+	return true
+}
+
+func organizationAllowedForPolicy(policy config.OIDCOrganizationPolicy, claims organizationClaims) bool {
+	if len(policy.AllowedOrganizations) > 0 {
 		matched := false
-		for _, allowed := range client.AllowedOrganizations {
+		for _, allowed := range policy.AllowedOrganizations {
 			allowed = strings.TrimSpace(allowed)
 			if allowed == "" {
 				continue
@@ -113,16 +124,49 @@ func (p *Provider) organizationAllowedForClient(client config.OIDCClientConfig, 
 			return false
 		}
 	}
-	if len(client.RequiredOrgRoles) > 0 && !anyStringMatchFold(claims.OrgRoles, client.RequiredOrgRoles) {
+	if len(policy.RequiredOrgRoles) > 0 && !anyStringMatchFold(claims.OrgRoles, policy.RequiredOrgRoles) {
 		return false
 	}
-	if len(client.RequiredOrgGroups) > 0 && !anyStringMatchFold(claims.OrgGroups, client.RequiredOrgGroups) {
+	if len(policy.RequiredOrgRolesAll) > 0 && !allStringMatchFold(claims.OrgRoles, policy.RequiredOrgRolesAll) {
 		return false
 	}
-	if client.RequireOrganization && claims.OrgID == "" {
+	if len(policy.RequiredOrgGroups) > 0 && !anyStringMatchFold(claims.OrgGroups, policy.RequiredOrgGroups) {
+		return false
+	}
+	if len(policy.RequiredOrgGroupsAll) > 0 && !allStringMatchFold(claims.OrgGroups, policy.RequiredOrgGroupsAll) {
+		return false
+	}
+	if policy.RequireOrganization && claims.OrgID == "" {
 		return false
 	}
 	return true
+}
+
+func (p *Provider) organizationPoliciesForScopes(client config.OIDCClientConfig, requestedScopes []string) []config.OIDCOrganizationPolicy {
+	policies := make([]config.OIDCOrganizationPolicy, 0, 1+len(requestedScopes))
+	basePolicy := normalizeOrganizationPolicy(client.OIDCOrganizationPolicy)
+	if organizationPolicyConfigured(basePolicy) {
+		policies = append(policies, basePolicy)
+	}
+	if len(client.ScopePolicies) == 0 || len(requestedScopes) == 0 {
+		return policies
+	}
+	seen := make(map[string]struct{}, len(requestedScopes))
+	for _, scope := range normalizeRequestedScopes(requestedScopes) {
+		if _, ok := seen[scope]; ok {
+			continue
+		}
+		seen[scope] = struct{}{}
+		policy, ok := client.ScopePolicies[scope]
+		if !ok {
+			continue
+		}
+		policy = normalizeOrganizationPolicy(policy)
+		if organizationPolicyConfigured(policy) {
+			policies = append(policies, policy)
+		}
+	}
+	return policies
 }
 
 func (p *Provider) organizationMapByID(organizationIDs []string) (map[string]iam.Organization, error) {
@@ -194,4 +238,51 @@ func anyStringMatchFold(values, required []string) bool {
 		}
 	}
 	return false
+}
+
+func allStringMatchFold(values, required []string) bool {
+	requiredSet := map[string]struct{}{}
+	for _, item := range required {
+		item = strings.TrimSpace(strings.ToLower(item))
+		if item != "" {
+			requiredSet[item] = struct{}{}
+		}
+	}
+	if len(requiredSet) == 0 {
+		return true
+	}
+	valueSet := map[string]struct{}{}
+	for _, value := range values {
+		value = strings.TrimSpace(strings.ToLower(value))
+		if value != "" {
+			valueSet[value] = struct{}{}
+		}
+	}
+	for item := range requiredSet {
+		if _, ok := valueSet[item]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func normalizeRequestedScopes(requestedScopes []string) []string {
+	if len(requestedScopes) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(requestedScopes))
+	normalized := make([]string, 0, len(requestedScopes))
+	for _, scope := range requestedScopes {
+		scope = strings.ToLower(strings.TrimSpace(scope))
+		if scope == "" {
+			continue
+		}
+		if _, ok := seen[scope]; ok {
+			continue
+		}
+		seen[scope] = struct{}{}
+		normalized = append(normalized, scope)
+	}
+	sort.Strings(normalized)
+	return normalized
 }

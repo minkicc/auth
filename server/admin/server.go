@@ -21,6 +21,7 @@ import (
 	"minki.cc/mkauth/server/auth"
 	"minki.cc/mkauth/server/config"
 	"minki.cc/mkauth/server/iam"
+	"minki.cc/mkauth/server/oidc"
 	"minki.cc/mkauth/server/plugins"
 )
 
@@ -33,22 +34,30 @@ const ADMIN_ROUTER_PATH = config.ADMIN_ROUTER_PATH
 
 // AdminServer Admin server
 type AdminServer struct {
-	config         *config.AdminConfig
-	publicBaseURL  string
-	db             *gorm.DB
-	router         *gin.Engine
-	server         *http.Server
-	logger         *log.Logger
-	redis          *auth.RedisStore
-	sessionMgr     *auth.SessionManager
-	plugins        *plugins.Runtime
-	enterpriseOIDC *iam.EnterpriseOIDCManager
-	enterpriseSAML *iam.EnterpriseSAMLManager
-	enterpriseLDAP *iam.EnterpriseLDAPManager
+	config                  *config.AdminConfig
+	publicBaseURL           string
+	db                      *gorm.DB
+	router                  *gin.Engine
+	server                  *http.Server
+	logger                  *log.Logger
+	redis                   *auth.RedisStore
+	sessionMgr              *auth.SessionManager
+	plugins                 *plugins.Runtime
+	oidcProvider            *oidc.Provider
+	oidcStaticCfgs          []config.OIDCClientConfig
+	secretsEnabled          bool
+	secretsFallbackKeyCount int
+	enterpriseOIDC          *iam.EnterpriseOIDCManager
+	enterpriseSAML          *iam.EnterpriseSAMLManager
+	enterpriseLDAP          *iam.EnterpriseLDAPManager
+	exportJobRetentionDays  int
+	exportJobAutoCleanup    bool
+	exportJobCleanupCancel  context.CancelFunc
+	exportJobCleanupDone    chan struct{}
 }
 
 // NewAdminServer Create admin server
-func NewAdminServer(cfg *config.Config, db *gorm.DB, logger *log.Logger, pluginRuntime *plugins.Runtime, enterpriseOIDC *iam.EnterpriseOIDCManager, enterpriseSAML *iam.EnterpriseSAMLManager, enterpriseLDAP *iam.EnterpriseLDAPManager, webFilePath string, port int) *AdminServer {
+func NewAdminServer(cfg *config.Config, db *gorm.DB, logger *log.Logger, pluginRuntime *plugins.Runtime, oidcProvider *oidc.Provider, enterpriseOIDC *iam.EnterpriseOIDCManager, enterpriseSAML *iam.EnterpriseSAMLManager, enterpriseLDAP *iam.EnterpriseLDAPManager, webFilePath string, port int) *AdminServer {
 	if !cfg.Admin.Enabled {
 		return nil
 	}
@@ -84,16 +93,22 @@ func NewAdminServer(cfg *config.Config, db *gorm.DB, logger *log.Logger, pluginR
 
 	// Create admin server
 	server := &AdminServer{
-		config:         &cfg.Admin,
-		publicBaseURL:  cfg.OIDC.Issuer,
-		db:             db,
-		logger:         logger,
-		redis:          redisStore,
-		sessionMgr:     sessionManager,
-		plugins:        pluginRuntime,
-		enterpriseOIDC: enterpriseOIDC,
-		enterpriseSAML: enterpriseSAML,
-		enterpriseLDAP: enterpriseLDAP,
+		config:                  &cfg.Admin,
+		publicBaseURL:           cfg.OIDC.Issuer,
+		db:                      db,
+		logger:                  logger,
+		redis:                   redisStore,
+		sessionMgr:              sessionManager,
+		plugins:                 pluginRuntime,
+		oidcProvider:            oidcProvider,
+		oidcStaticCfgs:          append([]config.OIDCClientConfig(nil), cfg.OIDC.Clients...),
+		secretsEnabled:          len(cfg.Secrets.EffectiveEncryptionKeys()) > 0,
+		secretsFallbackKeyCount: cfg.Secrets.FallbackKeyCount(),
+		enterpriseOIDC:          enterpriseOIDC,
+		enterpriseSAML:          enterpriseSAML,
+		enterpriseLDAP:          enterpriseLDAP,
+		exportJobRetentionDays:  cfg.Admin.SecurityAuditExportJobRetentionDaysOrDefault(),
+		exportJobAutoCleanup:    cfg.Admin.SecurityAuditExportJobAutoCleanupEnabled(),
 	}
 
 	// Set Gin mode
@@ -137,12 +152,14 @@ func NewAdminServer(cfg *config.Config, db *gorm.DB, logger *log.Logger, pluginR
 
 // Start Start admin server
 func (s *AdminServer) Start() error {
+	s.startSecurityAuditExportJobAutoCleanupLoop()
 	s.logger.Printf("Admin server started on :%s", s.server.Addr)
 	return s.server.ListenAndServe()
 }
 
 // Shutdown Shutdown admin server
 func (s *AdminServer) Shutdown(ctx context.Context) error {
+	s.stopSecurityAuditExportJobAutoCleanupLoop()
 	// Close Redis connection
 	if s.redis != nil {
 		if err := s.redis.Close(); err != nil {
@@ -200,10 +217,38 @@ func (s *AdminServer) registerRoutes(r *gin.Engine, webFilePath string) {
 		admin.GET("/organizations/:id/groups/:group_id", s.handleGetOrganizationGroup)
 		admin.PATCH("/organizations/:id/groups/:group_id", s.handleUpdateOrganizationGroup)
 		admin.DELETE("/organizations/:id/groups/:group_id", s.handleDeleteOrganizationGroup)
+		admin.GET("/organizations/:id/roles", s.handleListOrganizationRoles)
+		admin.POST("/organizations/:id/roles", s.handleCreateOrganizationRole)
+		admin.PATCH("/organizations/:id/roles/:role_id", s.handleUpdateOrganizationRole)
+		admin.DELETE("/organizations/:id/roles/:role_id", s.handleDeleteOrganizationRole)
+		admin.POST("/organizations/:id/roles/:role_id/bindings", s.handleCreateOrganizationRoleBinding)
+		admin.DELETE("/organizations/:id/roles/:role_id/bindings/:binding_id", s.handleDeleteOrganizationRoleBinding)
 		admin.GET("/organizations/:id/identity-providers", s.handleListOrganizationIdentityProviders)
 		admin.POST("/organizations/:id/identity-providers", s.handleCreateOrganizationIdentityProvider)
 		admin.PATCH("/organizations/:id/identity-providers/:provider_id", s.handleUpdateOrganizationIdentityProvider)
 		admin.DELETE("/organizations/:id/identity-providers/:provider_id", s.handleDeleteOrganizationIdentityProvider)
+		admin.GET("/oidc/clients", s.handleListOIDCClients)
+		admin.POST("/oidc/clients", s.handleCreateOIDCClient)
+		admin.PATCH("/oidc/clients/:client_id", s.handleUpdateOIDCClient)
+		admin.DELETE("/oidc/clients/:client_id", s.handleDeleteOIDCClient)
+		admin.GET("/security/secrets/status", s.handleGetSecretsStatus)
+		admin.GET("/security/audit", s.handleGetSecurityAudit)
+		admin.GET("/security/audit/export", s.handleExportSecurityAudit)
+		admin.GET("/security/audit/export-jobs", s.handleListSecurityAuditExportJobs)
+		admin.POST("/security/audit/export-jobs", s.handleCreateSecurityAuditExportJob)
+		admin.POST("/security/audit/export-jobs/cleanup", s.handleCleanupSecurityAuditExportJobs)
+		admin.GET("/security/audit/export-jobs/:job_id", s.handleGetSecurityAuditExportJob)
+		admin.DELETE("/security/audit/export-jobs/:job_id", s.handleDeleteSecurityAuditExportJob)
+		admin.GET("/security/audit/export-jobs/:job_id/download", s.handleDownloadSecurityAuditExportJob)
+		admin.GET("/security/secrets/audit", s.handleGetSecretsAudit)
+		admin.GET("/security/secrets/audit/export", s.handleExportSecretsAudit)
+		admin.GET("/security/secrets/audit/export-jobs", s.handleListSecretsAuditExportJobs)
+		admin.POST("/security/secrets/audit/export-jobs", s.handleCreateSecretsAuditExportJob)
+		admin.POST("/security/secrets/audit/export-jobs/cleanup", s.handleCleanupSecretsAuditExportJobs)
+		admin.GET("/security/secrets/audit/export-jobs/:job_id", s.handleGetSecretsAuditExportJob)
+		admin.DELETE("/security/secrets/audit/export-jobs/:job_id", s.handleDeleteSecretsAuditExportJob)
+		admin.GET("/security/secrets/audit/export-jobs/:job_id/download", s.handleDownloadSecretsAuditExportJob)
+		admin.POST("/security/secrets/reseal", s.handleResealManagedSecrets)
 
 		// Plugin management
 		admin.GET("/plugins", s.handleGetPlugins)

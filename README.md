@@ -1,6 +1,6 @@
 # MKAuth
 
-MKAuth is a deployable authentication service that provides account/password, email, phone, Google, WeChat, and WeChat Mini Program login, together with JWT, session management, an admin console, and a Go SDK.
+MKAuth is a deployable authentication service and extensible B2B CIAM platform. It provides account/password, email, phone, Google, WeChat, and WeChat Mini Program login, together with downstream OIDC, enterprise identity federation, organization-aware access, session management, an admin console, and a Go SDK.
 
 The `codex/oidc-break` branch moves the primary integration path to standard OIDC. New integrations should prefer `Authorization Code + PKCE` plus discovery via `/.well-known/openid-configuration`; the older `/api/login/redirect` and `/api/login/verify` flow has been removed from this branch.
 
@@ -21,7 +21,33 @@ It is a good fit when:
 - Go SDK
 - Docker / Docker Compose deployment
 
-For the CIAM/IAM extension roadmap, see [docs/ciam-iam-plugin-architecture.md](docs/ciam-iam-plugin-architecture.md).
+## Positioning
+
+MKAuth is currently best positioned as an extensible B2B CIAM platform:
+
+- upstream enterprise federation through OIDC, SAML, and LDAP/AD
+- organizations, domains, memberships, groups, and organization-aware claims
+- inbound SCIM provisioning for enterprise users and groups
+- downstream OIDC for your own applications and services
+- installable plugins and HTTP actions for custom identity workflows
+- admin-grade security operations such as secret encryption, reseal, audit, and export
+
+MKAuth is not yet a full workforce IAM suite. It still needs deeper RBAC/policy enforcement, broader delegated administration, service accounts, and MFA/WebAuthn before it should be presented that way.
+
+## Current Platform Capabilities
+
+- Enterprise OIDC federation
+- Enterprise SAML federation
+- Enterprise LDAP/AD login and group sync
+- Organizations, domains, memberships, and organization groups
+- HRD by email domain plus `login_hint`, `domain_hint`, and `org_hint`
+- Inbound SCIM Users and Groups
+- Organization-aware OIDC claims and client-level organization access policy
+- Admin-managed downstream OIDC clients with runtime reload
+- Installable plugin runtime and HTTP actions
+- Secret encryption, key rotation fallback, reseal, and security audit export jobs
+
+For the CIAM/IAM architecture and roadmap, see [docs/ciam-iam-plugin-architecture.md](docs/ciam-iam-plugin-architecture.md), [docs/roadmap.md](docs/roadmap.md), and the GitHub Projects-ready breakdown in [docs/project-board.md](docs/project-board.md).
 
 ## Repository Layout
 
@@ -218,6 +244,21 @@ redis:
   db: 0
 ```
 
+For production, also configure a secrets encryption key so admin-managed sensitive config is encrypted before it is stored in the database:
+
+```yaml
+secrets:
+  encryption_key_env: "MKAUTH_SECRETS_KEY"
+  # or:
+  # encryption_key: "CHANGE_THIS_TO_A_LONG_RANDOM_SECRET"
+  # optional rotation fallbacks:
+  decryption_key_envs:
+    - "MKAUTH_OLD_SECRETS_KEY"
+```
+
+When this key is set, MKAuth encrypts database-managed OIDC client secrets and enterprise identity provider secrets at rest. Existing plaintext rows remain readable for backward compatibility.
+When rotating keys, configure the new key as `encryption_key(_env)` and keep the previous keys in `decryption_key_envs`. MKAuth will continue decrypting older rows with the fallback keys while encrypting all new writes with the new primary key.
+
 If you do not configure MySQL, MKAuth now starts with SQLite by default and stores data in `data/mkauth.sqlite3`. You can also set `db.driver: sqlite` explicitly and override the file location with `db.sqlite_path`.
 
 ### Plugin runtime
@@ -321,6 +362,10 @@ Useful endpoints:
 - Admin plugin install from URL: `POST /admin-api/plugins/install-url`
 - Admin plugin restore: `POST /admin-api/plugins/restore`
 - Admin plugin config update: `PATCH /admin-api/plugins/:id/config`
+- Admin security audit: `GET /admin-api/security/audit`
+- Admin security audit export: `GET /admin-api/security/audit/export`
+- Admin security audit export jobs: `GET /admin-api/security/audit/export-jobs`, `POST /admin-api/security/audit/export-jobs`, `POST /admin-api/security/audit/export-jobs/cleanup`, `GET /admin-api/security/audit/export-jobs/:job_id`, `DELETE /admin-api/security/audit/export-jobs/:job_id`, `GET /admin-api/security/audit/export-jobs/:job_id/download`
+- Admin secrets status/reseal: `GET /admin-api/security/secrets/status`, `POST /admin-api/security/secrets/reseal`
 
 See [examples/plugins/http-claims-action](examples/plugins/http-claims-action/README.md) for a self-contained local plugin example, and [examples/plugins/catalog.yaml](examples/plugins/catalog.yaml) for a catalog example.
 
@@ -491,7 +536,8 @@ oidc:
   access_token_ttl_seconds: 900
   id_token_ttl_seconds: 900
   clients:
-    - client_id: "demo-spa"
+    - name: "Demo SPA"
+      client_id: "demo-spa"
       public: true
       require_pkce: true
       redirect_uris:
@@ -507,9 +553,25 @@ oidc:
       #   - "org_acme000000000000"
       # required_org_roles:
       #   - "admin"
+      # required_org_roles_all:
+      #   - "security"
       # required_org_groups:
       #   - "Engineering Team"
+      # required_org_groups_all:
+      #   - "Employees"
+      # scope_policies:
+      #   email:
+      #     required_org_roles_all:
+      #       - "security"
+      #   admin_api:
+      #     required_org_roles:
+      #       - "admin"
 ```
+
+Static YAML is still supported for bootstrap, but MKAuth can now also manage OIDC clients from the admin console under `Settings -> OIDC Clients`. Database-managed clients are reloaded at runtime immediately after create, update, disable, or delete, so you do not need to restart the service for normal client lifecycle changes.
+The same Settings page now also exposes `Secrets Security`, which shows whether database encryption is enabled and lets an admin reseal stored OIDC client / enterprise provider secrets to the current primary key after a key rotation.
+The same admin security audit log now covers secrets reseal operations plus create, update, and delete activity for admin-managed OIDC clients and enterprise identity providers, so you can review both who changed sensitive configuration and whether the operation succeeded.
+`GET /admin-api/security/audit` supports `page`, `size`, `action`, `resource_type`, `client_id`, `provider_id`, `organization_id`, `actor_id`, `query`, `time_from`, `time_to`, and `success` query parameters. `client_id`, `provider_id`, and `organization_id` are exact-match filters for faster operational tracing. `time_from` and `time_to` accept RFC3339 timestamps, and `YYYY-MM-DD` is also accepted for whole-day filtering. `GET /admin-api/security/audit/export` exports the currently filtered result set as CSV, capped at 5000 rows per export. For longer-running exports, `POST /admin-api/security/audit/export-jobs` creates a background CSV export job, `GET /admin-api/security/audit/export-jobs` lists recent jobs, `GET /admin-api/security/audit/export-jobs/:job_id` returns the current status, and `GET /admin-api/security/audit/export-jobs/:job_id/download` downloads the generated CSV after completion. `DELETE /admin-api/security/audit/export-jobs/:job_id` removes a completed or failed job, while `POST /admin-api/security/audit/export-jobs/cleanup` clears completed/failed jobs according to the current retention policy. That retention policy is now configurable under `auth_admin.security_audit_export_job_retention_days`, and automatic hourly cleanup can be toggled with `auth_admin.security_audit_export_job_auto_cleanup`. The older `GET /admin-api/security/secrets/audit` path is still kept as a compatibility alias, and `GET /admin-api/security/secrets/audit/export` mirrors the CSV export for compatibility. The admin Settings page now keeps security-audit filters in the page URL, supports copying a shareable filtered link, includes an audit detail drawer for inspecting the full actor and details payload, plus one-click copy for audit IDs and resource identifiers, one-click jumps back into filtered audit history, direct open actions for managed OIDC clients or enterprise identity providers, and both immediate CSV export plus non-blocking background export jobs. The same page now also keeps a recent background-export list so operators can continue tracking and downloading completed exports after a refresh, delete a single completed/failed export job, or clean up older settled jobs. The Organizations page now does the same for organization-scoped identity-provider audit views, persisting filters into the URL, supporting copyable filtered links, allowing direct failed-record deep links for a selected provider, supporting the same background export flow for large audit result sets, and showing recent export jobs scoped to the current organization with the same cleanup actions.
 
 When enabled, MKAuth exposes these standard endpoints:
 - `/.well-known/openid-configuration`
@@ -526,9 +588,14 @@ If an OIDC client configures organization policy, MKAuth enforces it before issu
 - `require_organization`: the user must authorize within an active organization
 - `allowed_organizations`: allow only specific organization IDs or slugs
 - `required_org_roles`: require at least one matching `org_roles` entry
+- `required_org_roles_all`: require all listed `org_roles` entries
 - `required_org_groups`: require at least one matching `org_groups` entry
+- `required_org_groups_all`: require all listed `org_groups` entries
+- `scope_policies`: apply additional organization rules only when the matching OAuth scope is requested
 
 When only one organization satisfies the policy, MKAuth automatically pins the authorization to it. When multiple organizations satisfy it, the organization chooser shows only the eligible organizations.
+
+For authenticated browser sessions and access tokens, `GET /api/user/organization/authorization` resolves the current organization context from the token, `organization_id`, or `org_hint`, then returns the merged `roles`, `groups`, and `permissions` from MKAuth's unified organization authorization resolver. When the user belongs to multiple organizations and no explicit hint is provided, the endpoint returns `organization_selection_required`.
 
 ### Trusted backend client
 

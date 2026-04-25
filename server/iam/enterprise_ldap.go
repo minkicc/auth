@@ -25,6 +25,7 @@ import (
 
 	"minki.cc/mkauth/server/auth"
 	"minki.cc/mkauth/server/config"
+	"minki.cc/mkauth/server/secureconfig"
 )
 
 const (
@@ -265,7 +266,7 @@ func (m *EnterpriseLDAPManager) buildProviders() (map[string]*EnterpriseLDAPProv
 func enterpriseLDAPProviderConfigFromRecord(record OrganizationIdentityProvider) (config.EnterpriseLDAPProviderConfig, error) {
 	var providerCfg config.EnterpriseLDAPProviderConfig
 	if strings.TrimSpace(record.ConfigJSON) != "" {
-		if err := json.Unmarshal([]byte(record.ConfigJSON), &providerCfg); err != nil {
+		if err := secureconfig.OpenJSON(record.ConfigJSON, &providerCfg); err != nil {
 			return config.EnterpriseLDAPProviderConfig{}, fmt.Errorf("decode provider config: %w", err)
 		}
 	}

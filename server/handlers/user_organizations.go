@@ -49,7 +49,8 @@ func (h *AuthHandler) GetCurrentUserOrganizations(c *gin.Context) {
 		return
 	}
 	if clientID := strings.TrimSpace(c.Query("client_id")); clientID != "" && h.oidcProvider != nil {
-		allowedOrgIDs, filtered, err := h.oidcProvider.AuthorizedOrganizationIDsForClient(userIDStr, clientID)
+		scope := strings.Join(strings.Fields(c.Query("scope")), " ")
+		allowedOrgIDs, filtered, err := h.oidcProvider.AuthorizedOrganizationIDsForClient(userIDStr, clientID, scope)
 		switch {
 		case errors.Is(err, oidc.ErrClientNotFound):
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_client"})
@@ -89,25 +90,27 @@ func (h *AuthHandler) GetCurrentUserOrganizations(c *gin.Context) {
 		}
 	}
 
-	groupMap, err := organizationGroupDisplayNamesForUser(db, userIDStr, orgIDs)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
 	currentOrgID, _ := c.Get("org_id")
 	currentOrgIDStr, _ := currentOrgID.(string)
 	currentOrgSlug, _ := c.Get("org_slug")
 	currentOrgSlugStr, _ := currentOrgSlug.(string)
+	iamService := iam.NewService(db)
 
 	views := make([]currentUserOrganizationView, 0, len(memberships))
 	for _, membership := range memberships {
 		org := orgMap[membership.OrganizationID]
 		view := currentUserOrganizationView{
 			OrganizationID: membership.OrganizationID,
-			Roles:          parseStringListJSON(membership.RolesJSON),
-			Groups:         groupMap[membership.OrganizationID],
 			Current:        membership.OrganizationID == currentOrgIDStr,
+		}
+		authz, err := iamService.ResolveOrganizationAuthorization(userIDStr, membership.OrganizationID)
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		if err == nil {
+			view.Roles = authz.RoleSlugs
+			view.Groups = authz.GroupNames
 		}
 		if org.OrganizationID != "" {
 			view.Slug = org.Slug
@@ -122,32 +125,4 @@ func (h *AuthHandler) GetCurrentUserOrganizations(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"organizations": views})
-}
-
-func organizationGroupDisplayNamesForUser(db *gorm.DB, userID string, organizationIDs []string) (map[string][]string, error) {
-	result := map[string][]string{}
-	if db == nil || userID == "" || len(organizationIDs) == 0 || !db.Migrator().HasTable(&iam.OrganizationGroup{}) || !db.Migrator().HasTable(&iam.OrganizationGroupMember{}) {
-		return result, nil
-	}
-
-	var rows []struct {
-		OrganizationID string
-		DisplayName    string
-	}
-	if err := db.Table("organization_groups").
-		Select("organization_groups.organization_id, organization_groups.display_name").
-		Joins("JOIN organization_group_members ON organization_group_members.group_id = organization_groups.group_id AND organization_group_members.organization_id = organization_groups.organization_id").
-		Where("organization_group_members.user_id = ? AND organization_groups.organization_id IN ?", userID, organizationIDs).
-		Order("organization_groups.display_name ASC").
-		Scan(&rows).Error; err != nil {
-		return nil, err
-	}
-
-	for _, row := range rows {
-		result[row.OrganizationID] = append(result[row.OrganizationID], row.DisplayName)
-	}
-	for organizationID, groups := range result {
-		result[organizationID] = uniqueStrings(groups)
-	}
-	return result, nil
 }

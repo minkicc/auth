@@ -72,6 +72,14 @@ export interface CurrentUserOrganization {
     current?: boolean
 }
 
+export interface CurrentOrganizationAuthorization {
+    organization_id: string
+    organization_slug?: string
+    roles?: string[]
+    groups?: string[]
+    permissions?: string[]
+}
+
 type ApiErrorPayload = {
     error?: string | {
         message?: string
@@ -223,47 +231,41 @@ class ServerApi {
     }
 
     private extractLoginHintFromRedirectUri(redirectUri?: string | null): string {
-        const sanitizedRedirectUri = this.sanitizeRedirectUri(redirectUri)
-        if (!sanitizedRedirectUri) {
+        const url = this.authorizeURLFromRedirectUri(redirectUri)
+        if (!url) {
             return ''
         }
-
-        try {
-            const url = new URL(sanitizedRedirectUri)
-            const normalizedPath = this.normalizePath(url.pathname)
-            const isAuthorizePath = normalizedPath === '/oauth2/authorize' || normalizedPath.endsWith('/oauth2/authorize')
-            if (!isAuthorizePath) {
-                return ''
-            }
-            return this.sanitizeLoginHint(url.searchParams.get('login_hint'))
-        } catch {
-            return ''
-        }
+        return this.sanitizeLoginHint(url.searchParams.get('login_hint'))
     }
 
     private extractDomainHintFromRedirectUri(redirectUri?: string | null): string {
-        const sanitizedRedirectUri = this.sanitizeRedirectUri(redirectUri)
-        if (!sanitizedRedirectUri) {
+        const url = this.authorizeURLFromRedirectUri(redirectUri)
+        if (!url) {
             return ''
         }
-
-        try {
-            const url = new URL(sanitizedRedirectUri)
-            const normalizedPath = this.normalizePath(url.pathname)
-            const isAuthorizePath = normalizedPath === '/oauth2/authorize' || normalizedPath.endsWith('/oauth2/authorize')
-            if (!isAuthorizePath) {
-                return ''
-            }
-            return this.sanitizeDomainHint(url.searchParams.get('domain_hint'))
-        } catch {
-            return ''
-        }
+        return this.sanitizeDomainHint(url.searchParams.get('domain_hint'))
     }
 
     private extractOrgHintFromRedirectUri(redirectUri?: string | null): string {
+        const url = this.authorizeURLFromRedirectUri(redirectUri)
+        if (!url) {
+            return ''
+        }
+        return this.sanitizeOrgHint(url.searchParams.get('org_hint'))
+    }
+
+    private extractScopeFromRedirectUri(redirectUri?: string | null): string {
+        const url = this.authorizeURLFromRedirectUri(redirectUri)
+        if (!url) {
+            return ''
+        }
+        return url.searchParams.get('scope')?.trim() || ''
+    }
+
+    private authorizeURLFromRedirectUri(redirectUri?: string | null): URL | null {
         const sanitizedRedirectUri = this.sanitizeRedirectUri(redirectUri)
         if (!sanitizedRedirectUri) {
-            return ''
+            return null
         }
 
         try {
@@ -271,11 +273,11 @@ class ServerApi {
             const normalizedPath = this.normalizePath(url.pathname)
             const isAuthorizePath = normalizedPath === '/oauth2/authorize' || normalizedPath.endsWith('/oauth2/authorize')
             if (!isAuthorizePath) {
-                return ''
+                return null
             }
-            return this.sanitizeOrgHint(url.searchParams.get('org_hint'))
+            return url
         } catch {
-            return ''
+            return null
         }
     }
 
@@ -480,11 +482,33 @@ class ServerApi {
     }
 
     async fetchCurrentUserOrganizations(): Promise<{ organizations: CurrentUserOrganization[] }> {
+        const params: Record<string, string> = {}
+        if (this.clientId) {
+            params.client_id = this.clientId
+        }
+        const scope = this.extractScopeFromRedirectUri(this.redirectUri)
+        if (scope) {
+            params.scope = scope
+        }
         const response = await axios.get('/user/organizations', {
-            params: this.clientId ? { client_id: this.clientId } : undefined
+            params: Object.keys(params).length > 0 ? params : undefined
         })
         return {
             organizations: response.data?.organizations || []
+        }
+    }
+
+    async fetchCurrentOrganizationAuthorization(orgHint?: string): Promise<{ authorization: CurrentOrganizationAuthorization | null }> {
+        const params: Record<string, string> = {}
+        const sanitizedOrgHint = this.sanitizeOrgHint(orgHint || this.orgHint)
+        if (sanitizedOrgHint) {
+            params.org_hint = sanitizedOrgHint
+        }
+        const response = await axios.get('/user/organization/authorization', {
+            params: Object.keys(params).length > 0 ? params : undefined
+        })
+        return {
+            authorization: response.data?.authorization || null
         }
     }
 

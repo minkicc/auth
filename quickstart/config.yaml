@@ -11,6 +11,11 @@ redis:
   password: ""
   db: 0
 
+secrets:
+  # Optional. For local quickstart you can keep this empty.
+  encryption_key_env: ""
+  decryption_key_envs: []
+
 storage:
   provider: "minio"
   endpoint: "minio:9000"
@@ -33,7 +38,8 @@ oidc:
   access_token_ttl_seconds: 900
   id_token_ttl_seconds: 900
   clients:
-    - client_id: "demo-spa"
+    - name: "Demo SPA"
+      client_id: "demo-spa"
       public: true
       require_pkce: true
       redirect_uris:
@@ -43,7 +49,8 @@ oidc:
         - "openid"
         - "profile"
         - "email"
-    - client_id: "demo-backend"
+    - name: "Demo Backend"
+      client_id: "demo-backend"
       client_secret: "demo-backend-secret"
       public: false
       require_pkce: true
@@ -60,6 +67,16 @@ oidc:
       #   - "acme"
       # required_org_roles:
       #   - "admin"
+      # required_org_roles_all:
+      #   - "security"
+      # required_org_groups:
+      #   - "Engineering Team"
+      # required_org_groups_all:
+      #   - "Employees"
+      # scope_policies:
+      #   email:
+      #     required_org_roles_all:
+      #       - "security"
 
 auth:
   enabled_providers:
@@ -67,3 +84,5 @@ auth:
 
 auth_admin:
   enabled: false
+  security_audit_export_job_retention_days: 7
+  security_audit_export_job_auto_cleanup: true

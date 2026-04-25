@@ -237,6 +237,13 @@ export default {
     nickname: 'Nickname',
     avatar: 'Avatar',
     sessionExpiresAt: 'Session Expires At',
+    organizationAuthorization: 'Current Organization Authorization',
+    organizationAuthorizationHint: 'This account belongs to multiple organizations. Choose one to inspect the roles, groups, and permissions for that organization.',
+    organizationId: 'Organization ID',
+    organizationSlug: 'Organization Slug',
+    organizationRoles: 'Organization Roles',
+    organizationGroups: 'Organization Groups',
+    organizationPermissions: 'Permission Keys',
     noAvatar: 'No avatar yet',
     backToLogin: 'Back to Login'
   },
