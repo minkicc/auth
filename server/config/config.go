@@ -270,7 +270,9 @@ type AdminConfig struct {
 	Enabled bool `json:"enabled" yaml:"enabled"` // Whether to enable admin page
 	// Port         int       `json:"port" yaml:"port"`                   // Admin page listening port, separate from main service
 	SecretKey    string    `json:"secret_key" yaml:"secret_key"`       // Admin page session key
-	Accounts     []Account `json:"accounts" yaml:"accounts"`           // Admin account list
+	EntryURL     string    `json:"entry_url" yaml:"entry_url"`         // Public admin entry URL, optional. If empty, it is derived from issuer/admin port when possible.
+	UserIDs      []string  `json:"user_ids" yaml:"user_ids"`           // Operator-managed admin user IDs
+	Accounts     []Account `json:"accounts,omitempty" yaml:"accounts"` // Deprecated legacy username/password admin accounts
 	AllowedIPs   []string  `json:"allowed_ips" yaml:"allowed_ips"`     // List of allowed IP addresses
 	RequireTLS   bool      `json:"require_tls" yaml:"require_tls"`     // Whether to force TLS usage
 	SessionTTL   int       `json:"session_ttl" yaml:"session_ttl"`     // Session validity period (minutes)
@@ -298,7 +300,31 @@ func (c AdminConfig) SecurityAuditExportJobAutoCleanupEnabled() bool {
 	return *c.SecurityAuditExportJobAutoCleanup
 }
 
-// Account Administrator account
+func (c AdminConfig) EffectiveUserIDs() []string {
+	if len(c.UserIDs) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(c.UserIDs))
+	result := make([]string, 0, len(c.UserIDs))
+	for _, userID := range c.UserIDs {
+		trimmed := strings.TrimSpace(userID)
+		if trimmed == "" {
+			continue
+		}
+		if _, exists := seen[trimmed]; exists {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		result = append(result, trimmed)
+	}
+	return result
+}
+
+func (c AdminConfig) HasLegacyAccounts() bool {
+	return len(c.Accounts) > 0
+}
+
+// Account Deprecated legacy administrator account.
 type Account struct {
 	Username string   `json:"username" yaml:"username"` // Username
 	Password string   `json:"password" yaml:"password"` // Password (encrypted storage)

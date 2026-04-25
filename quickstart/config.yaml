@@ -84,5 +84,8 @@ auth:
 
 auth_admin:
   enabled: false
+  # After the first admin account registers on the platform, put the internal
+  # user ID here and restart the service.
+  user_ids: []
   security_audit_export_job_retention_days: 7
   security_audit_export_job_auto_cleanup: true

@@ -110,15 +110,13 @@ func (s *AdminServer) authMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		session := sessions.Default(c)
 
-		// Check if user information exists in session
-		username := session.Get(sessionUserKey)
-		if username == nil {
+		userID := session.Get(sessionUserIDKey)
+		if userID == nil {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized access"})
 			c.Abort()
 			return
 		}
 
-		// Get role information
 		rolesJSON := session.Get(sessionRoleKey)
 		if rolesJSON == nil {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Session is corrupted"})
@@ -133,8 +131,19 @@ func (s *AdminServer) authMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		// Set user information and roles to context
-		c.Set("username", username)
+		c.Set("user_id", userID)
+		if username := session.Get(sessionUsernameKey); username != nil {
+			c.Set("username", username)
+		}
+		if nickname := session.Get(sessionNicknameKey); nickname != nil {
+			c.Set("nickname", nickname)
+		}
+		if sourcesJSON := session.Get(sessionSourceKey); sourcesJSON != nil {
+			var sources []string
+			if err := json.Unmarshal([]byte(sourcesJSON.(string)), &sources); err == nil {
+				c.Set("admin_sources", sources)
+			}
+		}
 		c.Set("roles", roles)
 
 		c.Next()

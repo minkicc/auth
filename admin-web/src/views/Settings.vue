@@ -5,6 +5,90 @@
 
 <template>
   <div class="settings-container">
+    <el-card class="settings-card">
+      <template #header>
+        <div class="card-header">
+          <div>
+            <h2>Administrators</h2>
+            <p class="subhead">配置文件中的管理员仅供运维维护。后台里新增和删除的是数据库管理员，适合日常授权。</p>
+          </div>
+          <div class="toolbar-actions">
+            <el-button :loading="adminLoading" @click="loadAdmins">刷新</el-button>
+          </div>
+        </div>
+      </template>
+
+      <el-alert
+        v-if="adminLoadError"
+        class="plugin-alert"
+        :title="adminLoadError"
+        type="warning"
+        :closable="false"
+        show-icon
+      />
+
+      <div class="inline-form">
+        <el-input
+          v-model="adminCreateForm.user_ref"
+          placeholder="输入用户 ID 或用户名"
+          @keyup.enter="createAdmin"
+        />
+        <el-button
+          type="primary"
+          :loading="adminActionLoadingId === 'create'"
+          @click="createAdmin"
+        >
+          添加管理员
+        </el-button>
+      </div>
+
+      <el-table
+        v-loading="adminLoading"
+        :data="admins"
+        row-key="user_id"
+        empty-text="暂无管理员"
+      >
+        <el-table-column prop="user_id" label="用户 ID" min-width="190" />
+        <el-table-column label="用户名 / 昵称" min-width="180">
+          <template #default="{ row }">
+            <div class="stacked-copy">
+              <strong>{{ row.username || '-' }}</strong>
+              <span>{{ row.nickname || '-' }}</span>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column prop="status" label="状态" width="120" />
+        <el-table-column label="来源" min-width="150">
+          <template #default="{ row }">
+            <div class="tag-cluster">
+              <el-tag
+                v-for="source in formatAdminSources(row.sources)"
+                :key="source"
+                effect="plain"
+                type="info"
+              >
+                {{ source }}
+              </el-tag>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="130" align="right">
+          <template #default="{ row }">
+            <el-button
+              v-if="row.editable"
+              text
+              type="danger"
+              :loading="adminActionLoadingId === `delete:${row.user_id}`"
+              @click="deleteAdmin(row)"
+            >
+              删除
+            </el-button>
+            <span v-else class="muted-copy">仅配置可改</span>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-card>
+
     <el-card class="settings-card security-card">
       <template #header>
         <div class="card-header">
@@ -996,7 +1080,7 @@ import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import { ElMessageBox } from 'element-plus/es/components/message-box/index'
-import { serverApi, type CatalogPluginInfo, type OIDCClient, type OIDCOrganizationPolicy, type PluginAuditEntry, type PluginBackupInfo, type PluginConfigField, type PluginInfo, type PluginInstallPreview, type SecurityAuditEntry, type SecurityAuditExportJob, type SecurityAuditQuery, type SecuritySecretsStatus } from '@/api'
+import { serverApi, type AdminPrincipal, type CatalogPluginInfo, type OIDCClient, type OIDCOrganizationPolicy, type PluginAuditEntry, type PluginBackupInfo, type PluginConfigField, type PluginInfo, type PluginInstallPreview, type SecurityAuditEntry, type SecurityAuditExportJob, type SecurityAuditQuery, type SecuritySecretsStatus } from '@/api'
 import SecurityAuditDetailDrawer from '@/components/SecurityAuditDetailDrawer.vue'
 
 type OIDCDialogMode = 'create' | 'edit'
@@ -1034,6 +1118,10 @@ interface SecurityAuditFilterState {
   success: SecurityAuditSuccessFilter
 }
 
+interface AdminCreateFormState {
+  user_ref: string
+}
+
 const loading = ref(false)
 const actionLoadingId = ref('')
 const replaceOnInstall = ref(false)
@@ -1058,6 +1146,13 @@ const oidcLoading = ref(false)
 const oidcActionLoadingId = ref('')
 const oidcLoadError = ref('')
 const oidcClients = ref<OIDCClient[]>([])
+const adminLoading = ref(false)
+const adminActionLoadingId = ref('')
+const adminLoadError = ref('')
+const admins = ref<AdminPrincipal[]>([])
+const adminCreateForm = reactive<AdminCreateFormState>({
+  user_ref: ''
+})
 const oidcDialogVisible = ref(false)
 const oidcDialogMode = ref<OIDCDialogMode>('create')
 const oidcDialogSubmitting = ref(false)
@@ -1118,12 +1213,15 @@ const securityAuditActionOptions = [
   { label: '删除 OIDC Client', value: 'oidc_client_delete' },
   { label: '创建企业身份源', value: 'identity_provider_create' },
   { label: '更新企业身份源', value: 'identity_provider_update' },
-  { label: '删除企业身份源', value: 'identity_provider_delete' }
+  { label: '删除企业身份源', value: 'identity_provider_delete' },
+  { label: '添加管理员', value: 'admin_principal_create' },
+  { label: '移除管理员', value: 'admin_principal_delete' }
 ]
 
 const securityAuditResourceOptions = [
   { label: 'OIDC Client', value: 'oidc_client' },
-  { label: '企业身份源', value: 'identity_provider' }
+  { label: '企业身份源', value: 'identity_provider' },
+  { label: '管理员', value: 'admin_principal' }
 ]
 
 const route = useRoute()
@@ -1228,6 +1326,73 @@ const resetOIDCForm = () => {
   oidcForm.require_organization = false
   oidcForm.enabled = true
   oidcForm.client_secret_configured = false
+}
+
+const loadAdmins = async () => {
+  adminLoading.value = true
+  try {
+    const response = await serverApi.listAdmins()
+    admins.value = response.admins || []
+    adminLoadError.value = ''
+  } catch (error: any) {
+    admins.value = []
+    adminLoadError.value = error?.response?.data?.error || '加载管理员列表失败'
+  } finally {
+    adminLoading.value = false
+  }
+}
+
+const createAdmin = async () => {
+  const userRef = adminCreateForm.user_ref.trim()
+  if (!userRef) {
+    ElMessage.warning('请输入用户 ID 或用户名')
+    return
+  }
+  adminActionLoadingId.value = 'create'
+  try {
+    const response = await serverApi.createAdmin({ user_ref: userRef })
+    adminCreateForm.user_ref = ''
+    ElMessage.success(response.admin?.username ? `已添加管理员 ${response.admin.username}` : '已添加管理员')
+    await loadAdmins()
+  } catch (error: any) {
+    ElMessage.error(error?.response?.data?.error || '添加管理员失败')
+  } finally {
+    adminActionLoadingId.value = ''
+  }
+}
+
+const deleteAdmin = async (adminUser: AdminPrincipal) => {
+  try {
+    await ElMessageBox.confirm(
+      `确定移除管理员 ${adminUser.username || adminUser.user_id} 吗？`,
+      '移除管理员',
+      {
+        confirmButtonText: '移除',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    )
+  } catch {
+    return
+  }
+  adminActionLoadingId.value = `delete:${adminUser.user_id}`
+  try {
+    const response = await serverApi.deleteAdmin(adminUser.user_id)
+    ElMessage.success(response.message || '管理员已移除')
+    await loadAdmins()
+  } catch (error: any) {
+    ElMessage.error(error?.response?.data?.error || '移除管理员失败')
+  } finally {
+    adminActionLoadingId.value = ''
+  }
+}
+
+const formatAdminSources = (sources: string[]) => {
+  return (sources || []).map(source => {
+    if (source === 'config') return '配置'
+    if (source === 'database') return '数据库'
+    return source
+  })
 }
 
 const loadSecurityStatus = async () => {
@@ -1749,7 +1914,9 @@ const formatSecurityAuditAction = (action: string) => {
     oidc_client_delete: '删除 OIDC Client',
     identity_provider_create: '创建企业身份源',
     identity_provider_update: '更新企业身份源',
-    identity_provider_delete: '删除企业身份源'
+    identity_provider_delete: '删除企业身份源',
+    admin_principal_create: '添加管理员',
+    admin_principal_delete: '移除管理员'
   }
   return labels[action] || action || '-'
 }
@@ -2225,6 +2392,7 @@ watch(
 
 onMounted(() => {
   applySettingsAuditRouteState()
+  loadAdmins()
   loadSecurityStatus()
   loadSecurityAudit()
   loadSecurityAuditExportJobs()
@@ -2241,6 +2409,38 @@ onUnmounted(() => {
 .settings-container {
   .settings-card {
     margin-bottom: 20px;
+  }
+
+  .inline-form {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 18px;
+  }
+
+  .stacked-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+
+    strong {
+      color: #111827;
+    }
+
+    span {
+      color: #6b7280;
+      font-size: 0.92rem;
+    }
+  }
+
+  .tag-cluster {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .muted-copy {
+    color: #9ca3af;
+    font-size: 0.92rem;
   }
 
   .card-header {

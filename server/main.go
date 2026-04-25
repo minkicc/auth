@@ -10,12 +10,14 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -357,9 +359,14 @@ func main() {
 
 	// Create and start admin server (if enabled)
 	var adminServer *admin.AdminServer
+	var adminAccessController *admin.AccessController
+	if cfg.Admin.Enabled {
+		adminAccessController = admin.NewAccessController(&cfg.Admin, globalDB)
+		authHandler.SetAdminAccess(adminAccessController, buildAdminEntryURL(cfg, *adminPort))
+	}
 	if cfg.Admin.Enabled {
 		logger := log.New(os.Stdout, "[ADMIN] ", log.LstdFlags)
-		adminServer = admin.NewAdminServer(cfg, globalDB, logger, pluginRuntime, oidcProvider, enterpriseOIDC, enterpriseSAML, enterpriseLDAP, *adminWebFilePath, *adminPort)
+		adminServer = admin.NewAdminServer(cfg, globalDB, logger, pluginRuntime, oidcProvider, enterpriseOIDC, enterpriseSAML, enterpriseLDAP, adminAccessController, *adminWebFilePath, *adminPort)
 
 		if adminServer != nil {
 			go func() {
@@ -574,4 +581,51 @@ func containsProvider(providers []string, provider string) bool {
 		}
 	}
 	return false
+}
+
+func buildAdminEntryURL(cfg *config.Config, adminPort int) string {
+	if cfg == nil {
+		return ""
+	}
+	if explicit := strings.TrimSpace(cfg.Admin.EntryURL); explicit != "" {
+		return strings.TrimRight(explicit, "/")
+	}
+	issuer := strings.TrimSpace(cfg.OIDC.Issuer)
+	if issuer == "" {
+		return ""
+	}
+	parsed, err := url.Parse(issuer)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return ""
+	}
+
+	host := parsed.Hostname()
+	if host == "" {
+		return ""
+	}
+	port := adminPort
+	if port <= 0 {
+		if parsed.Port() != "" {
+			if parsedPort, convErr := strconv.Atoi(parsed.Port()); convErr == nil {
+				port = parsedPort
+			}
+		}
+	}
+	if port <= 0 {
+		return strings.TrimRight(parsed.Scheme+"://"+parsed.Host, "/")
+	}
+
+	switch {
+	case parsed.Scheme == "http" && port == 80:
+		parsed.Host = host
+	case parsed.Scheme == "https" && port == 443:
+		parsed.Host = host
+	default:
+		parsed.Host = net.JoinHostPort(host, strconv.Itoa(port))
+	}
+	parsed.Path = ""
+	parsed.RawPath = ""
+	parsed.RawQuery = ""
+	parsed.Fragment = ""
+	return strings.TrimRight(parsed.String(), "/")
 }

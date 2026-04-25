@@ -80,6 +80,13 @@ export interface CurrentOrganizationAuthorization {
     permissions?: string[]
 }
 
+export interface CurrentUserAdminAccess {
+    enabled: boolean
+    is_admin: boolean
+    sources?: string[]
+    entry_url?: string
+}
+
 type ApiErrorPayload = {
     error?: string | {
         message?: string
@@ -479,6 +486,16 @@ class ServerApi {
     async fetchCurrentUser() {
         const response = await axios.get('/user')
         return response.data
+    }
+
+    async fetchCurrentUserAdminAccess(): Promise<CurrentUserAdminAccess> {
+        const response = await axios.get('/user/admin-access')
+        return {
+            enabled: !!response.data?.enabled,
+            is_admin: !!response.data?.is_admin,
+            sources: response.data?.sources || [],
+            entry_url: response.data?.entry_url || ''
+        }
     }
 
     async fetchCurrentUserOrganizations(): Promise<{ organizations: CurrentUserOrganization[] }> {

@@ -112,6 +112,19 @@
         </div>
       </div>
 
+      <div v-if="adminAccess?.enabled && adminAccess.is_admin && adminAccess.entry_url" class="profile-section">
+        <div class="section-header">
+          <h2>{{ $t('profile.adminAccess') }}</h2>
+        </div>
+        <p class="section-copy">{{ $t('profile.adminAccessHint') }}</p>
+        <div class="profile-actions admin-actions">
+          <button class="secondary-btn" @click="openAdminPath('')">{{ $t('profile.adminDashboard') }}</button>
+          <button class="secondary-btn" @click="openAdminPath('/users')">{{ $t('profile.adminUsers') }}</button>
+          <button class="secondary-btn" @click="openAdminPath('/organizations')">{{ $t('profile.adminOrganizations') }}</button>
+          <button class="secondary-btn" @click="openAdminPath('/settings')">{{ $t('profile.adminSettings') }}</button>
+        </div>
+      </div>
+
       <div class="profile-actions">
         <button class="secondary-btn" @click="refreshProfile">{{ $t('common.refresh') }}</button>
         <button class="primary-btn" @click="handleLogout">{{ $t('common.logout') }}</button>
@@ -141,6 +154,13 @@ interface ProfileOrganizationAuthorization {
   permissions?: string[]
 }
 
+interface ProfileAdminAccess {
+  enabled: boolean
+  is_admin: boolean
+  entry_url?: string
+  sources?: string[]
+}
+
 const router = useRouter()
 const loading = ref(true)
 const error = ref('')
@@ -150,6 +170,7 @@ const organizationAuthorization = ref<ProfileOrganizationAuthorization | null>(n
 const organizationAuthorizationError = ref('')
 const organizationSelectionOptions = ref<Array<{ organization_id: string; slug?: string; name?: string; display_name?: string }>>([])
 const selectedOrganizationHint = ref('')
+const adminAccess = ref<ProfileAdminAccess | null>(null)
 
 const initials = computed(() => {
   const base = user.value?.nickname || user.value?.user_id || 'U'
@@ -199,13 +220,15 @@ const loadProfile = async () => {
     loading.value = true
     error.value = ''
 
-    const [currentUser, session] = await Promise.all([
+    const [currentUser, session, currentAdminAccess] = await Promise.all([
       serverApi.fetchCurrentUser(),
       serverApi.fetchBrowserSession(),
+      serverApi.fetchCurrentUserAdminAccess().catch(() => ({ enabled: false, is_admin: false })),
     ])
 
     context.setAuthenticated(true)
     user.value = currentUser
+    adminAccess.value = currentAdminAccess
     sessionExpiresAt.value = session?.expires_at
       ? new Date(session.expires_at).toLocaleString()
       : '-'
@@ -227,6 +250,19 @@ const loadProfile = async () => {
 
 const refreshProfile = async () => {
   await loadProfile()
+}
+
+const buildAdminURL = (path: string) => {
+  const baseURL = (adminAccess.value?.entry_url || '').replace(/\/+$/, '')
+  if (!baseURL) return ''
+  const normalizedPath = path ? `/${path.replace(/^\/+/, '')}` : ''
+  return `${baseURL}${normalizedPath}`
+}
+
+const openAdminPath = (path: string) => {
+  const targetURL = buildAdminURL(path)
+  if (!targetURL) return
+  window.location.href = targetURL
 }
 
 const handleLogout = async () => {
@@ -444,6 +480,12 @@ onMounted(async () => {
   display: flex;
   justify-content: flex-end;
   gap: 12px;
+}
+
+.admin-actions {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  margin-top: 12px;
 }
 
 .compact-btn {

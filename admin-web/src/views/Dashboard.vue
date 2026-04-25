@@ -40,6 +40,17 @@
               <el-tag type="success" effect="dark" round>
                 {{ $t('dashboard.platform_badge') }}
               </el-tag>
+              <div class="admin-sources" v-if="context.sources.length">
+                <el-tag
+                  v-for="source in context.sources"
+                  :key="source"
+                  size="small"
+                  effect="plain"
+                  class="admin-source-tag"
+                >
+                  {{ formatAdminSource(source) }}
+                </el-tag>
+              </div>
               <p class="platform-description">{{ $t('dashboard.platform_description') }}</p>
               <p class="platform-note">{{ $t('dashboard.platform_note') }}</p>
             </div>
@@ -195,6 +206,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { Compass, Connection, Key, Plus, Promotion, Refresh, User } from '@element-plus/icons-vue'
 import { StatsData, serverApi as api } from '@/api/index'
+import { context } from '@/context'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 
@@ -229,6 +241,12 @@ const focusItems = computed(() => [
     description: t('dashboard.focus_item_service_desc')
   }
 ])
+
+const formatAdminSource = (source: string) => {
+  if (source === 'config') return 'Config Admin'
+  if (source === 'database') return 'DB Admin'
+  return source
+}
 
 // 初始化统计数据
 const stats = reactive<StatsData>({
@@ -319,6 +337,16 @@ onMounted(() => {
     flex-direction: column;
     gap: 12px;
     margin-bottom: 16px;
+  }
+
+  .admin-sources {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .admin-source-tag {
+    width: fit-content;
   }
 
   .platform-description,
