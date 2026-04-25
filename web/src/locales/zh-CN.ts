@@ -237,6 +237,13 @@ export default {
     nickname: '昵称',
     avatar: '头像',
     sessionExpiresAt: '会话过期时间',
+    organizationAuthorization: '当前组织授权',
+    organizationAuthorizationHint: '当前账号属于多个组织。选择一个组织后，可以查看该组织下的角色、组和权限。',
+    organizationId: '组织 ID',
+    organizationSlug: '组织 Slug',
+    organizationRoles: '组织角色',
+    organizationGroups: '组织组',
+    organizationPermissions: '权限键',
     noAvatar: '暂无头像',
     backToLogin: '返回登录页'
   },

@@ -199,6 +199,32 @@ export interface OrganizationGroup {
   updated_at: string
 }
 
+export interface OrganizationRoleBinding {
+  binding_id: string
+  organization_id: string
+  role_id: string
+  subject_type: 'membership' | 'group' | string
+  subject_id: string
+  subject_label?: string
+  subject_secondary?: string
+  created_at: string
+  updated_at: string
+}
+
+export interface OrganizationRole {
+  role_id: string
+  organization_id: string
+  name: string
+  slug: string
+  description?: string
+  enabled: boolean
+  permissions: string[]
+  binding_count: number
+  bindings?: OrganizationRoleBinding[]
+  created_at: string
+  updated_at: string
+}
+
 export interface OrganizationIdentityProviderConfig {
   issuer?: string
   client_id?: string
@@ -250,6 +276,133 @@ export interface OrganizationListResponse {
   total: number
   page: number
   page_size: number
+}
+
+export interface OIDCClient {
+  name?: string
+  client_id: string
+  redirect_uris: string[]
+  scopes?: string[]
+  public: boolean
+  require_pkce: boolean
+  require_organization: boolean
+  allowed_organizations?: string[]
+  required_org_roles?: string[]
+  required_org_roles_all?: string[]
+  required_org_groups?: string[]
+  required_org_groups_all?: string[]
+  scope_policies?: Record<string, OIDCOrganizationPolicy>
+  enabled: boolean
+  editable: boolean
+  source: 'config' | 'database' | string
+  client_secret_configured: boolean
+  created_at?: string
+  updated_at?: string
+}
+
+export interface OIDCOrganizationPolicy {
+  require_organization?: boolean
+  allowed_organizations?: string[]
+  required_org_roles?: string[]
+  required_org_roles_all?: string[]
+  required_org_groups?: string[]
+  required_org_groups_all?: string[]
+}
+
+export interface SecuritySecretsStatus {
+  enabled: boolean
+  fallback_key_count: number
+  managed_oidc_client_count: number
+  managed_identity_provider_count: number
+}
+
+export interface SecuritySecretsResealResult {
+  oidc_clients: number
+  identity_providers: number
+  oidc_providers: number
+  saml_providers: number
+  ldap_providers: number
+}
+
+export interface SecurityAuditActor {
+  id?: string
+  ip?: string
+  user_agent?: string
+}
+
+export interface SecurityAuditEntry {
+  id: string
+  time: string
+  action: string
+  actor?: SecurityAuditActor
+  success: boolean
+  error?: string
+  details?: Record<string, string>
+}
+
+export interface SecurityAuditQuery {
+  page?: number
+  size?: number
+  action?: string
+  resource_type?: string
+  client_id?: string
+  provider_id?: string
+  organization_id?: string
+  actor_id?: string
+  query?: string
+  time_from?: string
+  time_to?: string
+  success?: boolean
+}
+
+export interface SecurityAuditListResponse {
+  audit: SecurityAuditEntry[]
+  total: number
+  page: number
+  size: number
+}
+
+export interface SecurityAuditExportJob {
+  job_id: string
+  status: 'pending' | 'running' | 'completed' | 'failed' | string
+  filename: string
+  content_type: string
+  row_count: number
+  total_count: number
+  truncated: boolean
+  error?: string
+  created_at: string
+  updated_at: string
+  completed_at?: string
+  download_ready: boolean
+  query?: SecurityAuditQuery
+  actor?: SecurityAuditActor
+}
+
+export interface SecurityAuditExportJobQuery {
+  page?: number
+  size?: number
+  status?: string
+  organization_id?: string
+}
+
+export interface SecurityAuditExportJobListResponse {
+  jobs: SecurityAuditExportJob[]
+  total: number
+  page: number
+  size: number
+}
+
+export interface SecurityAuditExportJobCleanupRequest {
+  organization_id?: string
+  older_than_days?: number
+  status?: string
+}
+
+export interface SecurityAuditExportJobCleanupResult {
+  deleted: number
+  older_than_days: number
+  status: string
 }
 
 export interface PluginInfo {
@@ -435,6 +588,11 @@ class ServerApi {
     return api.post('/organizations', payload).then(res => res.data)
   }
 
+  // 获取单个组织
+  getOrganization(id: string): Promise<{ organization: Organization }> {
+    return api.get(`/organizations/${id}`).then(res => res.data)
+  }
+
   // 更新组织
   updateOrganization(id: string, payload: { slug: string, name: string, display_name?: string, status?: string, metadata?: Record<string, any> }): Promise<{ organization: Organization }> {
     return api.patch(`/organizations/${id}`, payload).then(res => res.data)
@@ -511,6 +669,51 @@ class ServerApi {
   // 删除组织组
   deleteOrganizationGroup(id: string, groupId: string): Promise<{ message: string }> {
     return api.delete(`/organizations/${id}/groups/${encodeURIComponent(groupId)}`).then(res => res.data)
+  }
+
+  // 获取组织角色列表
+  getOrganizationRoles(id: string): Promise<{ roles: OrganizationRole[] }> {
+    return api.get(`/organizations/${id}/roles`).then(res => res.data)
+  }
+
+  // 创建组织角色
+  createOrganizationRole(id: string, payload: {
+    name: string
+    slug?: string
+    description?: string
+    enabled?: boolean
+    permissions?: string[]
+  }): Promise<{ role: OrganizationRole }> {
+    return api.post(`/organizations/${id}/roles`, payload).then(res => res.data)
+  }
+
+  // 更新组织角色
+  updateOrganizationRole(id: string, roleId: string, payload: {
+    name: string
+    slug?: string
+    description?: string
+    enabled?: boolean
+    permissions?: string[]
+  }): Promise<{ role: OrganizationRole }> {
+    return api.patch(`/organizations/${id}/roles/${encodeURIComponent(roleId)}`, payload).then(res => res.data)
+  }
+
+  // 删除组织角色
+  deleteOrganizationRole(id: string, roleId: string): Promise<{ message: string }> {
+    return api.delete(`/organizations/${id}/roles/${encodeURIComponent(roleId)}`).then(res => res.data)
+  }
+
+  // 创建组织角色绑定
+  createOrganizationRoleBinding(id: string, roleId: string, payload: {
+    subject_type: string
+    subject_id: string
+  }): Promise<{ binding: OrganizationRoleBinding }> {
+    return api.post(`/organizations/${id}/roles/${encodeURIComponent(roleId)}/bindings`, payload).then(res => res.data)
+  }
+
+  // 删除组织角色绑定
+  deleteOrganizationRoleBinding(id: string, roleId: string, bindingId: string): Promise<{ message: string }> {
+    return api.delete(`/organizations/${id}/roles/${encodeURIComponent(roleId)}/bindings/${encodeURIComponent(bindingId)}`).then(res => res.data)
   }
 
   // 获取组织身份提供方
@@ -593,6 +796,112 @@ class ServerApi {
   // 删除组织身份提供方
   deleteOrganizationIdentityProvider(id: string, providerId: string): Promise<{ message: string }> {
     return api.delete(`/organizations/${id}/identity-providers/${encodeURIComponent(providerId)}`).then(res => res.data)
+  }
+
+  // 获取 OIDC clients
+  getOIDCClients(): Promise<{ clients: OIDCClient[] }> {
+    return api.get('/oidc/clients').then(res => res.data)
+  }
+
+  // 创建 OIDC client
+  createOIDCClient(payload: {
+    name?: string
+    client_id: string
+    client_secret?: string
+    redirect_uris: string[]
+    scopes?: string[]
+    public?: boolean
+    require_pkce?: boolean
+    require_organization?: boolean
+    allowed_organizations?: string[]
+    required_org_roles?: string[]
+    required_org_roles_all?: string[]
+    required_org_groups?: string[]
+    required_org_groups_all?: string[]
+    scope_policies?: Record<string, OIDCOrganizationPolicy>
+    enabled?: boolean
+  }): Promise<{ client: OIDCClient }> {
+    return api.post('/oidc/clients', payload).then(res => res.data)
+  }
+
+  // 更新 OIDC client
+  updateOIDCClient(clientId: string, payload: {
+    name?: string
+    client_id?: string
+    client_secret?: string
+    redirect_uris?: string[]
+    scopes?: string[]
+    public?: boolean
+    require_pkce?: boolean
+    require_organization?: boolean
+    allowed_organizations?: string[]
+    required_org_roles?: string[]
+    required_org_roles_all?: string[]
+    required_org_groups?: string[]
+    required_org_groups_all?: string[]
+    scope_policies?: Record<string, OIDCOrganizationPolicy>
+    enabled?: boolean
+  }): Promise<{ client: OIDCClient }> {
+    return api.patch(`/oidc/clients/${encodeURIComponent(clientId)}`, payload).then(res => res.data)
+  }
+
+  // 删除 OIDC client
+  deleteOIDCClient(clientId: string): Promise<{ message: string }> {
+    return api.delete(`/oidc/clients/${encodeURIComponent(clientId)}`).then(res => res.data)
+  }
+
+  // 查询 secrets 加密状态
+  getSecuritySecretsStatus(): Promise<{ status: SecuritySecretsStatus }> {
+    return api.get('/security/secrets/status').then(res => res.data)
+  }
+
+  // 重写后台托管 secrets
+  resealManagedSecrets(): Promise<{ message: string, result: SecuritySecretsResealResult }> {
+    return api.post('/security/secrets/reseal').then(res => res.data)
+  }
+
+  // 查询安全审计
+  getSecurityAudit(params: SecurityAuditQuery = {}): Promise<SecurityAuditListResponse> {
+    return api.get('/security/audit', { params }).then(res => res.data)
+  }
+
+  // 导出安全审计 CSV
+  exportSecurityAuditCSV(params: SecurityAuditQuery = {}): Promise<Blob> {
+    return api.get('/security/audit/export', {
+      params,
+      responseType: 'blob'
+    }).then(res => res.data)
+  }
+
+  createSecurityAuditExportJob(payload: SecurityAuditQuery = {}): Promise<{ message: string, job: SecurityAuditExportJob }> {
+    return api.post('/security/audit/export-jobs', payload).then(res => res.data)
+  }
+
+  listSecurityAuditExportJobs(params: SecurityAuditExportJobQuery = {}): Promise<SecurityAuditExportJobListResponse> {
+    return api.get('/security/audit/export-jobs', { params }).then(res => res.data)
+  }
+
+  cleanupSecurityAuditExportJobs(payload: SecurityAuditExportJobCleanupRequest = {}): Promise<{ message: string, result: SecurityAuditExportJobCleanupResult }> {
+    return api.post('/security/audit/export-jobs/cleanup', payload).then(res => res.data)
+  }
+
+  getSecurityAuditExportJob(jobId: string): Promise<{ job: SecurityAuditExportJob }> {
+    return api.get(`/security/audit/export-jobs/${jobId}`).then(res => res.data)
+  }
+
+  deleteSecurityAuditExportJob(jobId: string): Promise<{ message: string }> {
+    return api.delete(`/security/audit/export-jobs/${jobId}`).then(res => res.data)
+  }
+
+  downloadSecurityAuditExportJob(jobId: string): Promise<Blob> {
+    return api.get(`/security/audit/export-jobs/${jobId}/download`, {
+      responseType: 'blob'
+    }).then(res => res.data)
+  }
+
+  // 兼容旧的 secrets 审计接口
+  getSecuritySecretsAudit(limit = 50): Promise<SecurityAuditListResponse> {
+    return this.getSecurityAudit({ page: 1, size: limit })
   }
 
   // 获取插件列表

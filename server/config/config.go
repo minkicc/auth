@@ -22,6 +22,7 @@ type Config struct {
 	Redis          RedisConfig      `json:"redis" yaml:"redis"`
 	OIDC           OIDCConfig       `json:"oidc" yaml:"oidc"`
 	IAM            IAMConfig        `json:"iam" yaml:"iam"`
+	Secrets        SecretsConfig    `json:"secrets" yaml:"secrets"`
 	Plugins        PluginsConfig    `json:"plugins" yaml:"plugins"`
 	Admin          AdminConfig      `json:"auth_admin" yaml:"auth_admin"`
 	Storage        storage.Config   `json:"storage" yaml:"storage"`
@@ -29,8 +30,68 @@ type Config struct {
 	StorageUrl     StorageUrlConfig `json:"storage_public_url" yaml:"storage_public_url"`     // 存储URL配置
 }
 
+type SecretsConfig struct {
+	EncryptionKey     string   `json:"encryption_key" yaml:"encryption_key"`
+	EncryptionKeyEnv  string   `json:"encryption_key_env" yaml:"encryption_key_env"`
+	DecryptionKeys    []string `json:"decryption_keys" yaml:"decryption_keys"`
+	DecryptionKeyEnvs []string `json:"decryption_key_envs" yaml:"decryption_key_envs"`
+}
+
 type StorageUrlConfig struct {
 	Attatch string `json:"attatch" yaml:"attatch"`
+}
+
+func (c SecretsConfig) EffectiveEncryptionKeys() []string {
+	keys := make([]string, 0, 1+len(c.DecryptionKeys)+len(c.DecryptionKeyEnvs))
+	if key := strings.TrimSpace(c.EncryptionKey); key != "" {
+		keys = append(keys, key)
+	} else if envName := strings.TrimSpace(c.EncryptionKeyEnv); envName != "" {
+		if key := strings.TrimSpace(os.Getenv(envName)); key != "" {
+			keys = append(keys, key)
+		}
+	}
+	for _, rawKey := range c.DecryptionKeys {
+		if key := strings.TrimSpace(rawKey); key != "" {
+			keys = append(keys, key)
+		}
+	}
+	for _, envName := range c.DecryptionKeyEnvs {
+		if envName = strings.TrimSpace(envName); envName == "" {
+			continue
+		}
+		if key := strings.TrimSpace(os.Getenv(envName)); key != "" {
+			keys = append(keys, key)
+		}
+	}
+	return uniqueSecretKeys(keys)
+}
+
+func (c SecretsConfig) FallbackKeyCount() int {
+	keys := c.EffectiveEncryptionKeys()
+	if len(keys) <= 1 {
+		return 0
+	}
+	return len(keys) - 1
+}
+
+func uniqueSecretKeys(keys []string) []string {
+	if len(keys) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(keys))
+	unique := make([]string, 0, len(keys))
+	for _, key := range keys {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		unique = append(unique, key)
+	}
+	return unique
 }
 
 // ServerConfig Server configuration
@@ -214,6 +275,27 @@ type AdminConfig struct {
 	RequireTLS   bool      `json:"require_tls" yaml:"require_tls"`     // Whether to force TLS usage
 	SessionTTL   int       `json:"session_ttl" yaml:"session_ttl"`     // Session validity period (minutes)
 	LoginTimeout int       `json:"login_timeout" yaml:"login_timeout"` // Login timeout (seconds)
+
+	SecurityAuditExportJobRetentionDays int   `json:"security_audit_export_job_retention_days" yaml:"security_audit_export_job_retention_days"`
+	SecurityAuditExportJobAutoCleanup   *bool `json:"security_audit_export_job_auto_cleanup" yaml:"security_audit_export_job_auto_cleanup"`
+}
+
+const (
+	DefaultSecurityAuditExportJobRetentionDays = 7
+)
+
+func (c AdminConfig) SecurityAuditExportJobRetentionDaysOrDefault() int {
+	if c.SecurityAuditExportJobRetentionDays > 0 {
+		return c.SecurityAuditExportJobRetentionDays
+	}
+	return DefaultSecurityAuditExportJobRetentionDays
+}
+
+func (c AdminConfig) SecurityAuditExportJobAutoCleanupEnabled() bool {
+	if c.SecurityAuditExportJobAutoCleanup == nil {
+		return true
+	}
+	return *c.SecurityAuditExportJobAutoCleanup
 }
 
 // Account Administrator account
@@ -273,17 +355,25 @@ type OIDCConfig struct {
 	Clients               []OIDCClientConfig `json:"clients" yaml:"clients"`
 }
 
-type OIDCClientConfig struct {
-	ClientID             string   `json:"client_id" yaml:"client_id"`
-	ClientSecret         string   `json:"client_secret" yaml:"client_secret"`
-	RedirectURIs         []string `json:"redirect_uris" yaml:"redirect_uris"`
-	Scopes               []string `json:"scopes" yaml:"scopes"`
-	Public               bool     `json:"public" yaml:"public"`
-	RequirePKCE          bool     `json:"require_pkce" yaml:"require_pkce"`
+type OIDCOrganizationPolicy struct {
 	RequireOrganization  bool     `json:"require_organization" yaml:"require_organization"`
 	AllowedOrganizations []string `json:"allowed_organizations" yaml:"allowed_organizations"`
 	RequiredOrgRoles     []string `json:"required_org_roles" yaml:"required_org_roles"`
+	RequiredOrgRolesAll  []string `json:"required_org_roles_all" yaml:"required_org_roles_all"`
 	RequiredOrgGroups    []string `json:"required_org_groups" yaml:"required_org_groups"`
+	RequiredOrgGroupsAll []string `json:"required_org_groups_all" yaml:"required_org_groups_all"`
+}
+
+type OIDCClientConfig struct {
+	Name                   string                            `json:"name" yaml:"name"`
+	ClientID               string                            `json:"client_id" yaml:"client_id"`
+	ClientSecret           string                            `json:"client_secret" yaml:"client_secret"`
+	RedirectURIs           []string                          `json:"redirect_uris" yaml:"redirect_uris"`
+	Scopes                 []string                          `json:"scopes" yaml:"scopes"`
+	Public                 bool                              `json:"public" yaml:"public"`
+	RequirePKCE            bool                              `json:"require_pkce" yaml:"require_pkce"`
+	ScopePolicies          map[string]OIDCOrganizationPolicy `json:"scope_policies" yaml:"scope_policies"`
+	OIDCOrganizationPolicy `json:",inline" yaml:",inline"`
 }
 
 func (c *TrustedClient) HasScope(_scope string) bool {

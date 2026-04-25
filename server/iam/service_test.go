@@ -27,6 +27,9 @@ func TestServiceAutoMigrateCreatesFoundationTables(t *testing.T) {
 		&OrganizationMembership{},
 		&OrganizationGroup{},
 		&OrganizationGroupMember{},
+		&OrganizationRole{},
+		&OrganizationRolePermission{},
+		&OrganizationRoleBinding{},
 	} {
 		if !db.Migrator().HasTable(model) {
 			t.Fatalf("expected table for %T to exist", model)
@@ -75,5 +78,21 @@ func TestServiceGeneratesReadablePrefixedIDs(t *testing.T) {
 	}
 	if !strings.HasPrefix(groupID, OrganizationGroupIDPrefix) || len(groupID) != len(OrganizationGroupIDPrefix)+readableRandomIDLength {
 		t.Fatalf("unexpected organization group ID format: %q", groupID)
+	}
+
+	roleID, err := service.GenerateOrganizationRoleID()
+	if err != nil {
+		t.Fatalf("failed to generate organization role ID: %v", err)
+	}
+	if !strings.HasPrefix(roleID, OrganizationRoleIDPrefix) || len(roleID) != len(OrganizationRoleIDPrefix)+readableRandomIDLength {
+		t.Fatalf("unexpected organization role ID format: %q", roleID)
+	}
+
+	bindingID, err := service.GenerateOrganizationRoleBindingID()
+	if err != nil {
+		t.Fatalf("failed to generate organization role binding ID: %v", err)
+	}
+	if !strings.HasPrefix(bindingID, OrganizationRoleBindingIDPrefix) || len(bindingID) != len(OrganizationRoleBindingIDPrefix)+readableRandomIDLength {
+		t.Fatalf("unexpected organization role binding ID format: %q", bindingID)
 	}
 }

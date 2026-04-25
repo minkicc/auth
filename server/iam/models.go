@@ -39,9 +39,18 @@ const (
 	IdentityProviderIDPrefix        = "idp_"
 	ExternalIdentityIDPrefix        = "ext_"
 	OrganizationGroupIDPrefix       = "grp_"
+	OrganizationRoleIDPrefix        = "rol_"
+	OrganizationRoleBindingIDPrefix = "rbd_"
 	ManualOrganizationGroupProvider = "manual"
 	DefaultIdentityProviderPriority = 100
 	readableRandomIDLength          = 16
+)
+
+type RoleBindingSubjectType string
+
+const (
+	RoleBindingSubjectMembership RoleBindingSubjectType = "membership"
+	RoleBindingSubjectGroup      RoleBindingSubjectType = "group"
 )
 
 // Organization represents a customer, workspace, or enterprise tenant.
@@ -130,4 +139,36 @@ type OrganizationGroupMember struct {
 	UserID         string    `json:"user_id" gorm:"primaryKey;size:32"`
 	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`
+}
+
+// OrganizationRole stores first-class roles for an organization.
+type OrganizationRole struct {
+	RoleID         string    `json:"role_id" gorm:"primaryKey;size:32"`
+	OrganizationID string    `json:"organization_id" gorm:"index;not null;size:32;uniqueIndex:idx_organization_role_slug"`
+	Name           string    `json:"name" gorm:"size:120;not null"`
+	Slug           string    `json:"slug" gorm:"size:64;not null;uniqueIndex:idx_organization_role_slug"`
+	Description    string    `json:"description,omitempty" gorm:"size:255"`
+	Enabled        bool      `json:"enabled" gorm:"not null;default:true"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
+}
+
+// OrganizationRolePermission stores normalized permission keys for a role.
+type OrganizationRolePermission struct {
+	OrganizationID string    `json:"organization_id" gorm:"primaryKey;size:32"`
+	RoleID         string    `json:"role_id" gorm:"primaryKey;size:32"`
+	PermissionKey  string    `json:"permission_key" gorm:"primaryKey;size:120"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
+}
+
+// OrganizationRoleBinding binds an organization role to a membership or group.
+type OrganizationRoleBinding struct {
+	BindingID      string                 `json:"binding_id" gorm:"primaryKey;size:32"`
+	OrganizationID string                 `json:"organization_id" gorm:"index;not null;size:32;uniqueIndex:idx_organization_role_binding"`
+	RoleID         string                 `json:"role_id" gorm:"index;not null;size:32"`
+	SubjectType    RoleBindingSubjectType `json:"subject_type" gorm:"size:20;not null;uniqueIndex:idx_organization_role_binding"`
+	SubjectID      string                 `json:"subject_id" gorm:"size:32;not null;uniqueIndex:idx_organization_role_binding"`
+	CreatedAt      time.Time              `json:"created_at"`
+	UpdatedAt      time.Time              `json:"updated_at"`
 }

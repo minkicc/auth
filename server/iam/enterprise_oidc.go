@@ -30,6 +30,7 @@ import (
 
 	"example.com/auth/server/auth"
 	"example.com/auth/server/config"
+	"example.com/auth/server/secureconfig"
 )
 
 const defaultEnterpriseOIDCTimeout = 10 * time.Second
@@ -220,7 +221,7 @@ func (m *EnterpriseOIDCManager) buildProviders() (map[string]*EnterpriseOIDCProv
 func enterpriseOIDCProviderConfigFromRecord(record OrganizationIdentityProvider) (config.EnterpriseOIDCProviderConfig, error) {
 	var providerCfg config.EnterpriseOIDCProviderConfig
 	if strings.TrimSpace(record.ConfigJSON) != "" {
-		if err := json.Unmarshal([]byte(record.ConfigJSON), &providerCfg); err != nil {
+		if err := secureconfig.OpenJSON(record.ConfigJSON, &providerCfg); err != nil {
 			return config.EnterpriseOIDCProviderConfig{}, fmt.Errorf("decode provider config: %w", err)
 		}
 	}

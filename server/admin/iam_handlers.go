@@ -21,6 +21,7 @@ import (
 var (
 	organizationSlugPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,78}[a-z0-9]$|^[a-z0-9]$`)
 	roleNamePattern         = regexp.MustCompile(`^[A-Za-z0-9_.:-]{1,64}$`)
+	permissionKeyPattern    = regexp.MustCompile(`^[A-Za-z0-9_.:/-]{1,120}$`)
 )
 
 type organizationPayload struct {
@@ -46,6 +47,19 @@ type organizationGroupPayload struct {
 	DisplayName string   `json:"display_name"`
 	RoleName    string   `json:"role_name"`
 	UserIDs     []string `json:"user_ids"`
+}
+
+type organizationRolePayload struct {
+	Name        string   `json:"name"`
+	Slug        string   `json:"slug"`
+	Description string   `json:"description"`
+	Enabled     *bool    `json:"enabled"`
+	Permissions []string `json:"permissions"`
+}
+
+type organizationRoleBindingPayload struct {
+	SubjectType string `json:"subject_type"`
+	SubjectID   string `json:"subject_id"`
 }
 
 type organizationMembershipView struct {
@@ -80,6 +94,32 @@ type organizationGroupView struct {
 	Editable       bool                          `json:"editable"`
 	MemberCount    int                           `json:"member_count"`
 	Members        []organizationGroupMemberView `json:"members,omitempty"`
+	CreatedAt      time.Time                     `json:"created_at"`
+	UpdatedAt      time.Time                     `json:"updated_at"`
+}
+
+type organizationRoleBindingView struct {
+	BindingID        string    `json:"binding_id"`
+	OrganizationID   string    `json:"organization_id"`
+	RoleID           string    `json:"role_id"`
+	SubjectType      string    `json:"subject_type"`
+	SubjectID        string    `json:"subject_id"`
+	SubjectLabel     string    `json:"subject_label,omitempty"`
+	SubjectSecondary string    `json:"subject_secondary,omitempty"`
+	CreatedAt        time.Time `json:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
+}
+
+type organizationRoleView struct {
+	RoleID         string                        `json:"role_id"`
+	OrganizationID string                        `json:"organization_id"`
+	Name           string                        `json:"name"`
+	Slug           string                        `json:"slug"`
+	Description    string                        `json:"description,omitempty"`
+	Enabled        bool                          `json:"enabled"`
+	Permissions    []string                      `json:"permissions"`
+	BindingCount   int                           `json:"binding_count"`
+	Bindings       []organizationRoleBindingView `json:"bindings,omitempty"`
 	CreatedAt      time.Time                     `json:"created_at"`
 	UpdatedAt      time.Time                     `json:"updated_at"`
 }
@@ -536,6 +576,219 @@ func (s *AdminServer) handleDeleteOrganizationGroup(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "organization group deleted successfully"})
 }
 
+func (s *AdminServer) handleListOrganizationRoles(c *gin.Context) {
+	org, ok := s.loadOrganization(c, c.Param("id"))
+	if !ok {
+		return
+	}
+	var roles []iam.OrganizationRole
+	if err := s.db.Where("organization_id = ?", org.OrganizationID).Order("created_at DESC").Find(&roles).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	views, err := s.organizationRoleViews(org.OrganizationID, roles, true)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"roles": views})
+}
+
+func (s *AdminServer) handleCreateOrganizationRole(c *gin.Context) {
+	org, ok := s.loadOrganization(c, c.Param("id"))
+	if !ok {
+		return
+	}
+	var req organizationRolePayload
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid organization role payload"})
+		return
+	}
+	role, permissions, err := s.organizationRoleFromPayload(org.OrganizationID, req, nil)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	service := iam.NewService(s.db)
+	roleID, err := service.GenerateOrganizationRoleID()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	role.RoleID = roleID
+	now := time.Now()
+	role.CreatedAt = now
+	role.UpdatedAt = now
+	if err := s.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&role).Error; err != nil {
+			return err
+		}
+		return s.replaceOrganizationRolePermissions(tx, org.OrganizationID, role.RoleID, permissions, now)
+	}); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	view, err := s.organizationRoleView(role, true)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusCreated, gin.H{"role": view})
+}
+
+func (s *AdminServer) handleUpdateOrganizationRole(c *gin.Context) {
+	org, ok := s.loadOrganization(c, c.Param("id"))
+	if !ok {
+		return
+	}
+	current, ok := s.loadOrganizationRole(c, org.OrganizationID, c.Param("role_id"))
+	if !ok {
+		return
+	}
+	var req organizationRolePayload
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid organization role payload"})
+		return
+	}
+	role, permissions, err := s.organizationRoleFromPayload(org.OrganizationID, req, &current)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	role.RoleID = current.RoleID
+	role.CreatedAt = current.CreatedAt
+	role.UpdatedAt = time.Now()
+	if err := s.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Save(&role).Error; err != nil {
+			return err
+		}
+		return s.replaceOrganizationRolePermissions(tx, org.OrganizationID, role.RoleID, permissions, role.UpdatedAt)
+	}); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	view, err := s.organizationRoleView(role, true)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"role": view})
+}
+
+func (s *AdminServer) handleDeleteOrganizationRole(c *gin.Context) {
+	org, ok := s.loadOrganization(c, c.Param("id"))
+	if !ok {
+		return
+	}
+	role, ok := s.loadOrganizationRole(c, org.OrganizationID, c.Param("role_id"))
+	if !ok {
+		return
+	}
+	if err := s.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Delete(&iam.OrganizationRoleBinding{}, "organization_id = ? AND role_id = ?", org.OrganizationID, role.RoleID).Error; err != nil {
+			return err
+		}
+		if err := tx.Delete(&iam.OrganizationRolePermission{}, "organization_id = ? AND role_id = ?", org.OrganizationID, role.RoleID).Error; err != nil {
+			return err
+		}
+		return tx.Delete(&iam.OrganizationRole{}, "organization_id = ? AND role_id = ?", org.OrganizationID, role.RoleID).Error
+	}); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "organization role deleted successfully"})
+}
+
+func (s *AdminServer) handleCreateOrganizationRoleBinding(c *gin.Context) {
+	org, ok := s.loadOrganization(c, c.Param("id"))
+	if !ok {
+		return
+	}
+	role, ok := s.loadOrganizationRole(c, org.OrganizationID, c.Param("role_id"))
+	if !ok {
+		return
+	}
+	var req organizationRoleBindingPayload
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid organization role binding payload"})
+		return
+	}
+	subjectType, subjectID, err := s.normalizeOrganizationRoleBindingPayload(org.OrganizationID, req)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	var binding iam.OrganizationRoleBinding
+	err = s.db.First(&binding, "organization_id = ? AND role_id = ? AND subject_type = ? AND subject_id = ?", org.OrganizationID, role.RoleID, subjectType, subjectID).Error
+	switch {
+	case err == nil:
+		view, viewErr := s.organizationRoleBindingView(org.OrganizationID, binding)
+		if viewErr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": viewErr.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"binding": view})
+		return
+	case !errors.Is(err, gorm.ErrRecordNotFound):
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	service := iam.NewService(s.db)
+	bindingID, err := service.GenerateOrganizationRoleBindingID()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	now := time.Now()
+	binding = iam.OrganizationRoleBinding{
+		BindingID:      bindingID,
+		OrganizationID: org.OrganizationID,
+		RoleID:         role.RoleID,
+		SubjectType:    subjectType,
+		SubjectID:      subjectID,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}
+	if err := s.db.Create(&binding).Error; err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	view, err := s.organizationRoleBindingView(org.OrganizationID, binding)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusCreated, gin.H{"binding": view})
+}
+
+func (s *AdminServer) handleDeleteOrganizationRoleBinding(c *gin.Context) {
+	org, ok := s.loadOrganization(c, c.Param("id"))
+	if !ok {
+		return
+	}
+	role, ok := s.loadOrganizationRole(c, org.OrganizationID, c.Param("role_id"))
+	if !ok {
+		return
+	}
+	bindingID := strings.TrimSpace(c.Param("binding_id"))
+	if bindingID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "binding_id is required"})
+		return
+	}
+	var binding iam.OrganizationRoleBinding
+	if err := s.db.First(&binding, "organization_id = ? AND role_id = ? AND binding_id = ?", org.OrganizationID, role.RoleID, bindingID).Error; err != nil {
+		writeNotFoundOrError(c, err, "organization role binding was not found")
+		return
+	}
+	if err := s.db.Delete(&iam.OrganizationRoleBinding{}, "organization_id = ? AND role_id = ? AND binding_id = ?", org.OrganizationID, role.RoleID, binding.BindingID).Error; err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "organization role binding deleted successfully"})
+}
+
 func (s *AdminServer) organizationFromPayload(req organizationPayload, current *iam.Organization) (iam.Organization, error) {
 	slug := strings.TrimSpace(strings.ToLower(req.Slug))
 	name := strings.TrimSpace(req.Name)
@@ -634,6 +887,168 @@ func (s *AdminServer) membershipView(item iam.OrganizationMembership, roles []st
 		view.Nickname = user.Nickname
 		view.Avatar = user.Avatar
 		view.UserStatus = string(user.Status)
+	}
+	return view
+}
+
+func (s *AdminServer) loadOrganizationRole(c *gin.Context, organizationID, roleID string) (iam.OrganizationRole, bool) {
+	roleID = strings.TrimSpace(roleID)
+	var role iam.OrganizationRole
+	if err := s.db.First(&role, "organization_id = ? AND role_id = ?", organizationID, roleID).Error; err != nil {
+		writeNotFoundOrError(c, err, "organization role was not found")
+		return iam.OrganizationRole{}, false
+	}
+	return role, true
+}
+
+func (s *AdminServer) organizationRoleViews(organizationID string, roles []iam.OrganizationRole, includeBindings bool) ([]organizationRoleView, error) {
+	if len(roles) == 0 {
+		return []organizationRoleView{}, nil
+	}
+
+	roleIDs := make([]string, 0, len(roles))
+	for _, role := range roles {
+		roleIDs = append(roleIDs, role.RoleID)
+	}
+
+	permissionsByRole := map[string][]string{}
+	var permissions []iam.OrganizationRolePermission
+	if err := s.db.Where("organization_id = ? AND role_id IN ?", organizationID, roleIDs).Find(&permissions).Error; err != nil {
+		return nil, err
+	}
+	for _, permission := range permissions {
+		permissionsByRole[permission.RoleID] = append(permissionsByRole[permission.RoleID], permission.PermissionKey)
+	}
+	for roleID, values := range permissionsByRole {
+		permissionsByRole[roleID] = uniqueTrimmedStrings(values)
+	}
+
+	bindingViewsByRole := map[string][]organizationRoleBindingView{}
+	bindingCountByRole := map[string]int{}
+	if includeBindings {
+		var bindings []iam.OrganizationRoleBinding
+		if err := s.db.Where("organization_id = ? AND role_id IN ?", organizationID, roleIDs).Order("created_at ASC").Find(&bindings).Error; err != nil {
+			return nil, err
+		}
+		bindingViews, err := s.organizationRoleBindingViews(organizationID, bindings)
+		if err != nil {
+			return nil, err
+		}
+		for _, binding := range bindingViews {
+			bindingViewsByRole[binding.RoleID] = append(bindingViewsByRole[binding.RoleID], binding)
+			bindingCountByRole[binding.RoleID]++
+		}
+	}
+
+	views := make([]organizationRoleView, 0, len(roles))
+	for _, role := range roles {
+		view := organizationRoleView{
+			RoleID:         role.RoleID,
+			OrganizationID: role.OrganizationID,
+			Name:           role.Name,
+			Slug:           role.Slug,
+			Description:    role.Description,
+			Enabled:        role.Enabled,
+			Permissions:    permissionsByRole[role.RoleID],
+			BindingCount:   bindingCountByRole[role.RoleID],
+			CreatedAt:      role.CreatedAt,
+			UpdatedAt:      role.UpdatedAt,
+		}
+		if includeBindings {
+			view.Bindings = bindingViewsByRole[role.RoleID]
+		}
+		views = append(views, view)
+	}
+	return views, nil
+}
+
+func (s *AdminServer) organizationRoleView(role iam.OrganizationRole, includeBindings bool) (organizationRoleView, error) {
+	views, err := s.organizationRoleViews(role.OrganizationID, []iam.OrganizationRole{role}, includeBindings)
+	if err != nil {
+		return organizationRoleView{}, err
+	}
+	if len(views) == 0 {
+		return organizationRoleView{}, gorm.ErrRecordNotFound
+	}
+	return views[0], nil
+}
+
+func (s *AdminServer) organizationRoleBindingViews(organizationID string, bindings []iam.OrganizationRoleBinding) ([]organizationRoleBindingView, error) {
+	if len(bindings) == 0 {
+		return []organizationRoleBindingView{}, nil
+	}
+
+	userIDs := make([]string, 0)
+	groupIDs := make([]string, 0)
+	for _, binding := range bindings {
+		switch binding.SubjectType {
+		case iam.RoleBindingSubjectMembership:
+			userIDs = append(userIDs, binding.SubjectID)
+		case iam.RoleBindingSubjectGroup:
+			groupIDs = append(groupIDs, binding.SubjectID)
+		}
+	}
+
+	usersByID, err := s.loadAdminUsersMap(userIDs)
+	if err != nil {
+		return nil, err
+	}
+	groupsByID := map[string]iam.OrganizationGroup{}
+	if len(groupIDs) > 0 {
+		var groups []iam.OrganizationGroup
+		if err := s.db.Where("organization_id = ? AND group_id IN ?", organizationID, uniqueTrimmedStrings(groupIDs)).Find(&groups).Error; err != nil {
+			return nil, err
+		}
+		for _, group := range groups {
+			groupsByID[group.GroupID] = group
+		}
+	}
+
+	views := make([]organizationRoleBindingView, 0, len(bindings))
+	for _, binding := range bindings {
+		views = append(views, s.organizationRoleBindingViewWithSubjects(binding, usersByID, groupsByID))
+	}
+	return views, nil
+}
+
+func (s *AdminServer) organizationRoleBindingView(organizationID string, binding iam.OrganizationRoleBinding) (organizationRoleBindingView, error) {
+	views, err := s.organizationRoleBindingViews(organizationID, []iam.OrganizationRoleBinding{binding})
+	if err != nil {
+		return organizationRoleBindingView{}, err
+	}
+	if len(views) == 0 {
+		return organizationRoleBindingView{}, gorm.ErrRecordNotFound
+	}
+	return views[0], nil
+}
+
+func (s *AdminServer) organizationRoleBindingViewWithSubjects(binding iam.OrganizationRoleBinding, usersByID map[string]auth.User, groupsByID map[string]iam.OrganizationGroup) organizationRoleBindingView {
+	view := organizationRoleBindingView{
+		BindingID:      binding.BindingID,
+		OrganizationID: binding.OrganizationID,
+		RoleID:         binding.RoleID,
+		SubjectType:    string(binding.SubjectType),
+		SubjectID:      binding.SubjectID,
+		CreatedAt:      binding.CreatedAt,
+		UpdatedAt:      binding.UpdatedAt,
+	}
+	switch binding.SubjectType {
+	case iam.RoleBindingSubjectMembership:
+		if user, ok := usersByID[binding.SubjectID]; ok {
+			view.SubjectLabel = firstNonEmpty(user.Nickname, user.Username, user.UserID)
+			view.SubjectSecondary = user.UserID
+		} else {
+			view.SubjectLabel = binding.SubjectID
+		}
+	case iam.RoleBindingSubjectGroup:
+		if group, ok := groupsByID[binding.SubjectID]; ok {
+			view.SubjectLabel = firstNonEmpty(group.DisplayName, group.GroupID)
+			view.SubjectSecondary = group.GroupID
+		} else {
+			view.SubjectLabel = binding.SubjectID
+		}
+	default:
+		view.SubjectLabel = binding.SubjectID
 	}
 	return view
 }
@@ -994,6 +1409,134 @@ func normalizeOrganizationGroupRoleName(rawRole, displayName string) (string, er
 	return role, nil
 }
 
+func normalizeOrganizationRoleSlug(rawSlug, name string) (string, error) {
+	slug := strings.TrimSpace(rawSlug)
+	if slug == "" {
+		slug = roleNameFromDisplayName(name)
+	}
+	if !roleNamePattern.MatchString(slug) {
+		return "", fmt.Errorf("slug %q is invalid", slug)
+	}
+	return slug, nil
+}
+
+func normalizePermissionKeys(raw []string) ([]string, error) {
+	seen := map[string]struct{}{}
+	keys := make([]string, 0, len(raw))
+	for _, key := range raw {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+		if !permissionKeyPattern.MatchString(key) {
+			return nil, fmt.Errorf("permission %q is invalid", key)
+		}
+		lookup := strings.ToLower(key)
+		if _, ok := seen[lookup]; ok {
+			continue
+		}
+		seen[lookup] = struct{}{}
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys, nil
+}
+
+func normalizeOrganizationRoleBindingSubjectType(raw string) (iam.RoleBindingSubjectType, error) {
+	switch subjectType := iam.RoleBindingSubjectType(strings.TrimSpace(strings.ToLower(raw))); subjectType {
+	case iam.RoleBindingSubjectMembership, iam.RoleBindingSubjectGroup:
+		return subjectType, nil
+	default:
+		return "", fmt.Errorf("unsupported subject_type %q", raw)
+	}
+}
+
+func (s *AdminServer) organizationRoleFromPayload(organizationID string, req organizationRolePayload, current *iam.OrganizationRole) (iam.OrganizationRole, []string, error) {
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		return iam.OrganizationRole{}, nil, fmt.Errorf("name is required")
+	}
+	slug, err := normalizeOrganizationRoleSlug(req.Slug, name)
+	if err != nil {
+		return iam.OrganizationRole{}, nil, err
+	}
+	permissions, err := normalizePermissionKeys(req.Permissions)
+	if err != nil {
+		return iam.OrganizationRole{}, nil, err
+	}
+
+	enabled := true
+	if current != nil {
+		enabled = current.Enabled
+	}
+	if req.Enabled != nil {
+		enabled = *req.Enabled
+	}
+
+	role := iam.OrganizationRole{
+		OrganizationID: organizationID,
+		Name:           name,
+		Slug:           slug,
+		Description:    strings.TrimSpace(req.Description),
+		Enabled:        enabled,
+	}
+	if current != nil {
+		role.RoleID = current.RoleID
+		role.CreatedAt = current.CreatedAt
+	}
+	return role, permissions, nil
+}
+
+func (s *AdminServer) normalizeOrganizationRoleBindingPayload(organizationID string, req organizationRoleBindingPayload) (iam.RoleBindingSubjectType, string, error) {
+	subjectType, err := normalizeOrganizationRoleBindingSubjectType(req.SubjectType)
+	if err != nil {
+		return "", "", err
+	}
+	subjectID := strings.TrimSpace(req.SubjectID)
+	if subjectID == "" {
+		return "", "", fmt.Errorf("subject_id is required")
+	}
+
+	switch subjectType {
+	case iam.RoleBindingSubjectMembership:
+		var membership iam.OrganizationMembership
+		if err := s.db.First(&membership, "organization_id = ? AND user_id = ?", organizationID, subjectID).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return "", "", fmt.Errorf("membership %q was not found", subjectID)
+			}
+			return "", "", err
+		}
+	case iam.RoleBindingSubjectGroup:
+		var group iam.OrganizationGroup
+		if err := s.db.First(&group, "organization_id = ? AND group_id = ?", organizationID, subjectID).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return "", "", fmt.Errorf("group %q was not found", subjectID)
+			}
+			return "", "", err
+		}
+	}
+	return subjectType, subjectID, nil
+}
+
+func (s *AdminServer) replaceOrganizationRolePermissions(tx *gorm.DB, organizationID, roleID string, permissions []string, now time.Time) error {
+	if err := tx.Delete(&iam.OrganizationRolePermission{}, "organization_id = ? AND role_id = ?", organizationID, roleID).Error; err != nil {
+		return err
+	}
+	for _, key := range permissions {
+		record := iam.OrganizationRolePermission{
+			OrganizationID: organizationID,
+			RoleID:         roleID,
+			PermissionKey:  key,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}
+		if err := tx.Create(&record).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func roleNameFromDisplayName(displayName string) string {
 	var b strings.Builder
 	lastDash := false
@@ -1017,6 +1560,15 @@ func roleNameFromDisplayName(displayName string) string {
 		role = role[:64]
 	}
 	return role
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
 }
 
 func parseRolesJSON(raw string) []string {

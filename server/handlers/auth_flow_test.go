@@ -79,6 +79,7 @@ type authTestEnv struct {
 	router       *gin.Engine
 	db           *gorm.DB
 	accountAuth  *auth.AccountAuth
+	handler      *AuthHandler
 	emailService *fakeEmailService
 	smsService   *fakeSMSService
 	redisClient  *redis.Client
@@ -170,6 +171,7 @@ func newAuthTestEnv(t *testing.T) *authTestEnv {
 		router:       router,
 		db:           db,
 		accountAuth:  accountAuth,
+		handler:      handler,
 		emailService: emailService,
 		smsService:   smsService,
 		redisClient:  redisClient,
@@ -266,6 +268,7 @@ func newAuthTestEnvWithOIDCProvider(t *testing.T, oidcCfg config.OIDCConfig) *au
 		router:       router,
 		db:           db,
 		accountAuth:  accountAuth,
+		handler:      handler,
 		emailService: emailService,
 		smsService:   smsService,
 		redisClient:  redisClient,
@@ -658,13 +661,15 @@ func TestCurrentUserOrganizationsEndpointFiltersByOIDCClientPolicy(t *testing.T)
 		Enabled: true,
 		Issuer:  "http://127.0.0.1:8080",
 		Clients: []config.OIDCClientConfig{{
-			ClientID:            "demo-spa",
-			Public:              true,
-			RequirePKCE:         true,
-			RedirectURIs:        []string{"http://127.0.0.1:3000/callback"},
-			Scopes:              []string{"openid", "profile"},
-			RequireOrganization: true,
-			RequiredOrgRoles:    []string{"admin"},
+			ClientID:     "demo-spa",
+			Public:       true,
+			RequirePKCE:  true,
+			RedirectURIs: []string{"http://127.0.0.1:3000/callback"},
+			Scopes:       []string{"openid", "profile"},
+			OIDCOrganizationPolicy: config.OIDCOrganizationPolicy{
+				RequireOrganization: true,
+				RequiredOrgRoles:    []string{"admin"},
+			},
 		}},
 	})
 	defer env.Close()
@@ -746,6 +751,105 @@ func TestCurrentUserOrganizationsEndpointFiltersByOIDCClientPolicy(t *testing.T)
 	}
 	if response.Organizations[0]["slug"] != "beta" {
 		t.Fatalf("expected only beta organization to remain after policy filtering, got %#v", response.Organizations)
+	}
+}
+
+func TestCurrentUserOrganizationsEndpointFiltersByOIDCClientScopePolicy(t *testing.T) {
+	env := newAuthTestEnvWithOIDCProvider(t, config.OIDCConfig{
+		Enabled: true,
+		Issuer:  "http://127.0.0.1:8080",
+		Clients: []config.OIDCClientConfig{{
+			ClientID:     "demo-spa",
+			Public:       true,
+			RequirePKCE:  true,
+			RedirectURIs: []string{"http://127.0.0.1:3000/callback"},
+			Scopes:       []string{"openid", "profile", "email"},
+			ScopePolicies: map[string]config.OIDCOrganizationPolicy{
+				"email": {
+					RequiredOrgRolesAll: []string{"admin", "security"},
+				},
+			},
+		}},
+	})
+	defer env.Close()
+
+	registerResp := performJSONRequest(t, env.router, http.MethodPost, "/api/account/register", map[string]string{
+		"username": "org_scope_policy_user",
+		"password": "demo12345",
+	}, nil, nil)
+	if registerResp.Code != http.StatusOK {
+		t.Fatalf("expected register status 200, got %d with body %s", registerResp.Code, registerResp.Body.String())
+	}
+
+	sessionCookie := requireCookie(t, registerResp, auth.OIDCSessionCookieName)
+	body := decodeBodyMap(t, registerResp)
+	userID, ok := body["user_id"].(string)
+	if !ok || userID == "" {
+		t.Fatalf("expected user_id in register response, got %#v", body["user_id"])
+	}
+
+	now := time.Now()
+	for _, org := range []iam.Organization{
+		{
+			OrganizationID: "org_alpha0000000000",
+			Slug:           "alpha",
+			Name:           "Alpha Inc",
+			DisplayName:    "Alpha",
+			Status:         iam.OrganizationStatusActive,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		},
+		{
+			OrganizationID: "org_beta00000000000",
+			Slug:           "beta",
+			Name:           "Beta LLC",
+			DisplayName:    "Beta",
+			Status:         iam.OrganizationStatusActive,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		},
+	} {
+		if err := env.db.Create(&org).Error; err != nil {
+			t.Fatalf("failed to create organization %s: %v", org.OrganizationID, err)
+		}
+	}
+	if err := env.db.Create(&iam.OrganizationMembership{
+		OrganizationID: "org_alpha0000000000",
+		UserID:         userID,
+		Status:         iam.MembershipStatusActive,
+		RolesJSON:      `["admin"]`,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}).Error; err != nil {
+		t.Fatalf("failed to create alpha membership: %v", err)
+	}
+	if err := env.db.Create(&iam.OrganizationMembership{
+		OrganizationID: "org_beta00000000000",
+		UserID:         userID,
+		Status:         iam.MembershipStatusActive,
+		RolesJSON:      `["admin","security"]`,
+		CreatedAt:      now.Add(time.Second),
+		UpdatedAt:      now.Add(time.Second),
+	}).Error; err != nil {
+		t.Fatalf("failed to create beta membership: %v", err)
+	}
+
+	resp := performJSONRequest(t, env.router, http.MethodGet, "/api/user/organizations?client_id=demo-spa&scope=openid%20profile%20email", nil, sessionCookie, nil)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected organizations status 200, got %d with body %s", resp.Code, resp.Body.String())
+	}
+
+	var response struct {
+		Organizations []map[string]any `json:"organizations"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &response); err != nil {
+		t.Fatalf("failed to decode organizations response: %v", err)
+	}
+	if len(response.Organizations) != 1 {
+		t.Fatalf("expected 1 filtered organization for scoped policy, got %#v", response.Organizations)
+	}
+	if response.Organizations[0]["slug"] != "beta" {
+		t.Fatalf("expected only beta organization after scoped policy filtering, got %#v", response.Organizations)
 	}
 }
 

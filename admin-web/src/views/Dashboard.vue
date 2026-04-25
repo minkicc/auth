@@ -27,6 +27,59 @@
           :closable="false"
           style="margin-bottom: 20px;"
         />
+
+        <div class="platform-grid">
+          <el-card shadow="hover" class="platform-card">
+            <template #header>
+              <div class="stat-header">
+                <el-icon class="stat-icon"><Compass /></el-icon>
+                {{ $t('dashboard.platform_title') }}
+              </div>
+            </template>
+            <div class="platform-summary">
+              <el-tag type="success" effect="dark" round>
+                {{ $t('dashboard.platform_badge') }}
+              </el-tag>
+              <p class="platform-description">{{ $t('dashboard.platform_description') }}</p>
+              <p class="platform-note">{{ $t('dashboard.platform_note') }}</p>
+            </div>
+            <div class="capability-tags">
+              <el-tag
+                v-for="item in platformHighlights"
+                :key="item"
+                size="small"
+                effect="plain"
+                class="capability-tag"
+              >
+                {{ item }}
+              </el-tag>
+            </div>
+          </el-card>
+
+          <el-card shadow="hover" class="platform-card">
+            <template #header>
+              <div class="stat-header">
+                <el-icon class="stat-icon"><Promotion /></el-icon>
+                {{ $t('dashboard.focus_title') }}
+              </div>
+            </template>
+            <p class="focus-summary">{{ $t('dashboard.focus_summary') }}</p>
+            <div class="focus-list">
+              <div v-for="item in focusItems" :key="item.title" class="focus-item">
+                <div class="focus-item-title">{{ item.title }}</div>
+                <div class="focus-item-desc">{{ item.description }}</div>
+              </div>
+            </div>
+            <div class="focus-actions">
+              <el-button size="small" @click="router.push({ name: 'Organizations' })">
+                {{ $t('dashboard.quick_orgs') }}
+              </el-button>
+              <el-button size="small" type="primary" @click="router.push({ name: 'Settings' })">
+                {{ $t('dashboard.quick_settings') }}
+              </el-button>
+            </div>
+          </el-card>
+        </div>
         
         <div class="stats-grid">
           <!-- 总用户统计 -->
@@ -139,14 +192,43 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
-import { Connection, Key, Plus, Refresh, User } from '@element-plus/icons-vue'
+import { computed, onMounted, reactive, ref } from 'vue'
+import { Compass, Connection, Key, Plus, Promotion, Refresh, User } from '@element-plus/icons-vue'
 import { StatsData, serverApi as api } from '@/api/index'
 import { useI18n } from 'vue-i18n'
+import { useRouter } from 'vue-router'
 
 const { t } = useI18n()
+const router = useRouter()
 const loading = ref(true)
 const error = ref('')
+
+const platformHighlights = computed(() => [
+  t('dashboard.platform_highlight_enterprise'),
+  t('dashboard.platform_highlight_org'),
+  t('dashboard.platform_highlight_scim'),
+  t('dashboard.platform_highlight_plugins'),
+  t('dashboard.platform_highlight_security')
+])
+
+const focusItems = computed(() => [
+  {
+    title: t('dashboard.focus_item_roles_title'),
+    description: t('dashboard.focus_item_roles_desc')
+  },
+  {
+    title: t('dashboard.focus_item_policy_title'),
+    description: t('dashboard.focus_item_policy_desc')
+  },
+  {
+    title: t('dashboard.focus_item_mapper_title'),
+    description: t('dashboard.focus_item_mapper_desc')
+  },
+  {
+    title: t('dashboard.focus_item_service_title'),
+    description: t('dashboard.focus_item_service_desc')
+  }
+])
 
 // 初始化统计数据
 const stats = reactive<StatsData>({
@@ -219,6 +301,79 @@ onMounted(() => {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
     gap: 20px;
+  }
+
+  .platform-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 20px;
+    margin-bottom: 20px;
+  }
+
+  .platform-card {
+    min-height: 100%;
+  }
+
+  .platform-summary {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+
+  .platform-description,
+  .platform-note,
+  .focus-summary {
+    margin: 0;
+    line-height: 1.6;
+    color: #606266;
+  }
+
+  .platform-note {
+    color: #909399;
+    font-size: 0.92rem;
+  }
+
+  .capability-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .capability-tag {
+    margin-right: 0;
+  }
+
+  .focus-list {
+    display: grid;
+    gap: 12px;
+    margin-top: 16px;
+  }
+
+  .focus-item {
+    padding: 12px 14px;
+    border-radius: 12px;
+    background: #f7f9fc;
+    border: 1px solid #ebeef5;
+  }
+
+  .focus-item-title {
+    font-weight: 600;
+    color: #303133;
+    margin-bottom: 4px;
+  }
+
+  .focus-item-desc {
+    color: #606266;
+    line-height: 1.5;
+    font-size: 0.92rem;
+  }
+
+  .focus-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 18px;
   }
   
   .stat-card {

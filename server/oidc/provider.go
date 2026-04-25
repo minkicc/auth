@@ -17,6 +17,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -46,6 +47,9 @@ type Provider struct {
 	sessionMgr  *auth.SessionManager
 	signer      *tokenSigner
 	hooks       *iam.HookRegistry
+	staticCfgs  []config.OIDCClientConfig
+	mu          sync.RWMutex
+	clients     []config.OIDCClientConfig
 }
 
 type tokenSigner struct {
@@ -107,20 +111,13 @@ func NewProvider(cfg config.OIDCConfig, db *gorm.DB, redis *auth.RedisStore, acc
 	if accountAuth == nil {
 		return nil, fmt.Errorf("oidc requires account auth")
 	}
-	if len(cfg.Clients) == 0 {
-		return nil, fmt.Errorf("oidc is enabled but no clients are configured")
-	}
-
 	for _, client := range cfg.Clients {
-		if strings.TrimSpace(client.ClientID) == "" {
-			return nil, fmt.Errorf("oidc client_id is required")
+		if err := ValidateClientConfig(client); err != nil {
+			return nil, err
 		}
-		if len(client.RedirectURIs) == 0 {
-			return nil, fmt.Errorf("oidc client %s must define at least one redirect_uri", client.ClientID)
-		}
-		if !client.Public && strings.TrimSpace(client.ClientSecret) == "" {
-			return nil, fmt.Errorf("oidc confidential client %s must define client_secret", client.ClientID)
-		}
+	}
+	if err := autoMigrateClientRecords(db); err != nil {
+		return nil, err
 	}
 
 	signer, err := newTokenSigner(cfg)
@@ -128,14 +125,19 @@ func NewProvider(cfg config.OIDCConfig, db *gorm.DB, redis *auth.RedisStore, acc
 		return nil, err
 	}
 
-	return &Provider{
+	provider := &Provider{
 		cfg:         cfg,
 		db:          db,
 		redis:       redis,
 		accountAuth: accountAuth,
 		sessionMgr:  auth.NewSessionManager(auth.NewSessionRedisStore(redis.GetClient())),
 		signer:      signer,
-	}, nil
+		staticCfgs:  append([]config.OIDCClientConfig(nil), cfg.Clients...),
+	}
+	if err := provider.Reload(); err != nil {
+		return nil, err
+	}
+	return provider, nil
 }
 
 func (p *Provider) SetHookRegistry(hooks *iam.HookRegistry) {
@@ -194,6 +196,7 @@ func (p *Provider) authorize(c *gin.Context) {
 	if !ok {
 		return
 	}
+	requestedScopes := normalizeRequestedScopes(strings.Fields(c.Query("scope")))
 
 	user, err := p.currentUser(c)
 	if err != nil {
@@ -220,7 +223,7 @@ func (p *Provider) authorize(c *gin.Context) {
 		return
 	}
 
-	if p.requiresOrganizationSelection(client, user.UserID, c.Query("org_hint")) {
+	if p.requiresOrganizationSelection(client, user.UserID, c.Query("org_hint"), requestedScopes) {
 		if c.Query("prompt") == "none" {
 			p.redirectAuthorizeError(c, redirectURI, "interaction_required", c.Query("state"))
 			return
@@ -230,7 +233,7 @@ func (p *Provider) authorize(c *gin.Context) {
 		return
 	}
 
-	selectedOrgID, ok := p.resolveAuthorizeOrganization(c, user.UserID, client, redirectURI)
+	selectedOrgID, ok := p.resolveAuthorizeOrganization(c, user.UserID, client, redirectURI, requestedScopes)
 	if !ok {
 		return
 	}
@@ -664,10 +667,10 @@ func (p *Provider) validAuthorizeRequest(c *gin.Context) (config.OIDCClientConfi
 	return client, redirectURI, true
 }
 
-func (p *Provider) resolveAuthorizeOrganization(c *gin.Context, userID string, client config.OIDCClientConfig, redirectURI string) (string, bool) {
+func (p *Provider) resolveAuthorizeOrganization(c *gin.Context, userID string, client config.OIDCClientConfig, redirectURI string, requestedScopes []string) (string, bool) {
 	orgHint := strings.TrimSpace(c.Query("org_hint"))
-	if p.clientUsesOrganizationPolicy(client) {
-		organizations, err := p.listAuthorizedOrganizations(userID, client)
+	if p.clientUsesOrganizationPolicy(client, requestedScopes) {
+		organizations, err := p.listAuthorizedOrganizations(userID, client, requestedScopes)
 		if err != nil {
 			p.redirectAuthorizeError(c, redirectURI, "server_error", c.Query("state"))
 			return "", false
@@ -702,12 +705,12 @@ func (p *Provider) resolveAuthorizeOrganization(c *gin.Context, userID string, c
 	return orgClaims.OrgID, true
 }
 
-func (p *Provider) requiresOrganizationSelection(client config.OIDCClientConfig, userID, orgHint string) bool {
+func (p *Provider) requiresOrganizationSelection(client config.OIDCClientConfig, userID, orgHint string, requestedScopes []string) bool {
 	if strings.TrimSpace(orgHint) != "" || p.db == nil || userID == "" || !p.db.Migrator().HasTable(&iam.OrganizationMembership{}) {
 		return false
 	}
-	if p.clientUsesOrganizationPolicy(client) {
-		organizations, err := p.listAuthorizedOrganizations(userID, client)
+	if p.clientUsesOrganizationPolicy(client, requestedScopes) {
+		organizations, err := p.listAuthorizedOrganizations(userID, client, requestedScopes)
 		if err != nil {
 			return false
 		}
@@ -803,7 +806,7 @@ func (p *Provider) clearBrowserSession(c *gin.Context) {
 }
 
 func (p *Provider) findClient(clientID string) (config.OIDCClientConfig, bool) {
-	for _, client := range p.cfg.Clients {
+	for _, client := range p.currentClients() {
 		if client.ClientID == clientID {
 			return client, true
 		}
@@ -826,10 +829,7 @@ func (p *Provider) validPostLogoutRedirect(clientID string, redirectURI string) 
 }
 
 func (p *Provider) allowedScopes(client config.OIDCClientConfig) []string {
-	if len(client.Scopes) == 0 {
-		return append([]string(nil), defaultScopes...)
-	}
-	return client.Scopes
+	return effectiveAllowedScopes(client)
 }
 
 func (p *Provider) lookupEmail(userID string) (string, bool) {
@@ -863,25 +863,17 @@ func (p *Provider) lookupOrganizationClaims(userID string, requestedOrganization
 		return organizationClaims{}
 	}
 
-	claims := organizationClaims{
-		OrgID:    membership.OrganizationID,
-		OrgRoles: parseOrganizationRoles(membership.RolesJSON),
+	claims := organizationClaims{OrgID: membership.OrganizationID}
+
+	if authz, err := iam.NewService(p.db).ResolveOrganizationAuthorization(userID, membership.OrganizationID); err == nil {
+		claims.OrgRoles = authz.RoleSlugs
+		claims.OrgGroups = authz.GroupNames
 	}
 
 	if p.db.Migrator().HasTable(&iam.Organization{}) {
 		var org iam.Organization
 		if err := p.db.First(&org, "organization_id = ?", membership.OrganizationID).Error; err == nil {
 			claims.OrgSlug = org.Slug
-		}
-	}
-	if p.db.Migrator().HasTable(&iam.OrganizationGroup{}) && p.db.Migrator().HasTable(&iam.OrganizationGroupMember{}) {
-		var groups []string
-		if err := p.db.Table("organization_groups").
-			Select("organization_groups.display_name").
-			Joins("JOIN organization_group_members ON organization_group_members.group_id = organization_groups.group_id AND organization_group_members.organization_id = organization_groups.organization_id").
-			Where("organization_groups.organization_id = ? AND organization_group_members.user_id = ?", membership.OrganizationID, userID).
-			Pluck("organization_groups.display_name", &groups).Error; err == nil {
-			claims.OrgGroups = uniqueSortedStrings(groups)
 		}
 	}
 

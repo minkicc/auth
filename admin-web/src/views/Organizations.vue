@@ -201,12 +201,68 @@
             <el-table-column label="更新时间" min-width="170">
               <template #default="{ row }">{{ formatDate(row.updated_at) }}</template>
             </el-table-column>
-            <el-table-column label="操作" width="170" fixed="right">
+            <el-table-column label="操作" width="220" fixed="right">
               <template #default="{ row }">
                 <el-button link type="primary" @click="openGroupDialog(row)">
                   {{ row.editable ? '编辑' : '查看' }}
                 </el-button>
                 <el-button v-if="row.editable" link type="danger" @click="deleteGroup(row)">删除</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-tab-pane>
+
+        <el-tab-pane label="角色" name="roles">
+          <div class="identity-provider-header">
+            <div>
+              <h3>组织角色</h3>
+              <p>管理正式组织角色、权限键和角色绑定。角色可以直接绑定到成员，也可以绑定到组织组。</p>
+            </div>
+            <el-button type="primary" :disabled="!activeOrg" @click="openRoleDialog()">新建角色</el-button>
+          </div>
+
+          <el-table v-loading="detailLoading" :data="roles" row-key="role_id" empty-text="暂无组织角色">
+            <el-table-column prop="name" label="名称" min-width="160" />
+            <el-table-column prop="slug" label="Slug" min-width="140">
+              <template #default="{ row }">
+                <span class="mono">{{ row.slug }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="状态" width="100">
+              <template #default="{ row }">
+                <el-tag :type="row.enabled ? 'success' : 'info'" effect="plain">
+                  {{ row.enabled ? '启用' : '禁用' }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="权限键" min-width="240">
+              <template #default="{ row }">
+                <span class="events">{{ row.permissions?.join(', ') || '-' }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="绑定" min-width="220">
+              <template #default="{ row }">
+                <div class="tag-group">
+                  <el-tag
+                    v-for="binding in (row.bindings || []).slice(0, 3)"
+                    :key="binding.binding_id"
+                    effect="plain"
+                    size="small"
+                  >
+                    {{ binding.subject_type === 'group' ? '组' : '成员' }} · {{ binding.subject_label || binding.subject_id }}
+                  </el-tag>
+                  <span v-if="(row.bindings || []).length === 0" class="muted">暂无绑定</span>
+                  <span v-else-if="(row.bindings || []).length > 3" class="muted">+{{ (row.bindings || []).length - 3 }}</span>
+                </div>
+              </template>
+            </el-table-column>
+            <el-table-column label="更新时间" min-width="170">
+              <template #default="{ row }">{{ formatDate(row.updated_at) }}</template>
+            </el-table-column>
+            <el-table-column label="操作" width="180" fixed="right">
+              <template #default="{ row }">
+                <el-button link type="primary" @click="openRoleDialog(row)">编辑</el-button>
+                <el-button link type="danger" @click="deleteRole(row)">删除</el-button>
               </template>
             </el-table-column>
           </el-table>
@@ -278,13 +334,215 @@
             <el-table-column label="更新时间" min-width="170">
               <template #default="{ row }">{{ formatDate(row.updated_at) }}</template>
             </el-table-column>
-            <el-table-column label="操作" width="170" fixed="right">
+            <el-table-column label="操作" width="220" fixed="right">
               <template #default="{ row }">
                 <el-button link type="primary" @click="openIdentityProviderDialog(row)">编辑</el-button>
+                <el-button link type="primary" @click="openIdentityProviderAudit(row)">审计</el-button>
+                <el-button link type="warning" @click="openIdentityProviderFailureAudit(row)">失败记录</el-button>
                 <el-button link type="danger" @click="deleteIdentityProvider(row)">删除</el-button>
               </template>
             </el-table-column>
           </el-table>
+        </el-tab-pane>
+
+        <el-tab-pane label="安全审计" name="security-audit">
+          <div class="identity-provider-header">
+            <div>
+              <h3>组织安全审计</h3>
+              <p>仅展示当前组织下企业身份源的创建、更新、删除安全审计，便于直接按组织上下文追踪配置变更。</p>
+            </div>
+          </div>
+
+          <div class="audit-toolbar">
+            <el-select
+              v-model="organizationAuditFilters.action"
+              clearable
+              placeholder="全部动作"
+              @change="handleOrganizationAuditFilterChange"
+            >
+              <el-option
+                v-for="option in organizationAuditActionOptions"
+                :key="option.value"
+                :label="option.label"
+                :value="option.value"
+              />
+            </el-select>
+            <el-select
+              v-model="organizationAuditFilters.success"
+              placeholder="全部结果"
+              @change="handleOrganizationAuditFilterChange"
+            >
+              <el-option label="全部结果" value="all" />
+              <el-option label="仅成功" value="true" />
+              <el-option label="仅失败" value="false" />
+            </el-select>
+            <el-input
+              v-model="organizationAuditFilters.provider_id"
+              clearable
+              placeholder="精确 provider_id"
+              @clear="handleOrganizationAuditFilterChange"
+              @keyup.enter="handleOrganizationAuditFilterChange"
+            />
+            <el-input
+              v-model="organizationAuditFilters.query"
+              clearable
+              placeholder="搜索 slug / 名称 / 错误"
+              @clear="handleOrganizationAuditFilterChange"
+              @keyup.enter="handleOrganizationAuditFilterChange"
+            />
+            <el-button :loading="organizationAuditLoading" @click="loadOrganizationSecurityAudit">刷新审计</el-button>
+            <el-button @click="showOrganizationAuditFailures">只看失败</el-button>
+            <el-button @click="resetOrganizationAuditFilters">重置筛选</el-button>
+            <el-button :loading="organizationAuditExportLoading" @click="exportOrganizationSecurityAudit">导出 CSV</el-button>
+            <el-button :loading="organizationAuditAsyncExportLoading" @click="createOrganizationAuditExportJob">后台导出</el-button>
+            <el-button @click="copyOrganizationAuditFilterLink">复制筛选链接</el-button>
+          </div>
+
+          <el-alert
+            v-if="organizationAuditExportJob"
+            class="export-job-alert"
+            :type="organizationAuditExportJobAlertType"
+            :title="organizationAuditExportJobTitle"
+            :closable="false"
+            show-icon
+          >
+            <template #default>
+              <div class="export-job-content">
+                <span>{{ organizationAuditExportJobSummary }}</span>
+                <div class="export-job-actions">
+                  <el-button
+                    v-if="organizationAuditExportJob.download_ready"
+                    link
+                    type="primary"
+                    @click="downloadOrganizationAuditExportJob"
+                  >
+                    下载结果
+                  </el-button>
+                  <el-button
+                    v-else-if="organizationAuditExportJob.status === 'pending' || organizationAuditExportJob.status === 'running'"
+                    link
+                    type="primary"
+                    @click="refreshOrganizationAuditExportJob"
+                  >
+                    刷新状态
+                  </el-button>
+                  <el-button link @click="dismissOrganizationAuditExportJob">关闭</el-button>
+                </div>
+              </div>
+            </template>
+          </el-alert>
+
+          <el-card class="audit-jobs-card" shadow="never">
+            <template #header>
+              <div class="catalog-header">
+                <div>
+                  <strong>最近后台导出任务</strong>
+                  <p>仅展示当前组织的安全审计后台导出任务，刷新后也能继续下载已完成结果。</p>
+                </div>
+                <div class="table-actions">
+                  <el-button :loading="organizationAuditCleanupLoading" text @click="cleanupOrganizationAuditExportJobs">清理旧任务</el-button>
+                  <el-button :loading="organizationAuditExportJobsLoading" text @click="loadOrganizationAuditExportJobs">刷新任务</el-button>
+                </div>
+              </div>
+            </template>
+
+            <el-table
+              v-loading="organizationAuditExportJobsLoading"
+              :data="organizationAuditExportJobs"
+              row-key="job_id"
+              empty-text="暂无当前组织的后台导出任务"
+            >
+              <el-table-column label="创建时间" min-width="170">
+                <template #default="{ row }">{{ formatDate(row.created_at) }}</template>
+              </el-table-column>
+              <el-table-column label="状态" width="110">
+                <template #default="{ row }">
+                  <el-tag :type="organizationAuditExportJobTagType(row.status)" effect="plain">
+                    {{ formatOrganizationAuditExportJobStatus(row.status) }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="范围" min-width="260">
+                <template #default="{ row }">
+                  <span class="events">{{ formatOrganizationAuditExportJobScope(row) }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="结果" min-width="160">
+                <template #default="{ row }">
+                  <span class="events">{{ formatOrganizationAuditExportJobResult(row) }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="操作人" min-width="130">
+                <template #default="{ row }">{{ row.actor?.id || '-' }}</template>
+              </el-table-column>
+              <el-table-column label="操作" width="170" fixed="right">
+                <template #default="{ row }">
+                  <div class="table-actions">
+                    <el-button link type="primary" @click="trackOrganizationAuditExportJob(row)">跟踪</el-button>
+                    <el-button v-if="row.download_ready" link type="primary" @click="downloadListedOrganizationAuditExportJob(row)">下载</el-button>
+                    <el-button
+                      v-if="row.status === 'completed' || row.status === 'failed'"
+                      link
+                      type="danger"
+                      :loading="organizationAuditExportJobActionId === `delete:${row.job_id}`"
+                      @click="deleteOrganizationAuditExportJobEntry(row)"
+                    >
+                      删除
+                    </el-button>
+                  </div>
+                </template>
+              </el-table-column>
+            </el-table>
+          </el-card>
+
+          <el-table
+            v-loading="organizationAuditLoading"
+            :data="organizationAuditEntries"
+            row-key="id"
+            empty-text="暂无当前组织的企业身份源安全审计"
+          >
+            <el-table-column label="时间" min-width="170">
+              <template #default="{ row }">{{ formatDate(row.time) }}</template>
+            </el-table-column>
+            <el-table-column label="动作" width="140">
+              <template #default="{ row }">
+                <el-tag effect="plain">{{ formatSecurityAuditAction(row.action) }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作人" min-width="150">
+              <template #default="{ row }">{{ row.actor?.id || '-' }}</template>
+            </el-table-column>
+            <el-table-column label="结果" width="100">
+              <template #default="{ row }">
+                <el-tag :type="row.success ? 'success' : 'danger'" effect="plain">
+                  {{ row.success ? '成功' : '失败' }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="详情" min-width="320">
+              <template #default="{ row }">
+                <span class="events">{{ formatOrganizationSecurityAuditDetails(row) }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="100" fixed="right">
+              <template #default="{ row }">
+                <el-button link type="primary" @click="openOrganizationAuditDetail(row)">查看</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+
+          <div class="audit-pagination">
+            <el-pagination
+              background
+              layout="total, sizes, prev, pager, next"
+              :current-page="organizationAuditPage"
+              :page-size="organizationAuditPageSize"
+              :page-sizes="[10, 20, 50]"
+              :total="organizationAuditTotal"
+              @current-change="handleOrganizationAuditPageChange"
+              @size-change="handleOrganizationAuditSizeChange"
+            />
+          </div>
         </el-tab-pane>
       </el-tabs>
     </el-dialog>
@@ -333,6 +591,97 @@
         >
           保存
         </el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog
+      v-model="roleDialogVisible"
+      :title="editingRole ? '编辑组织角色' : '新建组织角色'"
+      width="720px"
+      append-to-body
+    >
+      <el-form label-position="top">
+        <el-form-item label="名称">
+          <el-input v-model="roleForm.name" placeholder="Admin" />
+        </el-form-item>
+        <el-form-item label="Slug">
+          <el-input v-model="roleForm.slug" placeholder="留空则自动从名称生成，例如 admin" />
+        </el-form-item>
+        <el-form-item label="说明">
+          <el-input v-model="roleForm.description" type="textarea" :rows="3" placeholder="角色用途说明" />
+        </el-form-item>
+        <el-form-item label="启用">
+          <el-switch v-model="roleForm.enabled" active-text="启用" inactive-text="禁用" />
+        </el-form-item>
+        <el-form-item label="权限键">
+          <el-input
+            v-model="roleForm.permissions_text"
+            type="textarea"
+            :rows="4"
+            placeholder="settings.manage, billing.read"
+          />
+          <p class="form-hint">支持逗号、空格或换行分隔。第一阶段先作为规范化权限键存储，后续会接到更细粒度策略执行。</p>
+        </el-form-item>
+
+        <template v-if="editingRole">
+          <el-divider content-position="left">角色绑定</el-divider>
+          <div class="inline-form">
+            <el-select v-model="roleBindingForm.subject_type" placeholder="绑定类型" class="role-binding-type">
+              <el-option label="成员" value="membership" />
+              <el-option label="组织组" value="group" />
+            </el-select>
+            <el-select v-model="roleBindingForm.subject_id" placeholder="选择绑定对象" class="full-width" filterable>
+              <el-option
+                v-for="option in roleBindingSubjectOptions"
+                :key="option.value"
+                :label="option.label"
+                :value="option.value"
+              />
+            </el-select>
+            <el-button type="primary" :loading="detailSaving === 'role-binding'" @click="addRoleBinding">添加绑定</el-button>
+          </div>
+          <p class="form-hint">成员绑定会直接授予角色；组绑定会让该组织组下的成员继承这个角色。</p>
+
+          <el-table
+            :data="editingRole.bindings || []"
+            row-key="binding_id"
+            empty-text="暂无角色绑定"
+            class="role-bindings-table"
+          >
+            <el-table-column label="类型" width="110">
+              <template #default="{ row }">
+                <el-tag effect="plain">{{ row.subject_type === 'group' ? '组织组' : '成员' }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="对象" min-width="240">
+              <template #default="{ row }">
+                <div>
+                  <strong>{{ row.subject_label || row.subject_id }}</strong>
+                  <p v-if="row.subject_secondary" class="muted">{{ row.subject_secondary }}</p>
+                </div>
+              </template>
+            </el-table-column>
+            <el-table-column label="创建时间" min-width="170">
+              <template #default="{ row }">{{ formatDate(row.created_at) }}</template>
+            </el-table-column>
+            <el-table-column label="操作" width="100" fixed="right">
+              <template #default="{ row }">
+                <el-button
+                  link
+                  type="danger"
+                  :loading="detailSaving === 'role-binding-delete'"
+                  @click="deleteRoleBinding(row.binding_id)"
+                >
+                  删除
+                </el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </template>
+      </el-form>
+      <template #footer>
+        <el-button @click="roleDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="detailSaving === 'role'" @click="saveRole">保存</el-button>
       </template>
     </el-dialog>
 
@@ -523,21 +872,45 @@
         </el-button>
       </template>
     </el-dialog>
+
+    <SecurityAuditDetailDrawer
+      v-model="organizationAuditDetailVisible"
+      :entry="selectedOrganizationAuditEntry"
+      :action-label="selectedOrganizationAuditActionLabel"
+      title="组织安全审计详情"
+      @apply-filter="applyOrganizationAuditJumpFilter"
+      @open-resource="openOrganizationAuditResource"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import { ElMessageBox } from 'element-plus/es/components/message-box/index'
+import SecurityAuditDetailDrawer from '@/components/SecurityAuditDetailDrawer.vue'
 import {
   serverApi,
   type Organization,
   type OrganizationDomain,
   type OrganizationGroup,
   type OrganizationIdentityProvider,
-  type OrganizationMembership
+  type OrganizationMembership,
+  type OrganizationRole,
+  type SecurityAuditEntry,
+  type SecurityAuditExportJob,
+  type SecurityAuditQuery
 } from '@/api'
+
+type OrganizationAuditSuccessFilter = 'all' | 'true' | 'false'
+
+interface OrganizationAuditFilterState {
+  action: string
+  provider_id: string
+  query: string
+  success: OrganizationAuditSuccessFilter
+}
 
 const loading = ref(false)
 const organizations = ref<Organization[]>([])
@@ -565,23 +938,91 @@ const detailSaving = ref('')
 const domains = ref<OrganizationDomain[]>([])
 const memberships = ref<OrganizationMembership[]>([])
 const groups = ref<OrganizationGroup[]>([])
+const roles = ref<OrganizationRole[]>([])
 const identityProviders = ref<OrganizationIdentityProvider[]>([])
+const organizationAuditLoading = ref(false)
+const organizationAuditExportLoading = ref(false)
+const organizationAuditAsyncExportLoading = ref(false)
+const organizationAuditCleanupLoading = ref(false)
+const organizationAuditEntries = ref<SecurityAuditEntry[]>([])
+const organizationAuditExportJobs = ref<SecurityAuditExportJob[]>([])
+const organizationAuditTotal = ref(0)
+const organizationAuditPage = ref(1)
+const organizationAuditPageSize = ref(10)
+const organizationAuditDetailVisible = ref(false)
+const selectedOrganizationAuditEntry = ref<SecurityAuditEntry | null>(null)
+const selectedOrganizationAuditActionLabel = ref('')
+const organizationAuditExportJob = ref<SecurityAuditExportJob | null>(null)
+const organizationAuditExportJobsLoading = ref(false)
+const organizationAuditExportJobActionId = ref('')
+const organizationAuditFilters = reactive<OrganizationAuditFilterState>({
+  action: '',
+  provider_id: '',
+  query: '',
+  success: 'all'
+})
 const domainForm = ref({ domain: '', verified: true })
 const memberForm = ref({ user_id: '', status: 'active', roles_text: '' })
 
 const groupDialogVisible = ref(false)
 const editingGroup = ref<OrganizationGroup | null>(null)
 const groupForm = ref(defaultGroupForm())
+const roleDialogVisible = ref(false)
+const editingRole = ref<OrganizationRole | null>(null)
+const roleForm = ref(defaultRoleForm())
+const roleBindingForm = ref(defaultRoleBindingForm())
 
 const identityProviderDialogVisible = ref(false)
 const editingIdentityProvider = ref<OrganizationIdentityProvider | null>(null)
 const identityProviderForm = ref(defaultIdentityProviderForm())
+const organizationAuditActionOptions = [
+  { label: '创建企业身份源', value: 'identity_provider_create' },
+  { label: '更新企业身份源', value: 'identity_provider_update' },
+  { label: '删除企业身份源', value: 'identity_provider_delete' }
+]
+
+const route = useRoute()
+const router = useRouter()
+const handledOrganizationDeepLink = ref('')
+let hydratingOrganizationRoute = false
+let organizationAuditExportPollTimer: number | null = null
+let lastSettledOrganizationAuditExportJob = ''
+const organizationRouteQueryKeys = [
+  'organization_id',
+  'tab',
+  'provider_id',
+  'open',
+  'audit_action',
+  'audit_provider_id',
+  'audit_query',
+  'audit_success',
+  'audit_page',
+  'audit_size'
+] as const
+let syncingOrganizationRoute = false
 
 function defaultGroupForm() {
   return {
     display_name: '',
     role_name: '',
     user_ids_text: ''
+  }
+}
+
+function defaultRoleForm() {
+  return {
+    name: '',
+    slug: '',
+    description: '',
+    enabled: true,
+    permissions_text: ''
+  }
+}
+
+function defaultRoleBindingForm() {
+  return {
+    subject_type: 'membership',
+    subject_id: ''
   }
 }
 
@@ -643,6 +1084,19 @@ const loadOrganizations = async () => {
   }
 }
 
+const roleBindingSubjectOptions = computed(() => {
+  if (roleBindingForm.value.subject_type === 'group') {
+    return groups.value.map(group => ({
+      value: group.group_id,
+      label: `${group.display_name || group.group_id}${group.role_name ? ` (${group.role_name})` : ''}`
+    }))
+  }
+  return memberships.value.map(member => ({
+    value: member.user_id,
+    label: `${member.nickname || member.username || member.user_id} (${member.user_id})`
+  }))
+})
+
 const openOrgDialog = (org?: Organization) => {
   editingOrg.value = org || null
   orgForm.value = {
@@ -687,11 +1141,13 @@ const saveOrganization = async () => {
   }
 }
 
-const openManageDialog = async (org: Organization) => {
+const openManageDialog = async (org: Organization, initialTab = 'domains') => {
   activeOrg.value = org
-  activeTab.value = 'domains'
+  activeTab.value = initialTab
+  resetOrganizationSecurityAudit()
   manageDialogVisible.value = true
   groupDialogVisible.value = false
+  roleDialogVisible.value = false
   identityProviderDialogVisible.value = false
   await loadOrganizationDetails()
 }
@@ -700,21 +1156,456 @@ const loadOrganizationDetails = async () => {
   if (!activeOrg.value) return
   detailLoading.value = true
   try {
-    const [domainResponse, memberResponse, groupResponse, identityProviderResponse] = await Promise.all([
+    const [domainResponse, memberResponse, groupResponse, roleResponse, identityProviderResponse] = await Promise.all([
       serverApi.getOrganizationDomains(activeOrg.value.organization_id),
       serverApi.getOrganizationMemberships(activeOrg.value.organization_id),
       serverApi.getOrganizationGroups(activeOrg.value.organization_id),
+      serverApi.getOrganizationRoles(activeOrg.value.organization_id),
       serverApi.getOrganizationIdentityProviders(activeOrg.value.organization_id)
     ])
     domains.value = domainResponse.domains || []
     memberships.value = memberResponse.memberships || []
     groups.value = groupResponse.groups || []
+    roles.value = roleResponse.roles || []
     identityProviders.value = identityProviderResponse.identity_providers || []
+    syncEditingRoleFromList()
   } catch (error: any) {
     ElMessage.error(error?.response?.data?.error || '加载组织详情失败')
   } finally {
     detailLoading.value = false
   }
+}
+
+const resetOrganizationSecurityAudit = () => {
+  organizationAuditEntries.value = []
+  organizationAuditTotal.value = 0
+  organizationAuditPage.value = 1
+  organizationAuditPageSize.value = 10
+  organizationAuditFilters.action = ''
+  organizationAuditFilters.provider_id = ''
+  organizationAuditFilters.query = ''
+  organizationAuditFilters.success = 'all'
+}
+
+const buildOrganizationSecurityAuditQuery = (overrides: Partial<SecurityAuditQuery> = {}): SecurityAuditQuery => {
+  return {
+    organization_id: activeOrg.value?.organization_id,
+    resource_type: 'identity_provider',
+    action: organizationAuditFilters.action || undefined,
+    provider_id: organizationAuditFilters.provider_id.trim() || undefined,
+    query: organizationAuditFilters.query.trim() || undefined,
+    success: organizationAuditFilters.success === 'all' ? undefined : organizationAuditFilters.success === 'true',
+    ...overrides
+  }
+}
+
+const applyOrganizationAuditRouteState = () => {
+  const query = route.query
+  organizationAuditFilters.action = typeof query.audit_action === 'string' ? query.audit_action : ''
+  organizationAuditFilters.provider_id = typeof query.audit_provider_id === 'string' ? query.audit_provider_id : ''
+  organizationAuditFilters.query = typeof query.audit_query === 'string' ? query.audit_query : ''
+  organizationAuditFilters.success =
+    query.audit_success === 'true' || query.audit_success === 'false'
+      ? query.audit_success
+      : 'all'
+
+  const page = typeof query.audit_page === 'string' ? Number.parseInt(query.audit_page, 10) : NaN
+  organizationAuditPage.value = Number.isFinite(page) && page > 0 ? page : 1
+  const size = typeof query.audit_size === 'string' ? Number.parseInt(query.audit_size, 10) : NaN
+  organizationAuditPageSize.value = Number.isFinite(size) && size > 0 ? size : 10
+}
+
+const buildOrganizationAuditRouteQuery = () => {
+  const preservedQuery = Object.fromEntries(
+    Object.entries(route.query).filter(([key]) => !organizationRouteQueryKeys.includes(key as (typeof organizationRouteQueryKeys)[number]))
+  ) as Record<string, string>
+
+  const nextQuery: Record<string, string> = {
+    ...preservedQuery,
+    organization_id: activeOrg.value?.organization_id || '',
+    tab: 'security-audit'
+  }
+  if (organizationAuditFilters.action) nextQuery.audit_action = organizationAuditFilters.action
+  if (organizationAuditFilters.provider_id.trim()) nextQuery.audit_provider_id = organizationAuditFilters.provider_id.trim()
+  if (organizationAuditFilters.query.trim()) nextQuery.audit_query = organizationAuditFilters.query.trim()
+  if (organizationAuditFilters.success !== 'all') nextQuery.audit_success = organizationAuditFilters.success
+  if (organizationAuditPage.value > 1) nextQuery.audit_page = String(organizationAuditPage.value)
+  if (organizationAuditPageSize.value !== 10) nextQuery.audit_size = String(organizationAuditPageSize.value)
+  return nextQuery
+}
+
+const syncOrganizationAuditRoute = async () => {
+  if (!activeOrg.value) return
+  syncingOrganizationRoute = true
+  try {
+    await router.replace({
+      name: 'Organizations',
+      query: buildOrganizationAuditRouteQuery()
+    })
+  } finally {
+    syncingOrganizationRoute = false
+  }
+}
+
+const loadOrganizationSecurityAudit = async () => {
+  if (!activeOrg.value) return
+  organizationAuditLoading.value = true
+  try {
+    const response = await serverApi.getSecurityAudit(buildOrganizationSecurityAuditQuery({
+      page: organizationAuditPage.value,
+      size: organizationAuditPageSize.value
+    }))
+    organizationAuditEntries.value = response.audit || []
+    organizationAuditTotal.value = response.total || 0
+    organizationAuditPage.value = response.page || organizationAuditPage.value
+    organizationAuditPageSize.value = response.size || organizationAuditPageSize.value
+  } catch (error: any) {
+    organizationAuditEntries.value = []
+    organizationAuditTotal.value = 0
+    ElMessage.error(error?.response?.data?.error || '加载组织安全审计失败')
+  } finally {
+    organizationAuditLoading.value = false
+  }
+}
+
+const loadOrganizationAuditExportJobs = async () => {
+  if (!activeOrg.value) return
+  organizationAuditExportJobsLoading.value = true
+  try {
+    const response = await serverApi.listSecurityAuditExportJobs({
+      page: 1,
+      size: 8,
+      organization_id: activeOrg.value.organization_id
+    })
+    organizationAuditExportJobs.value = response.jobs || []
+  } catch {
+    organizationAuditExportJobs.value = []
+  } finally {
+    organizationAuditExportJobsLoading.value = false
+  }
+}
+
+const clearTrackedOrganizationAuditExportJobIfNeeded = (jobId: string) => {
+  if (organizationAuditExportJob.value?.job_id === jobId) {
+    dismissOrganizationAuditExportJob()
+  }
+}
+
+const handleOrganizationAuditFilterChange = async () => {
+  organizationAuditPage.value = 1
+  await syncOrganizationAuditRoute()
+  await loadOrganizationSecurityAudit()
+}
+
+const handleOrganizationAuditPageChange = async (page: number) => {
+  organizationAuditPage.value = page
+  await syncOrganizationAuditRoute()
+  await loadOrganizationSecurityAudit()
+}
+
+const handleOrganizationAuditSizeChange = async (size: number) => {
+  organizationAuditPageSize.value = size
+  organizationAuditPage.value = 1
+  await syncOrganizationAuditRoute()
+  await loadOrganizationSecurityAudit()
+}
+
+const showOrganizationAuditFailures = async () => {
+  organizationAuditFilters.success = 'false'
+  organizationAuditPage.value = 1
+  await syncOrganizationAuditRoute()
+  await loadOrganizationSecurityAudit()
+}
+
+const resetOrganizationAuditFilters = async () => {
+  organizationAuditFilters.action = ''
+  organizationAuditFilters.provider_id = ''
+  organizationAuditFilters.query = ''
+  organizationAuditFilters.success = 'all'
+  organizationAuditPage.value = 1
+  organizationAuditPageSize.value = 10
+  await syncOrganizationAuditRoute()
+  await loadOrganizationSecurityAudit()
+}
+
+const writeClipboard = async (value: string) => {
+  if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(value)
+    return
+  }
+  const textarea = document.createElement('textarea')
+  textarea.value = value
+  textarea.setAttribute('readonly', 'readonly')
+  textarea.style.position = 'absolute'
+  textarea.style.left = '-9999px'
+  document.body.appendChild(textarea)
+  textarea.select()
+  const succeeded = document.execCommand('copy')
+  document.body.removeChild(textarea)
+  if (!succeeded) throw new Error('copy failed')
+}
+
+const copyOrganizationAuditFilterLink = async () => {
+  if (!activeOrg.value) return
+  await syncOrganizationAuditRoute()
+  const resolved = router.resolve({
+    name: 'Organizations',
+    query: buildOrganizationAuditRouteQuery()
+  })
+  const base = typeof window !== 'undefined' ? window.location.origin : ''
+  const targetURL = `${base}${resolved.href}`
+  try {
+    await writeClipboard(targetURL)
+    ElMessage.success('组织安全审计筛选链接已复制')
+  } catch {
+    ElMessage.error('复制组织安全审计筛选链接失败')
+  }
+}
+
+const exportOrganizationSecurityAudit = async () => {
+  if (!activeOrg.value) return
+  organizationAuditExportLoading.value = true
+  try {
+    const blob = await serverApi.exportSecurityAuditCSV(buildOrganizationSecurityAuditQuery())
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    const timestamp = new Date().toISOString().replace(/[:T]/g, '-').slice(0, 19)
+    link.href = url
+    link.download = `organization-security-audit-${activeOrg.value.slug || activeOrg.value.organization_id}-${timestamp}.csv`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    window.URL.revokeObjectURL(url)
+    ElMessage.success('组织安全审计 CSV 导出成功')
+  } catch (error: any) {
+    ElMessage.error(error?.response?.data?.error || '导出组织安全审计失败')
+  } finally {
+    organizationAuditExportLoading.value = false
+  }
+}
+
+const clearOrganizationAuditExportPollTimer = () => {
+  if (organizationAuditExportPollTimer !== null) {
+    window.clearTimeout(organizationAuditExportPollTimer)
+    organizationAuditExportPollTimer = null
+  }
+}
+
+const dismissOrganizationAuditExportJob = () => {
+  clearOrganizationAuditExportPollTimer()
+  organizationAuditExportJob.value = null
+  lastSettledOrganizationAuditExportJob = ''
+}
+
+const organizationAuditExportJobAlertType = computed(() => {
+  const status = organizationAuditExportJob.value?.status
+  if (status === 'completed') return 'success'
+  if (status === 'failed') return 'error'
+  return 'info'
+})
+
+const organizationAuditExportJobTitle = computed(() => {
+  const job = organizationAuditExportJob.value
+  if (!job) return ''
+  if (job.status === 'completed') return `组织后台导出已完成 · ${job.job_id}`
+  if (job.status === 'failed') return `组织后台导出失败 · ${job.job_id}`
+  return `组织后台导出进行中 · ${job.job_id}`
+})
+
+const organizationAuditExportJobSummary = computed(() => {
+  const job = organizationAuditExportJob.value
+  if (!job) return ''
+  if (job.status === 'completed') {
+    const parts = [`共匹配 ${job.total_count} 条`, `已导出 ${job.row_count} 条`]
+    if (job.truncated) parts.push('结果已按上限截断')
+    return parts.join('，')
+  }
+  if (job.status === 'failed') {
+    return job.error || '组织安全审计后台导出失败'
+  }
+  return '服务器正在后台准备当前组织的安全审计 CSV，完成后可直接下载。'
+})
+
+const scheduleOrganizationAuditExportPoll = (jobId: string) => {
+  clearOrganizationAuditExportPollTimer()
+  organizationAuditExportPollTimer = window.setTimeout(() => {
+    refreshOrganizationAuditExportJob(jobId, true)
+  }, 1500)
+}
+
+const applyOrganizationAuditExportJob = (job: SecurityAuditExportJob, silent = false) => {
+  organizationAuditExportJob.value = job
+  if (job.status === 'pending' || job.status === 'running') {
+    scheduleOrganizationAuditExportPoll(job.job_id)
+    return
+  }
+  clearOrganizationAuditExportPollTimer()
+  void loadOrganizationAuditExportJobs()
+  const settledKey = `${job.job_id}:${job.status}`
+  if (silent || lastSettledOrganizationAuditExportJob === settledKey) return
+  lastSettledOrganizationAuditExportJob = settledKey
+  if (job.status === 'completed') {
+    ElMessage.success('组织安全审计后台导出已完成')
+  } else if (job.status === 'failed') {
+    ElMessage.error(job.error || '组织安全审计后台导出失败')
+  }
+}
+
+const refreshOrganizationAuditExportJob = async (jobId?: string, silent = false) => {
+  const targetJobID = jobId || organizationAuditExportJob.value?.job_id
+  if (!targetJobID) return
+  try {
+    const response = await serverApi.getSecurityAuditExportJob(targetJobID)
+    applyOrganizationAuditExportJob(response.job, silent)
+  } catch (error: any) {
+    if (!silent) {
+      ElMessage.error(error?.response?.data?.error || '刷新组织后台导出任务失败')
+    }
+  }
+}
+
+const createOrganizationAuditExportJob = async () => {
+  if (!activeOrg.value) return
+  organizationAuditAsyncExportLoading.value = true
+  try {
+    const response = await serverApi.createSecurityAuditExportJob(buildOrganizationSecurityAuditQuery())
+    lastSettledOrganizationAuditExportJob = ''
+    applyOrganizationAuditExportJob(response.job, true)
+    await loadOrganizationAuditExportJobs()
+    ElMessage.success(response.message || '已创建组织后台导出任务')
+    await refreshOrganizationAuditExportJob(response.job.job_id)
+  } catch (error: any) {
+    ElMessage.error(error?.response?.data?.error || '创建组织后台导出任务失败')
+  } finally {
+    organizationAuditAsyncExportLoading.value = false
+  }
+}
+
+const downloadOrganizationAuditExportJob = async () => {
+  const job = organizationAuditExportJob.value
+  if (!job?.download_ready) return
+  try {
+    const blob = await serverApi.downloadSecurityAuditExportJob(job.job_id)
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = job.filename || `organization-security-audit-${job.job_id}.csv`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    window.URL.revokeObjectURL(url)
+    ElMessage.success('组织安全审计后台导出已下载')
+  } catch (error: any) {
+    ElMessage.error(error?.response?.data?.error || '下载组织后台导出结果失败')
+  }
+}
+
+const trackOrganizationAuditExportJob = async (job: SecurityAuditExportJob) => {
+  organizationAuditExportJob.value = job
+  lastSettledOrganizationAuditExportJob = ''
+  await refreshOrganizationAuditExportJob(job.job_id, true)
+}
+
+const downloadListedOrganizationAuditExportJob = async (job: SecurityAuditExportJob) => {
+  await trackOrganizationAuditExportJob(job)
+  await downloadOrganizationAuditExportJob()
+}
+
+const deleteOrganizationAuditExportJobEntry = async (job: SecurityAuditExportJob) => {
+  try {
+    await ElMessageBox.confirm(
+      `确定删除后台导出任务 ${job.job_id} 吗？已生成的 CSV 结果也会一并移除。`,
+      '删除后台导出任务',
+      {
+        confirmButtonText: '删除',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    )
+  } catch {
+    return
+  }
+  organizationAuditExportJobActionId.value = `delete:${job.job_id}`
+  try {
+    const response = await serverApi.deleteSecurityAuditExportJob(job.job_id)
+    clearTrackedOrganizationAuditExportJobIfNeeded(job.job_id)
+    ElMessage.success(response.message || '后台导出任务已删除')
+    await loadOrganizationAuditExportJobs()
+  } catch (error: any) {
+    ElMessage.error(error?.response?.data?.error || '删除后台导出任务失败')
+  } finally {
+    organizationAuditExportJobActionId.value = ''
+  }
+}
+
+const cleanupOrganizationAuditExportJobs = async () => {
+  if (!activeOrg.value) return
+  try {
+    await ElMessageBox.confirm(
+      `确定按当前保留策略清理当前组织已完成或已失败的后台导出任务吗？运行中的任务不会受影响。`,
+      '清理旧导出任务',
+      {
+        confirmButtonText: '清理',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    )
+  } catch {
+    return
+  }
+  organizationAuditCleanupLoading.value = true
+  try {
+    const response = await serverApi.cleanupSecurityAuditExportJobs({
+      organization_id: activeOrg.value.organization_id
+    })
+    if (organizationAuditExportJob.value && (organizationAuditExportJob.value.status === 'completed' || organizationAuditExportJob.value.status === 'failed')) {
+      await refreshOrganizationAuditExportJob(organizationAuditExportJob.value.job_id, true).catch(() => dismissOrganizationAuditExportJob())
+    }
+    ElMessage.success(response.result.deleted > 0 ? `已清理 ${response.result.deleted} 个旧导出任务` : '没有可清理的旧导出任务')
+    await loadOrganizationAuditExportJobs()
+  } catch (error: any) {
+    ElMessage.error(error?.response?.data?.error || '清理旧导出任务失败')
+  } finally {
+    organizationAuditCleanupLoading.value = false
+  }
+}
+
+const openOrganizationAuditDetail = (entry: SecurityAuditEntry) => {
+  selectedOrganizationAuditEntry.value = entry
+  selectedOrganizationAuditActionLabel.value = formatSecurityAuditAction(entry.action)
+  organizationAuditDetailVisible.value = true
+}
+
+const applyOrganizationAuditJumpFilter = async (filter: Partial<SecurityAuditQuery>) => {
+  organizationAuditFilters.action = ''
+  organizationAuditFilters.provider_id = filter.provider_id || ''
+  organizationAuditFilters.query = ''
+  organizationAuditFilters.success = typeof filter.success === 'boolean' ? (filter.success ? 'true' : 'false') : 'all'
+  organizationAuditPage.value = 1
+  organizationAuditDetailVisible.value = false
+  activeTab.value = 'security-audit'
+  await syncOrganizationAuditRoute()
+  await loadOrganizationSecurityAudit()
+}
+
+const openOrganizationAuditResource = async (resource: {
+  resource_type: string
+  client_id?: string
+  provider_id?: string
+  organization_id?: string
+}) => {
+  if (resource.resource_type === 'identity_provider' && resource.provider_id) {
+    const targetProvider = identityProviders.value.find(provider => provider.identity_provider_id === resource.provider_id)
+    if (!targetProvider) {
+      ElMessage.warning('该企业身份源可能已删除，无法直接打开配置')
+      return
+    }
+    organizationAuditDetailVisible.value = false
+    activeTab.value = 'identity-providers'
+    openIdentityProviderDialog(targetProvider)
+    return
+  }
+  ElMessage.info('当前审计记录暂不支持直接打开对应资源')
 }
 
 const addDomain = async () => {
@@ -868,6 +1759,120 @@ const deleteGroup = async (group: OrganizationGroup) => {
   }
 }
 
+const syncEditingRoleFromList = () => {
+  if (!editingRole.value) return
+  const fresh = roles.value.find(role => role.role_id === editingRole.value?.role_id)
+  if (fresh) {
+    editingRole.value = fresh
+  }
+}
+
+const openRoleDialog = (role?: OrganizationRole) => {
+  editingRole.value = role || null
+  roleForm.value = {
+    name: role?.name || '',
+    slug: role?.slug || '',
+    description: role?.description || '',
+    enabled: role?.enabled ?? true,
+    permissions_text: role?.permissions?.join(', ') || ''
+  }
+  roleBindingForm.value = defaultRoleBindingForm()
+  roleDialogVisible.value = true
+}
+
+const saveRole = async () => {
+  if (!activeOrg.value) return
+  detailSaving.value = 'role'
+  try {
+    const payload = {
+      name: roleForm.value.name,
+      slug: roleForm.value.slug || undefined,
+      description: roleForm.value.description || undefined,
+      enabled: roleForm.value.enabled,
+      permissions: parsePermissionKeys(roleForm.value.permissions_text)
+    }
+    if (editingRole.value) {
+      await serverApi.updateOrganizationRole(activeOrg.value.organization_id, editingRole.value.role_id, payload)
+    } else {
+      await serverApi.createOrganizationRole(activeOrg.value.organization_id, payload)
+    }
+    ElMessage.success('组织角色已保存')
+    await loadOrganizationDetails()
+    roleDialogVisible.value = false
+    editingRole.value = null
+    roleForm.value = defaultRoleForm()
+    roleBindingForm.value = defaultRoleBindingForm()
+  } catch (error: any) {
+    ElMessage.error(error?.response?.data?.error || '保存组织角色失败')
+  } finally {
+    detailSaving.value = ''
+  }
+}
+
+const deleteRole = async (role: OrganizationRole) => {
+  if (!activeOrg.value) return
+  try {
+    await ElMessageBox.confirm(`确定删除组织角色 ${role.name || role.slug} 吗？角色绑定和权限也会一起删除。`, '删除组织角色', {
+      type: 'warning'
+    })
+  } catch {
+    return
+  }
+  try {
+    await serverApi.deleteOrganizationRole(activeOrg.value.organization_id, role.role_id)
+    ElMessage.success('组织角色已删除')
+    if (editingRole.value?.role_id === role.role_id) {
+      roleDialogVisible.value = false
+      editingRole.value = null
+      roleForm.value = defaultRoleForm()
+    }
+    await loadOrganizationDetails()
+  } catch (error: any) {
+    ElMessage.error(error?.response?.data?.error || '删除组织角色失败')
+  }
+}
+
+const addRoleBinding = async () => {
+  if (!activeOrg.value || !editingRole.value) return
+  if (!roleBindingForm.value.subject_id) {
+    ElMessage.warning('请选择要绑定的成员或组织组')
+    return
+  }
+  detailSaving.value = 'role-binding'
+  try {
+    await serverApi.createOrganizationRoleBinding(activeOrg.value.organization_id, editingRole.value.role_id, {
+      subject_type: roleBindingForm.value.subject_type,
+      subject_id: roleBindingForm.value.subject_id
+    })
+    ElMessage.success('角色绑定已创建')
+    roleBindingForm.value = defaultRoleBindingForm()
+    await loadOrganizationDetails()
+  } catch (error: any) {
+    ElMessage.error(error?.response?.data?.error || '创建角色绑定失败')
+  } finally {
+    detailSaving.value = ''
+  }
+}
+
+const deleteRoleBinding = async (bindingId: string) => {
+  if (!activeOrg.value || !editingRole.value) return
+  try {
+    await ElMessageBox.confirm('确定删除这条角色绑定吗？', '删除角色绑定', { type: 'warning' })
+  } catch {
+    return
+  }
+  detailSaving.value = 'role-binding-delete'
+  try {
+    await serverApi.deleteOrganizationRoleBinding(activeOrg.value.organization_id, editingRole.value.role_id, bindingId)
+    ElMessage.success('角色绑定已删除')
+    await loadOrganizationDetails()
+  } catch (error: any) {
+    ElMessage.error(error?.response?.data?.error || '删除角色绑定失败')
+  } finally {
+    detailSaving.value = ''
+  }
+}
+
 const openIdentityProviderDialog = (provider?: OrganizationIdentityProvider) => {
   editingIdentityProvider.value = provider || null
   identityProviderForm.value = {
@@ -965,6 +1970,7 @@ const saveIdentityProvider = async () => {
     editingIdentityProvider.value = null
     identityProviderForm.value = defaultIdentityProviderForm()
     await loadOrganizationDetails()
+    if (activeTab.value === 'security-audit') await loadOrganizationSecurityAudit()
   } catch (error: any) {
     ElMessage.error(error?.response?.data?.error || '保存企业登录源失败')
   } finally {
@@ -983,8 +1989,37 @@ const deleteIdentityProvider = async (provider: OrganizationIdentityProvider) =>
     await serverApi.deleteOrganizationIdentityProvider(activeOrg.value.organization_id, provider.identity_provider_id)
     ElMessage.success('企业登录源已删除')
     await loadOrganizationDetails()
+    if (activeTab.value === 'security-audit') await loadOrganizationSecurityAudit()
   } catch (error: any) {
     ElMessage.error(error?.response?.data?.error || '删除企业登录源失败')
+  }
+}
+
+const openIdentityProviderAudit = async (provider: OrganizationIdentityProvider) => {
+  const alreadyOnAuditTab = activeTab.value === 'security-audit'
+  organizationAuditFilters.action = ''
+  organizationAuditFilters.provider_id = provider.identity_provider_id
+  organizationAuditFilters.query = ''
+  organizationAuditFilters.success = 'all'
+  organizationAuditPage.value = 1
+  activeTab.value = 'security-audit'
+  await syncOrganizationAuditRoute()
+  if (alreadyOnAuditTab) {
+    await loadOrganizationSecurityAudit()
+  }
+}
+
+const openIdentityProviderFailureAudit = async (provider: OrganizationIdentityProvider) => {
+  const alreadyOnAuditTab = activeTab.value === 'security-audit'
+  organizationAuditFilters.action = ''
+  organizationAuditFilters.provider_id = provider.identity_provider_id
+  organizationAuditFilters.query = ''
+  organizationAuditFilters.success = 'false'
+  organizationAuditPage.value = 1
+  activeTab.value = 'security-audit'
+  await syncOrganizationAuditRoute()
+  if (alreadyOnAuditTab) {
+    await loadOrganizationSecurityAudit()
   }
 }
 
@@ -1008,6 +2043,12 @@ const formatMetadata = (raw?: string) => {
 }
 
 const parseRoles = (raw: string) => raw.split(',').map(item => item.trim()).filter(Boolean)
+
+const parsePermissionKeys = (raw: string) =>
+  raw
+    .split(/[\n,\s]+/)
+    .map(item => item.trim())
+    .filter(Boolean)
 
 const parseUserIds = (raw: string) =>
   raw
@@ -1080,8 +2121,164 @@ const identityProviderConfigTagText = (provider: OrganizationIdentityProvider) =
   return provider.config?.client_secret_configured ? '已配置' : '未配置'
 }
 
-onMounted(() => {
-  loadOrganizations()
+const formatSecurityAuditAction = (action: string) => {
+  const labels: Record<string, string> = {
+    identity_provider_create: '创建企业身份源',
+    identity_provider_update: '更新企业身份源',
+    identity_provider_delete: '删除企业身份源'
+  }
+  return labels[action] || action || '-'
+}
+
+const formatOrganizationSecurityAuditDetails = (entry: SecurityAuditEntry) => {
+  if (entry.error) return entry.error
+  const details = entry.details || {}
+  const parts: string[] = []
+  if (details.provider_type) parts.push(`类型 ${details.provider_type.toUpperCase()}`)
+  if (details.provider_id) parts.push(`Provider ${details.provider_id}`)
+  if (details.slug) parts.push(`Slug ${details.slug}`)
+  if (details.previous_slug) parts.push(`原 Slug ${details.previous_slug}`)
+  if (details.name) parts.push(`名称 ${details.name}`)
+  if (details.organization_id) parts.push(`组织 ${details.organization_id}`)
+  if (details.enabled) parts.push(`启用 ${details.enabled === 'true' ? '是' : '否'}`)
+  if (details.priority) parts.push(`优先级 ${details.priority}`)
+  if (details.is_default) parts.push(`默认 ${details.is_default === 'true' ? '是' : '否'}`)
+  if (details.auto_redirect) parts.push(`自动跳转 ${details.auto_redirect === 'true' ? '是' : '否'}`)
+  if (details.stage) parts.push(`阶段 ${details.stage}`)
+  if (details.reason) parts.push(`原因 ${details.reason}`)
+  return parts.length > 0 ? parts.join(' | ') : '-'
+}
+
+const formatOrganizationAuditExportJobStatus = (status: string) => {
+  const labels: Record<string, string> = {
+    pending: '排队中',
+    running: '导出中',
+    completed: '已完成',
+    failed: '失败'
+  }
+  return labels[status] || status || '-'
+}
+
+const organizationAuditExportJobTagType = (status: string) => {
+  if (status === 'completed') return 'success'
+  if (status === 'failed') return 'danger'
+  return 'info'
+}
+
+const formatOrganizationAuditExportJobScope = (job: SecurityAuditExportJob) => {
+  const query = job.query || {}
+  const parts: string[] = []
+  if (query.provider_id) parts.push(`Provider ${query.provider_id}`)
+  if (query.action) parts.push(`动作 ${formatSecurityAuditAction(query.action)}`)
+  if (query.query) parts.push(`关键词 ${query.query}`)
+  return parts.length > 0 ? parts.join(' | ') : '当前组织全部企业身份源审计'
+}
+
+const formatOrganizationAuditExportJobResult = (job: SecurityAuditExportJob) => {
+  if (job.status === 'failed') return job.error || '-'
+  if (job.status === 'completed') {
+    const parts = [`${job.row_count} / ${job.total_count}`]
+    if (job.truncated) parts.push('已截断')
+    return parts.join(' | ')
+  }
+  return '-'
+}
+
+watch(activeTab, async (tab) => {
+  if (hydratingOrganizationRoute) return
+  if (tab === 'security-audit' && activeOrg.value) {
+    await syncOrganizationAuditRoute()
+    await Promise.all([loadOrganizationSecurityAudit(), loadOrganizationAuditExportJobs()])
+  }
+})
+
+const normalizeOrganizationTab = (raw: string) => {
+  const allowed = new Set(['domains', 'members', 'groups', 'roles', 'identity-providers', 'security-audit'])
+  return allowed.has(raw) ? raw : 'domains'
+}
+
+const handleOrganizationRouteDeepLink = async () => {
+  const organizationID = typeof route.query.organization_id === 'string' ? route.query.organization_id : ''
+  if (!organizationID) {
+    handledOrganizationDeepLink.value = ''
+    return
+  }
+
+  const tab = normalizeOrganizationTab(typeof route.query.tab === 'string' ? route.query.tab : 'domains')
+  const providerID = typeof route.query.provider_id === 'string' ? route.query.provider_id : ''
+  const open = typeof route.query.open === 'string' ? route.query.open : ''
+  const deepLinkKey = [
+    organizationID,
+    tab,
+    providerID,
+    open,
+    typeof route.query.audit_action === 'string' ? route.query.audit_action : '',
+    typeof route.query.audit_provider_id === 'string' ? route.query.audit_provider_id : '',
+    typeof route.query.audit_query === 'string' ? route.query.audit_query : '',
+    typeof route.query.audit_success === 'string' ? route.query.audit_success : '',
+    typeof route.query.audit_page === 'string' ? route.query.audit_page : '',
+    typeof route.query.audit_size === 'string' ? route.query.audit_size : ''
+  ].join('|')
+  if (handledOrganizationDeepLink.value === deepLinkKey) {
+    return
+  }
+  handledOrganizationDeepLink.value = deepLinkKey
+  hydratingOrganizationRoute = true
+  try {
+    let organization = organizations.value.find(item => item.organization_id === organizationID)
+    if (!organization) {
+      try {
+        const response = await serverApi.getOrganization(organizationID)
+        organization = response.organization
+      } catch (error: any) {
+        ElMessage.error(error?.response?.data?.error || '加载深链组织失败')
+        return
+      }
+    }
+
+    const shouldReloadDialog =
+      !manageDialogVisible.value ||
+      activeOrg.value?.organization_id !== organizationID ||
+      activeTab.value !== tab
+
+    if (shouldReloadDialog) {
+      await openManageDialog(organization, tab)
+    }
+
+    if (tab === 'security-audit') {
+      applyOrganizationAuditRouteState()
+      await Promise.all([loadOrganizationSecurityAudit(), loadOrganizationAuditExportJobs()])
+    }
+
+    if (providerID && open === 'edit') {
+      const targetProvider = identityProviders.value.find(provider => provider.identity_provider_id === providerID || provider.slug === providerID)
+      if (targetProvider) {
+        openIdentityProviderDialog(targetProvider)
+      } else {
+        ElMessage.warning('指定的企业身份源不存在或已删除')
+      }
+    }
+  } finally {
+    hydratingOrganizationRoute = false
+  }
+}
+
+watch(
+  () => route.query,
+  async () => {
+    if (syncingOrganizationRoute) return
+    await handleOrganizationRouteDeepLink()
+  },
+  { deep: true }
+)
+
+onMounted(async () => {
+  await loadOrganizations()
+  await handleOrganizationRouteDeepLink()
+})
+
+onUnmounted(() => {
+  clearOrganizationAuditExportPollTimer()
 })
 </script>
 
@@ -1118,6 +2315,28 @@ onMounted(() => {
     margin-bottom: 16px;
   }
 
+  .export-job-alert {
+    margin-bottom: 16px;
+  }
+
+  .audit-jobs-card {
+    margin-bottom: 16px;
+  }
+
+  .export-job-content {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  .export-job-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
   .toolbar {
     max-width: 760px;
   }
@@ -1152,8 +2371,30 @@ onMounted(() => {
     margin-top: 18px;
   }
 
+  .audit-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+  }
+
+  .audit-pagination {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 18px;
+  }
+
   .full-width {
     width: 100%;
+  }
+
+  .role-binding-type {
+    min-width: 140px;
+  }
+
+  .role-bindings-table {
+    margin-top: 12px;
   }
 
   .muted {
@@ -1180,6 +2421,11 @@ onMounted(() => {
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
     word-break: break-all;
   }
+
+  .events {
+    color: #334155;
+    line-height: 1.5;
+  }
 }
 
 @media (max-width: 900px) {
@@ -1187,7 +2433,8 @@ onMounted(() => {
     .card-header,
     .toolbar,
     .inline-form,
-    .identity-provider-header {
+    .identity-provider-header,
+    .audit-toolbar {
       flex-direction: column;
       align-items: stretch;
     }

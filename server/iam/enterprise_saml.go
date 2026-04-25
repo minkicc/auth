@@ -24,6 +24,7 @@ import (
 
 	"example.com/auth/server/auth"
 	"example.com/auth/server/config"
+	"example.com/auth/server/secureconfig"
 )
 
 const defaultEnterpriseSAMLTimeout = 10 * time.Second
@@ -223,7 +224,7 @@ func (m *EnterpriseSAMLManager) buildProviders() (map[string]*EnterpriseSAMLProv
 func enterpriseSAMLProviderConfigFromRecord(record OrganizationIdentityProvider) (config.EnterpriseSAMLProviderConfig, error) {
 	var providerCfg config.EnterpriseSAMLProviderConfig
 	if strings.TrimSpace(record.ConfigJSON) != "" {
-		if err := json.Unmarshal([]byte(record.ConfigJSON), &providerCfg); err != nil {
+		if err := secureconfig.OpenJSON(record.ConfigJSON, &providerCfg); err != nil {
 			return config.EnterpriseSAMLProviderConfig{}, fmt.Errorf("decode provider config: %w", err)
 		}
 	}

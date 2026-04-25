@@ -1,6 +1,6 @@
 # Auth
 
-Auth 是一个可独立部署的统一认证服务，提供账号密码、邮箱、手机号、Google、微信、微信小程序等登录方式，并内置用户中心、管理后台、会话管理和 Go 接入 SDK。
+Auth 是一个可独立部署的统一认证服务，也是一个面向 B2B 场景的可扩展 CIAM 平台。它提供账号密码、邮箱、手机号、Google、微信、微信小程序等登录方式，并内置下游 OIDC、企业身份接入、组织化访问、会话管理、管理后台和 Go 接入 SDK。
 
 `codex/oidc-break` 分支已经把接入主路径切到标准 OIDC。新接入方优先使用 `Authorization Code + PKCE`，通过 `/.well-known/openid-configuration` 做发现；旧的 `/api/login/redirect` 和 `/api/login/verify` 已经从这条分支移除。
 
@@ -21,7 +21,33 @@ Auth 是一个可独立部署的统一认证服务，提供账号密码、邮箱
 - Go SDK
 - Docker / Docker Compose 部署
 
-CIAM/IAM 扩展路线见 [docs/ciam-iam-plugin-architecture.md](docs/ciam-iam-plugin-architecture.md)。
+## 产品定位
+
+Auth 当前最适合定位为一个可扩展的 B2B CIAM 平台：
+
+- 向上连接企业自己的 OIDC、SAML、LDAP/AD 身份源
+- 支持组织、域名、成员关系、组织组和组织感知 claims
+- 支持企业用户和组的 Inbound SCIM 同步
+- 向下为业务系统提供标准 OIDC 接入
+- 通过可安装插件和 HTTP Actions 扩展认证流
+- 提供敏感配置加密、reseal、安全审计和导出等运维能力
+
+它目前还不适合直接定义为完整 Workforce IAM 套件。要走到那一步，还需要补齐更完整的 RBAC/策略执行、delegated admin、service account 以及 MFA/WebAuthn 能力。
+
+## 当前平台能力
+
+- Enterprise OIDC 企业身份接入
+- Enterprise SAML 企业身份接入
+- Enterprise LDAP/AD 登录与组同步
+- Organizations、组织域名、成员关系、组织组
+- 基于邮箱域名的 HRD，以及 `login_hint`、`domain_hint`、`org_hint`
+- Inbound SCIM Users / Groups
+- 组织感知的 OIDC Claims 与 OIDC Client 级组织访问策略
+- 后台可管理并支持热刷新的 OIDC Clients
+- 可安装插件运行时与 HTTP Actions
+- 敏感配置加密、密钥轮换回读、reseal 与安全审计导出任务
+
+CIAM/IAM 架构和下一阶段路线见 [docs/ciam-iam-plugin-architecture.md](docs/ciam-iam-plugin-architecture.md)、[docs/roadmap.md](docs/roadmap.md)，以及更适合直接落到 GitHub Projects / Issues 的 [docs/project-board.md](docs/project-board.md)。
 
 ## 仓库结构
 
@@ -224,6 +250,21 @@ redis:
   db: 0
 ```
 
+生产环境建议同时配置一个 secrets 加密 key，这样后台托管的敏感配置在写入数据库前会先加密：
+
+```yaml
+secrets:
+  encryption_key_env: "AUTH_SECRETS_KEY"
+  # 或者：
+  # encryption_key: "CHANGE_THIS_TO_A_LONG_RANDOM_SECRET"
+  # 可选：历史 key 回读列表
+  decryption_key_envs:
+    - "AUTH_OLD_SECRETS_KEY"
+```
+
+配置后，数据库托管的 OIDC client secret 和企业身份源 secret 会按加密格式落库。已有明文旧数据仍然可以继续读取，方便平滑迁移。
+如果要做密钥轮换，把新 key 配到 `encryption_key(_env)`，再把旧 key 保留在 `decryption_key_envs` 中。这样 Auth 会继续用旧 key 解密历史记录，但所有新写入都会使用新的主 key。
+
 如果你没有配置 MySQL，Auth 现在会默认使用 SQLite 启动，并把数据写到 `data/auth.sqlite3`。你也可以显式设置 `db.driver: sqlite`，再通过 `db.sqlite_path` 自定义文件位置。
 
 ### 插件运行时
@@ -327,6 +368,10 @@ go run ./pluginsign sign -manifest ../examples/plugins/http-claims-action/auth-p
 - 后台 URL 安装：`POST /admin-api/plugins/install-url`
 - 后台恢复备份：`POST /admin-api/plugins/restore`
 - 后台更新配置：`PATCH /admin-api/plugins/:id/config`
+- 后台安全审计：`GET /admin-api/security/audit`
+- 后台安全审计导出：`GET /admin-api/security/audit/export`
+- 后台安全审计导出任务：`GET /admin-api/security/audit/export-jobs`、`POST /admin-api/security/audit/export-jobs`、`POST /admin-api/security/audit/export-jobs/cleanup`、`GET /admin-api/security/audit/export-jobs/:job_id`、`DELETE /admin-api/security/audit/export-jobs/:job_id`、`GET /admin-api/security/audit/export-jobs/:job_id/download`
+- 后台 Secrets 状态/重写：`GET /admin-api/security/secrets/status`、`POST /admin-api/security/secrets/reseal`
 
 一个完整的本地插件示例见 [examples/plugins/http-claims-action](examples/plugins/http-claims-action/README.md)，远程目录示例见 [examples/plugins/catalog.yaml](examples/plugins/catalog.yaml)。
 
@@ -493,7 +538,8 @@ oidc:
   access_token_ttl_seconds: 900
   id_token_ttl_seconds: 900
   clients:
-    - client_id: "demo-spa"
+    - name: "Demo SPA"
+      client_id: "demo-spa"
       public: true
       require_pkce: true
       redirect_uris:
@@ -509,9 +555,25 @@ oidc:
       #   - "org_acme000000000000"
       # required_org_roles:
       #   - "admin"
+      # required_org_roles_all:
+      #   - "security"
       # required_org_groups:
       #   - "Engineering Team"
+      # required_org_groups_all:
+      #   - "Employees"
+      # scope_policies:
+      #   email:
+      #     required_org_roles_all:
+      #       - "security"
+      #   admin_api:
+      #     required_org_roles:
+      #       - "admin"
 ```
+
+静态 YAML 仍然适合做启动时引导配置，但现在也可以直接在管理后台 `Settings -> OIDC Clients` 里创建、更新、禁用和删除数据库托管的 OIDC client。保存后会立即热刷新，无需重启服务。
+同一个 `Settings` 页面现在也提供了 `Secrets Security` 区块，可以查看数据库敏感配置加密是否启用，并在换 key 后一键把已存量的 OIDC client / 企业身份源 secrets 重写到当前主 key。
+同一套后台安全审计现在不仅会记录 Secrets 重写，还会记录数据库托管 OIDC client 和企业身份源的创建、更新、删除，方便后续追查是谁改了敏感配置，以及操作是否执行成功。
+`GET /admin-api/security/audit` 现在支持 `page`、`size`、`action`、`resource_type`、`client_id`、`provider_id`、`organization_id`、`actor_id`、`query`、`time_from`、`time_to`、`success` 查询参数；其中 `client_id`、`provider_id`、`organization_id` 是精确匹配筛选，适合直接按资源标识排查问题。`time_from` 和 `time_to` 支持 RFC3339，也支持 `YYYY-MM-DD` 这种按整天筛选的写法。`GET /admin-api/security/audit/export` 会把当前筛选结果导出成 CSV，每次导出最多 5000 行。对于更重的导出场景，现在也支持后台异步导出：`POST /admin-api/security/audit/export-jobs` 创建任务，`GET /admin-api/security/audit/export-jobs` 查看最近任务，`GET /admin-api/security/audit/export-jobs/:job_id` 查询状态，`GET /admin-api/security/audit/export-jobs/:job_id/download` 在完成后下载结果。`DELETE /admin-api/security/audit/export-jobs/:job_id` 可以删除单个已完成或已失败任务，`POST /admin-api/security/audit/export-jobs/cleanup` 会按当前保留策略清理已完成或已失败的旧任务。这个保留策略现在可以通过 `auth_admin.security_audit_export_job_retention_days` 配置，自动按小时清理则可以通过 `auth_admin.security_audit_export_job_auto_cleanup` 开关控制。旧的 `GET /admin-api/security/secrets/audit` 仍然保留为兼容别名，`GET /admin-api/security/secrets/audit/export` 也同样兼容导出。管理后台的“设置”页面现在会把安全审计筛选同步到页面 URL，支持一键复制当前筛选链接，同时也支持直接打开审计详情抽屉查看完整操作者和 details 字段，并一键复制审计 ID、资源标识和详情 JSON，也可以一键跳回同 `client_id / provider_id / organization_id` 的审计历史，还能直接打开对应的 OIDC client 或企业身份源配置，同时提供“同步导出 CSV”和“后台导出”两种方式；现在也会额外展示最近后台导出任务，方便页面刷新后继续跟踪和下载结果，并支持单条删除和旧任务清理。“组织管理”页面里也已经把这套审计按组织上下文接了进去，默认只展示该组织企业身份源相关的安全变更，现在同样会把筛选同步到 URL、支持一键复制筛选链接，也可以直接生成某个企业登录源失败记录的深链，并支持同样的后台异步导出、当前组织维度的最近导出任务列表，以及对应的删除/清理操作。
 
 服务启动后会暴露这些标准端点：
 - `/.well-known/openid-configuration`
@@ -528,9 +590,14 @@ OIDC 的 `sub` 使用 Auth 稳定的内部用户 ID，而不是登录用户名�
 - `require_organization`：用户必须以某个 active 组织上下文完成授权
 - `allowed_organizations`：只允许指定的组织 ID 或 slug
 - `required_org_roles`：要求至少命中一个 `org_roles`
+- `required_org_roles_all`：要求命中全部列出的 `org_roles`
 - `required_org_groups`：要求至少命中一个 `org_groups`
+- `required_org_groups_all`：要求命中全部列出的 `org_groups`
+- `scope_policies`：仅在请求到对应 OAuth scope 时，再追加更严格的组织策略
 
 如果只有一个组织满足策略，Auth 会自动把这次授权固定到该组织；如果有多个组织满足策略，组织选择页也只会展示这些可用组织。
+
+对于已登录浏览器会话和 access token，`GET /api/user/organization/authorization` 现在会从 token、`organization_id` 或 `org_hint` 里解析当前组织上下文，并返回统一组织授权解析器计算出的 `roles`、`groups` 和 `permissions`。如果用户属于多个组织但没有显式指定组织，这个接口会返回 `organization_selection_required`。
 
 ### 可信业务后端配置
 

@@ -33,6 +33,9 @@ func (s *Service) AutoMigrate() error {
 		&OrganizationMembership{},
 		&OrganizationGroup{},
 		&OrganizationGroupMember{},
+		&OrganizationRole{},
+		&OrganizationRolePermission{},
+		&OrganizationRoleBinding{},
 	)
 }
 
@@ -54,6 +57,14 @@ func (s *Service) GenerateOrganizationGroupID() (string, error) {
 
 func (s *Service) GenerateOrganizationGroupIDWithDB(db *gorm.DB) (string, error) {
 	return s.generateUniqueIDWithDB(db, OrganizationGroupIDPrefix, &OrganizationGroup{}, "group_id")
+}
+
+func (s *Service) GenerateOrganizationRoleID() (string, error) {
+	return s.generateUniqueID(OrganizationRoleIDPrefix, &OrganizationRole{}, "role_id")
+}
+
+func (s *Service) GenerateOrganizationRoleBindingID() (string, error) {
+	return s.generateUniqueID(OrganizationRoleBindingIDPrefix, &OrganizationRoleBinding{}, "binding_id")
 }
 
 func (s *Service) generateUniqueID(prefix string, model any, column string) (string, error) {
