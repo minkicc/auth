@@ -99,30 +99,22 @@ Notes:
 
 ### 2. Enable the admin console
 
-Generate a bcrypt hash for the admin password:
-
-```bash
-cd tools
-go run hashpwd.go -password "YourStrongPassword"
-```
-
-Put the generated hash into your config:
+Register the first admin account on the platform, then put that internal `user_id` into your config:
 
 ```yaml
 auth_admin:
   enabled: true
   secret_key: "change-this-to-a-random-string"
-  accounts:
-    - username: "admin"
-      password: "$2a$10$..."
-      roles:
-        - "super_admin"
+  user_ids:
+    - "usr_admin0000000000000000001"
   allowed_ips:
     - "127.0.0.1"
     - "::1"
 ```
 
 Then restart the service.
+
+There is no separate admin username/password anymore. The admin console now reuses the current browser's MKAuth login session. After the configured admin user signs in on the main site, the user profile page shows direct buttons into the admin console. Additional day-to-day admins can then be added or removed from the admin Settings page and are stored in the database. Config-defined `auth_admin.user_ids` remain operations-managed and read-only from the UI.
 
 ## CI/CD: Automatic Docker Images
 

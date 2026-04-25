@@ -6,8 +6,8 @@
 package admin
 
 import (
-	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -16,10 +16,8 @@ import (
 
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
-	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 	"minki.cc/mkauth/server/auth"
-	"minki.cc/mkauth/server/config"
 	"minki.cc/mkauth/server/plugins"
 )
 
@@ -27,62 +25,90 @@ const maxPluginPackageSize = 20 << 20
 
 // Login handler
 func (s *AdminServer) handleLogin(c *gin.Context) {
-	var loginReq struct {
-		Username string `json:"username" binding:"required"`
-		Password string `json:"password" binding:"required"`
-	}
-
-	if err := c.ShouldBindJSON(&loginReq); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request parameters"})
+	if s == nil || s.accessController == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Admin access controller is not initialized"})
 		return
 	}
 
-	// Validate username and password
-	var matchedAccount *config.Account
-	for _, account := range s.config.Accounts {
-		if subtle.ConstantTimeCompare([]byte(account.Username), []byte(loginReq.Username)) == 1 {
-			matchedAccount = &account
-			break
+	if s.redis == nil || s.sessionMgr == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Browser session integration is unavailable"})
+		return
+	}
+
+	browserSessionID, err := c.Cookie(auth.OIDCSessionCookieName)
+	if err != nil || strings.TrimSpace(browserSessionID) == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "browser session not found"})
+		return
+	}
+
+	_, userSession, err := auth.ResolveBrowserSession(s.redis, s.sessionMgr, browserSessionID)
+	if err != nil || userSession == nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "browser session not found"})
+		return
+	}
+
+	var user auth.User
+	if err := s.db.Where("user_id = ?", userSession.UserID).First(&user).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "browser session not found"})
+			return
 		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load current user"})
+		return
 	}
-
-	if matchedAccount == nil {
-		s.logger.Printf("Login failed: Username %s does not exist", loginReq.Username)
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid username or password"})
+	if err := auth.EnsureUserCanAuthenticate(&user); err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
 		return
 	}
 
-	// Validate password (assuming password is bcrypt hash)
-	err := bcrypt.CompareHashAndPassword([]byte(matchedAccount.Password), []byte(loginReq.Password))
+	isAdmin, sources, err := s.accessController.IsAdminUser(user.UserID)
 	if err != nil {
-		s.logger.Printf("Login failed: User %s password error", loginReq.Username)
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid username or password"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to evaluate admin access"})
+		return
+	}
+	if !isAdmin {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Current user is not an administrator"})
 		return
 	}
 
-	// Create session
-	session := sessions.Default(c)
+	username, err := s.accessController.lookupUsername(user.UserID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to resolve current user username"})
+		return
+	}
 
-	// Convert roles to JSON string
-	rolesJSON, err := json.Marshal(matchedAccount.Roles)
+	session := sessions.Default(c)
+	roles := []string{"admin"}
+	rolesJSON, err := json.Marshal(roles)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
+		return
+	}
+	sourcesJSON, err := json.Marshal(sources)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
 		return
 	}
 
-	// Store user information to session
-	session.Set(sessionUserKey, matchedAccount.Username)
+	session.Set(sessionUserIDKey, user.UserID)
+	session.Set(sessionUsernameKey, username)
+	session.Set(sessionNicknameKey, user.Nickname)
 	session.Set(sessionRoleKey, string(rolesJSON))
+	session.Set(sessionSourceKey, string(sourcesJSON))
 	if err := session.Save(); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create session"})
 		return
 	}
 
-	s.logger.Printf("User %s login successful, IP: %s", matchedAccount.Username, c.ClientIP())
+	s.logger.Printf("Admin bootstrap succeeded for user %s, IP: %s", user.UserID, c.ClientIP())
 
 	c.JSON(http.StatusOK, gin.H{
-		"username": matchedAccount.Username,
-		"roles":    matchedAccount.Roles,
+		"user_id":     user.UserID,
+		"username":    username,
+		"nickname":    user.Nickname,
+		"roles":       roles,
+		"sources":     sources,
+		"profile_url": strings.TrimRight(s.publicBaseURL, "/") + "/profile",
 	})
 }
 
@@ -98,12 +124,19 @@ func (s *AdminServer) handleLogout(c *gin.Context) {
 
 // Verify current admin session
 func (s *AdminServer) handleVerifySession(c *gin.Context) {
+	userID, _ := c.Get("user_id")
 	username, _ := c.Get("username")
+	nickname, _ := c.Get("nickname")
 	roles, _ := c.Get("roles")
+	sources, _ := c.Get("admin_sources")
 
 	c.JSON(http.StatusOK, gin.H{
-		"username": username,
-		"roles":    roles,
+		"user_id":     userID,
+		"username":    username,
+		"nickname":    nickname,
+		"roles":       roles,
+		"sources":     sources,
+		"profile_url": strings.TrimRight(s.publicBaseURL, "/") + "/profile",
 	})
 }
 
@@ -476,7 +509,13 @@ func (s *AdminServer) handleRestorePluginBackup(c *gin.Context) {
 
 func pluginAuditActor(c *gin.Context) plugins.AuditActor {
 	actorID := ""
-	if username, ok := c.Get("username"); ok && username != nil {
+	if userID, ok := c.Get("user_id"); ok && userID != nil {
+		if value, ok := userID.(string); ok {
+			actorID = value
+		} else {
+			actorID = fmt.Sprint(userID)
+		}
+	} else if username, ok := c.Get("username"); ok && username != nil {
 		if value, ok := username.(string); ok {
 			actorID = value
 		} else {

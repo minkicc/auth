@@ -45,6 +45,12 @@ const routes: Array<RouteRecordRaw> = [
         meta: { title: '活跃情况' }
       },
       {
+        path: 'sessions',
+        name: 'Sessions',
+        component: () => import('@/views/Sessions.vue'),
+        meta: { title: '我的会话' }
+      },
+      {
         path: 'settings',
         name: 'Settings',
         component: () => import('@/views/Settings.vue'),

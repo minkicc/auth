@@ -20,8 +20,28 @@ class Context {
     return getStoredUserInfo()?.username || ''
   }
 
+  get nickname(): string {
+    return getStoredUserInfo()?.nickname || ''
+  }
+
+  get displayName(): string {
+    return this.nickname || this.username || getStoredUserInfo()?.user_id || ''
+  }
+
+  get userId(): string {
+    return getStoredUserInfo()?.user_id || ''
+  }
+
   get roles(): string[] {
     return getStoredUserInfo()?.roles || []
+  }
+
+  get sources(): string[] {
+    return getStoredUserInfo()?.sources || []
+  }
+
+  get profileUrl(): string {
+    return getStoredUserInfo()?.profile_url || ''
   }
   
   

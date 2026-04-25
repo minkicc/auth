@@ -15,112 +15,72 @@
           </div>
         </div>
       </template>
-      
-      <el-form
-        ref="formRef"
-        :model="loginForm"
-        :rules="rules"
-        label-position="top"
-        @keyup.enter="handleLogin"
-      >
-        <el-form-item :label="$t('auth.username')" prop="username">
-          <el-input
-            v-model="loginForm.username"
-            :prefix-icon="User"
-            :placeholder="$t('auth.login_placeholder')"
-          />
-        </el-form-item>
-        
-        <el-form-item :label="$t('auth.password')" prop="password">
-          <el-input
-            v-model="loginForm.password"
-            type="password"
-            :prefix-icon="Lock"
-            :placeholder="$t('auth.password_placeholder')"
-            show-password
-          />
-        </el-form-item>
-        
-        <el-form-item v-if="context.error">
-          <el-alert
-            :title="context.error"
-            type="error"
-            show-icon
-            :closable="false"
-          />
-        </el-form-item>
-        
-        <el-form-item>
-          <el-button
-            type="primary"
-            :loading="context.loading"
-            @click="handleLogin"
-            style="width: 100%"
-          >
-            {{ context.loading ? $t('auth.login_loading') : $t('auth.login') }}
-          </el-button>
-        </el-form-item>
-      </el-form>
+
+      <div class="login-copy">
+        <h3>{{ $t('auth.adminAccessTitle') }}</h3>
+        <p>{{ $t('auth.adminAccessDescription') }}</p>
+      </div>
+
+      <el-alert
+        v-if="errorMessage"
+        :title="errorMessage"
+        type="warning"
+        show-icon
+        :closable="false"
+        class="login-alert"
+      />
+
+      <div class="login-actions">
+        <el-button
+          type="primary"
+          :loading="bootstrapping"
+          style="width: 100%"
+          @click="bootstrapSession"
+        >
+          {{ bootstrapping ? $t('auth.login_loading') : $t('auth.continueWithCurrentAccount') }}
+        </el-button>
+      </div>
     </el-card>
   </div>
 </template>
 
 <script setup lang="ts">
-import { reactive, ref, onMounted } from 'vue'
+import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { Lock, User } from '@element-plus/icons-vue'
-import { context } from '@/context'
-import { useI18n } from 'vue-i18n'
-import type { FormInstance, FormRules } from 'element-plus'
 import { serverApi } from '@/api'
 import { isAuthenticated } from '@/utils'
 
 const router = useRouter()
-const formRef = ref<FormInstance>()
-const { t } = useI18n()
+const bootstrapping = ref(false)
+const errorMessage = ref('')
 
-// 表单数据
-const loginForm = reactive({
-  username: '',
-  password: ''
-})
+const bootstrapSession = async () => {
+  try {
+    bootstrapping.value = true
+    errorMessage.value = ''
+    await serverApi.bootstrapSession()
+    await router.replace('/')
+  } catch (error: any) {
+    errorMessage.value = error?.response?.data?.error || 'Failed to continue with the current account'
+    localStorage.removeItem('admin_session')
+  } finally {
+    bootstrapping.value = false
+  }
+}
 
-// 表单验证规则
-const rules = reactive<FormRules>({
-  username: [
-    { required: true, message: t('auth.error_username_required'), trigger: 'blur' }
-  ],
-  password: [
-    { required: true, message: t('auth.error_password_required'), trigger: 'blur' }
-  ]
-})
-
-// 如果已经登录，重定向到首页
 onMounted(async () => {
   if (isAuthenticated()) {
     try {
       await serverApi.verifySession()
-      router.push('/')
+      await router.replace('/')
+      return
     } catch {
-      // Session is invalid; interceptor clears stale local state.
+      localStorage.removeItem('admin_session')
     }
   }
+
+  await bootstrapSession()
 })
-
-// 登录处理
-const handleLogin = () => {
-  formRef.value?.validate((valid: boolean) => {
-    if (valid) {
-      serverApi.login({
-        username: loginForm.username,
-        password: loginForm.password
-      }).then(() => {
-        router.push('/')
-      })
-    }
-  })
-}
-
 </script>
 
 <style lang="scss" scoped>
@@ -128,20 +88,23 @@ const handleLogin = () => {
   display: flex;
   justify-content: center;
   align-items: center;
-  height: 100vh;
-  background-color: #f5f7fa;
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at top left, rgba(17, 63, 84, 0.12), transparent 35%),
+    linear-gradient(180deg, #f5f7fa 0%, #eef3f6 100%);
+  padding: 24px;
 }
 
 .login-card {
-  width: 400px;
-  max-width: 90%;
-  
+  width: 440px;
+  max-width: 100%;
+
   .login-header {
     display: flex;
     align-items: center;
     justify-content: center;
     gap: 14px;
-    
+
     h2 {
       margin: 0;
       font-size: 1.5rem;
@@ -166,5 +129,30 @@ const handleLogin = () => {
       text-align: left;
     }
   }
+}
+
+.login-copy {
+  margin-bottom: 18px;
+
+  h3 {
+    margin: 0 0 10px;
+    color: #113F54;
+    font-size: 1.2rem;
+  }
+
+  p {
+    margin: 0;
+    color: #607482;
+    line-height: 1.6;
+  }
+}
+
+.login-alert {
+  margin-bottom: 18px;
+}
+
+.login-actions {
+  display: flex;
+  gap: 12px;
 }
 </style>

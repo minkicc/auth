@@ -23,6 +23,8 @@ const (
 	securityAuditActionIdentityProviderCreate = "identity_provider_create"
 	securityAuditActionIdentityProviderUpdate = "identity_provider_update"
 	securityAuditActionIdentityProviderDelete = "identity_provider_delete"
+	securityAuditActionAdminPrincipalCreate   = "admin_principal_create"
+	securityAuditActionAdminPrincipalDelete   = "admin_principal_delete"
 	securityAuditExportMaxRows                = 5000
 )
 

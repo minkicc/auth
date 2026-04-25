@@ -99,30 +99,22 @@ docker compose -f docker-compose.release.yml up -d
 
 ### 2. 启用管理后台
 
-先生成管理员密码哈希：
-
-```bash
-cd tools
-go run hashpwd.go -password "YourStrongPassword"
-```
-
-把输出的 bcrypt 哈希填入配置：
+先在平台里注册第一个管理员账号，再把它的内部 `user_id` 填入配置：
 
 ```yaml
 auth_admin:
   enabled: true
   secret_key: "change-this-to-a-random-string"
-  accounts:
-    - username: "admin"
-      password: "$2a$10$..."
-      roles:
-        - "super_admin"
+  user_ids:
+    - "usr_admin0000000000000000001"
   allowed_ips:
     - "127.0.0.1"
     - "::1"
 ```
 
 然后重启服务。
+
+现在后台不再单独维护管理员用户名和密码，而是直接复用当前浏览器里的 MKAuth 主站登录会话。配置里的 `auth_admin.user_ids` 属于运维维护的只读管理员；登录后，管理员用户会在主站个人信息页看到进入后台的按钮。日常需要新增或删除的管理员，可以直接在后台 `Settings` 页里管理，这部分数据会存进数据库。
 
 ## CI/CD：GitHub 自动打包 Docker 镜像
 

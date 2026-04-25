@@ -162,12 +162,7 @@ curl -H 'Authorization: Bearer <access-token>' http://127.0.0.1:8083/protected
 
 ## 如果要启用管理后台
 
-1. 先生成管理员密码哈希：
-
-```bash
-cd tools
-go run hashpwd.go -password "YourStrongPassword"
-```
+1. 先在平台里注册第一个管理员账号，拿到它的内部 `user_id`。
 
 2. 修改 `quickstart/config.yaml`：
 
@@ -175,11 +170,8 @@ go run hashpwd.go -password "YourStrongPassword"
 auth_admin:
   enabled: true
   secret_key: "change-this-to-a-random-string"
-  accounts:
-    - username: "admin"
-      password: "$2a$10$..."
-      roles:
-        - "super_admin"
+  user_ids:
+    - "usr_admin0000000000000000001"
 ```
 
 3. 重启服务：
@@ -187,6 +179,8 @@ auth_admin:
 ```bash
 docker compose restart mkauth-server
 ```
+
+后台不再使用单独的管理员用户名密码。管理员用户先在主站登录，然后可以从主站个人资料页直接进入后台。后续新增或删除日常管理员，可在后台 `Settings` 页里管理，数据库管理员与配置文件管理员会分开显示。
 
 ## 如果要启用更多登录方式
 

@@ -17,11 +17,12 @@
         </div>
         <div class="user-info">
           <language-switcher class="language-switcher" />
-          <span>{{ context.username }}</span>
+          <span>{{ context.displayName }}</span>
           <el-dropdown trigger="click" @command="handleCommand">
             <el-avatar size="small" :icon="UserFilled" />
             <template #dropdown>
               <el-dropdown-menu>
+                <el-dropdown-item command="profile">{{ $t('common.backToProfile') }}</el-dropdown-item>
                 <el-dropdown-item command="sessions">{{ $t('common.mySessions') }}</el-dropdown-item>
                 <el-dropdown-item command="logout">{{ $t('common.logout') }}</el-dropdown-item>
               </el-dropdown-menu>
@@ -106,9 +107,17 @@ const currentPageTitle = computed(() => {
   return route.meta.title || '未知页面'
 })
 
+const openProfile = () => {
+  if (context.profileUrl) {
+    window.location.href = context.profileUrl
+  }
+}
+
 // 处理下拉菜单命令
 const handleCommand = (command: string) => {
-  if (command === 'logout') {
+  if (command === 'profile') {
+    openProfile()
+  } else if (command === 'logout') {
     ElMessageBox.confirm(
       '确定要退出登录吗？',
       '提示',
@@ -195,7 +204,11 @@ const handleCommand = (command: string) => {
       
       span {
         margin-right: 10px;
-        color: #fff;
+        color: #1f2937;
+      }
+
+      :deep(.el-dropdown-link) {
+        color: #1f2937;
       }
     }
   }

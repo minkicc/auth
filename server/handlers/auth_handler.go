@@ -10,6 +10,7 @@ import (
 	"os"
 
 	"github.com/gin-gonic/gin"
+	"minki.cc/mkauth/server/admin"
 	"minki.cc/mkauth/server/auth"
 	"minki.cc/mkauth/server/auth/storage"
 	"minki.cc/mkauth/server/config"
@@ -39,6 +40,8 @@ type AuthHandler struct {
 	enterpriseLDAP  *iam.EnterpriseLDAPManager
 	hookRegistry    *iam.HookRegistry
 	pluginRegistry  *plugins.Registry
+	adminAccess     *admin.AccessController
+	adminEntryURL   string
 	config          *config.Config
 	logger          *log.Logger
 }
@@ -48,6 +51,14 @@ func (h *AuthHandler) publicBaseURL() string {
 		return ""
 	}
 	return h.config.OIDC.Issuer
+}
+
+func (h *AuthHandler) SetAdminAccess(accessController *admin.AccessController, entryURL string) {
+	if h == nil {
+		return
+	}
+	h.adminAccess = accessController
+	h.adminEntryURL = entryURL
 }
 
 // NewAuthHandler Create new authentication handler
@@ -177,6 +188,7 @@ func (h *AuthHandler) RegisterRoutes(authGroup *gin.RouterGroup, cfg *config.Con
 
 	// User information related routes
 	authGroup.GET("/user", h.AuthRequired(), h.GetUserInfo)
+	authGroup.GET("/user/admin-access", h.AuthRequired(), h.GetCurrentUserAdminAccess)
 	authGroup.GET("/user/organizations", h.AuthRequired(), h.GetCurrentUserOrganizations)
 	authGroup.GET("/user/organization/authorization", h.AuthRequired(), h.GetCurrentOrganizationAuthorization)
 	authGroup.GET("/user/:id", h.AuthRequired(), trustedClient, h.GetUserInfoById)

@@ -26,8 +26,11 @@ import (
 )
 
 const (
-	sessionUserKey = "admin_user"
-	sessionRoleKey = "admin_roles"
+	sessionUserIDKey   = "admin_user_id"
+	sessionUsernameKey = "admin_username"
+	sessionNicknameKey = "admin_nickname"
+	sessionRoleKey     = "admin_roles"
+	sessionSourceKey   = "admin_sources"
 )
 
 const ADMIN_ROUTER_PATH = config.ADMIN_ROUTER_PATH
@@ -45,6 +48,7 @@ type AdminServer struct {
 	plugins                 *plugins.Runtime
 	oidcProvider            *oidc.Provider
 	oidcStaticCfgs          []config.OIDCClientConfig
+	accessController        *AccessController
 	secretsEnabled          bool
 	secretsFallbackKeyCount int
 	enterpriseOIDC          *iam.EnterpriseOIDCManager
@@ -57,15 +61,16 @@ type AdminServer struct {
 }
 
 // NewAdminServer Create admin server
-func NewAdminServer(cfg *config.Config, db *gorm.DB, logger *log.Logger, pluginRuntime *plugins.Runtime, oidcProvider *oidc.Provider, enterpriseOIDC *iam.EnterpriseOIDCManager, enterpriseSAML *iam.EnterpriseSAMLManager, enterpriseLDAP *iam.EnterpriseLDAPManager, webFilePath string, port int) *AdminServer {
+func NewAdminServer(cfg *config.Config, db *gorm.DB, logger *log.Logger, pluginRuntime *plugins.Runtime, oidcProvider *oidc.Provider, enterpriseOIDC *iam.EnterpriseOIDCManager, enterpriseSAML *iam.EnterpriseSAMLManager, enterpriseLDAP *iam.EnterpriseLDAPManager, accessController *AccessController, webFilePath string, port int) *AdminServer {
 	if !cfg.Admin.Enabled {
 		return nil
 	}
 
-	// If no admin account is configured, disable admin interface
-	if len(cfg.Admin.Accounts) == 0 {
-		logger.Println("Warning: Admin interface is configured to be enabled, but no admin account is configured, admin interface will be disabled")
-		return nil
+	if cfg.Admin.HasLegacyAccounts() {
+		logger.Println("Warning: auth_admin.accounts is deprecated and no longer used for administrator authentication; use auth_admin.user_ids and database-managed admins instead")
+	}
+	if accessController == nil {
+		accessController = NewAccessController(&cfg.Admin, db)
 	}
 
 	// Initialize RedisStore
@@ -102,6 +107,7 @@ func NewAdminServer(cfg *config.Config, db *gorm.DB, logger *log.Logger, pluginR
 		plugins:                 pluginRuntime,
 		oidcProvider:            oidcProvider,
 		oidcStaticCfgs:          append([]config.OIDCClientConfig(nil), cfg.OIDC.Clients...),
+		accessController:        accessController,
 		secretsEnabled:          len(cfg.Secrets.EffectiveEncryptionKeys()) > 0,
 		secretsFallbackKeyCount: cfg.Secrets.FallbackKeyCount(),
 		enterpriseOIDC:          enterpriseOIDC,
@@ -180,10 +186,14 @@ func (s *AdminServer) registerRoutes(r *gin.Engine, webFilePath string) {
 	admin := r.Group(ADMIN_ROUTER_PATH)
 	// Login route
 	admin.POST("/login", s.handleLogin)
+	admin.POST("/session/bootstrap", s.handleLogin)
 
 	admin.Use(s.authMiddleware())
 	{
 		admin.GET("/verify", s.handleVerifySession)
+		admin.GET("/admins", s.handleListAdmins)
+		admin.POST("/admins", s.handleCreateAdmin)
+		admin.DELETE("/admins/:user_id", s.handleDeleteAdmin)
 
 		// User statistics
 		admin.GET("/stats", s.handleGetStats)

@@ -41,7 +41,9 @@ api.interceptors.response.use(
     // 处理 401 未授权错误
     if (error.response && error.response.status === 401) {
       localStorage.removeItem('admin_session')
-      window.location.href = '/login'
+      if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
+        window.location.href = '/login'
+      }
     }
 
     // 调试日志，记录请求错误
@@ -52,14 +54,29 @@ api.interceptors.response.use(
 )
 
 // ===================== 认证相关接口定义 =====================
-export interface LoginCredentials {
+export interface UserInfo {
+  user_id: string
   username: string
-  password: string
+  nickname?: string
+  roles: string[]
+  sources?: string[]
+  profile_url?: string
 }
 
-export interface UserInfo {
-  username: string
-  roles: string[]
+export interface AdminPrincipal {
+  user_id: string
+  username?: string
+  nickname?: string
+  status?: string
+  sources: string[]
+  editable: boolean
+  created_at?: string
+  updated_at?: string
+}
+
+export interface AdminPrincipalListResponse {
+  admins: AdminPrincipal[]
+  total: number
 }
 
 // ===================== 其他接口定义 =====================
@@ -523,10 +540,10 @@ export interface PluginBackupInfo {
 // ===================== 其他 API 方法 =====================
 class ServerApi {
   /**
- * 登录
+ * 使用当前主站登录会话引导后台会话
  */
-  async login(credentials: LoginCredentials): Promise<UserInfo> {
-    const response = await api.post<UserInfo>('/login', credentials)
+  async bootstrapSession(): Promise<UserInfo> {
+    const response = await api.post<UserInfo>('/session/bootstrap')
     // save the response to localStorage
     localStorage.setItem('admin_session', JSON.stringify(response.data))
     return response.data
@@ -546,6 +563,18 @@ class ServerApi {
     const response = await api.get<UserInfo>('/verify')
     localStorage.setItem('admin_session', JSON.stringify(response.data))
     return response.data
+  }
+
+  listAdmins(): Promise<AdminPrincipalListResponse> {
+    return api.get('/admins').then(res => res.data)
+  }
+
+  createAdmin(payload: { user_id?: string; username?: string; user_ref?: string }): Promise<{ admin: AdminPrincipal }> {
+    return api.post('/admins', payload).then(res => res.data)
+  }
+
+  deleteAdmin(userId: string): Promise<{ message: string }> {
+    return api.delete(`/admins/${encodeURIComponent(userId)}`).then(res => res.data)
   }
 
   // 获取统计数据
