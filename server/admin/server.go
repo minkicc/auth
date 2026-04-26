@@ -9,7 +9,9 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
+	"path/filepath"
 	"strings"
 
 	"github.com/gin-contrib/sessions"
@@ -34,6 +36,19 @@ const (
 )
 
 const ADMIN_ROUTER_PATH = config.ADMIN_ROUTER_PATH
+
+func isAdminUIAssetRequest(path string) bool {
+	if strings.HasPrefix(path, config.ADMIN_UI_BASE_PATH+"/assets/") {
+		return true
+	}
+
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".js", ".css", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".woff", ".woff2", ".ttf", ".map":
+		return strings.HasPrefix(path, config.ADMIN_UI_BASE_PATH+"/")
+	default:
+		return false
+	}
+}
 
 // AdminServer Admin server
 type AdminServer struct {
@@ -149,7 +164,7 @@ func NewAdminServer(cfg *config.Config, db *gorm.DB, logger *log.Logger, pluginR
 
 	// Create HTTP server
 	server.server = &http.Server{
-		Addr:    fmt.Sprintf(":%d", port),
+		Addr:    net.JoinHostPort("127.0.0.1", fmt.Sprintf("%d", port)),
 		Handler: router,
 	}
 
@@ -159,7 +174,7 @@ func NewAdminServer(cfg *config.Config, db *gorm.DB, logger *log.Logger, pluginR
 // Start Start admin server
 func (s *AdminServer) Start() error {
 	s.startSecurityAuditExportJobAutoCleanupLoop()
-	s.logger.Printf("Admin server started on :%s", s.server.Addr)
+	s.logger.Printf("Admin server started on %s", s.server.Addr)
 	return s.server.ListenAndServe()
 }
 
@@ -279,19 +294,34 @@ func (s *AdminServer) registerRoutes(r *gin.Engine, webFilePath string) {
 		admin.POST("/logout", s.handleLogout)
 	}
 
+	r.Use(func(c *gin.Context) {
+		path := c.Request.URL.Path
+		if path == config.ADMIN_UI_BASE_PATH || strings.HasPrefix(path, config.ADMIN_UI_BASE_PATH+"/") {
+			c.Header("Cache-Control", "no-store")
+		}
+		c.Next()
+	})
+
 	// 添加静态文件服务
-	r.Use(static.Serve("/", static.LocalFile(webFilePath, false))) // 前端工程
+	r.Use(static.Serve(config.ADMIN_UI_BASE_PATH, static.LocalFile(webFilePath, false))) // 前端工程
 
 	// All other routes redirect to admin UI entry point
 	r.NoRoute(func(c *gin.Context) {
+		path := c.Request.URL.Path
 		// If it's an API request, return 404 error
-		if c.Request.URL.Path == ADMIN_ROUTER_PATH || strings.HasPrefix(c.Request.URL.Path, ADMIN_ROUTER_PATH+"/") {
+		if path == ADMIN_ROUTER_PATH || strings.HasPrefix(path, ADMIN_ROUTER_PATH+"/") {
 			c.JSON(http.StatusNotFound, gin.H{"error": "auth endpoint not found"})
 			return
 		}
-		// 设置缓存时间为15分钟
-		c.Header("Cache-Control", "public, max-age=900")
-		// Otherwise, return admin UI entry point
-		c.File(webFilePath + "/index.html")
+		if isAdminUIAssetRequest(path) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "admin asset not found"})
+			return
+		}
+		if path == config.ADMIN_UI_BASE_PATH || strings.HasPrefix(path, config.ADMIN_UI_BASE_PATH+"/") {
+			c.Header("Cache-Control", "no-store")
+			c.File(webFilePath + "/index.html")
+			return
+		}
+		c.JSON(http.StatusNotFound, gin.H{"error": "admin route not found"})
 	})
 }

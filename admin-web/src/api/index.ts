@@ -5,6 +5,17 @@
 
 import axios from 'axios'
 
+function normalizeBasePath(path: string | undefined): string {
+  const trimmed = (path || '').trim()
+  if (!trimmed) return '/'
+  const withLeadingSlash = trimmed.startsWith('/') ? trimmed : `/${trimmed}`
+  return withLeadingSlash.endsWith('/') ? withLeadingSlash : `${withLeadingSlash}/`
+}
+
+function buildAdminLoginPath(): string {
+  return new URL('login', window.location.origin + normalizeBasePath(import.meta.env.VITE_BASE_URL)).pathname
+}
+
 // Vite环境变量类型声明
 declare interface ImportMeta {
   readonly env: {
@@ -41,8 +52,9 @@ api.interceptors.response.use(
     // 处理 401 未授权错误
     if (error.response && error.response.status === 401) {
       localStorage.removeItem('admin_session')
-      if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
-        window.location.href = '/login'
+      const loginPath = buildAdminLoginPath()
+      if (typeof window !== 'undefined' && window.location.pathname !== loginPath) {
+        window.location.href = loginPath
       }
     }
 

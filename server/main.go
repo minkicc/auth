@@ -10,14 +10,13 @@ import (
 	"flag"
 	"fmt"
 	"log"
-	"net"
 	"net/http"
+	"net/http/httputil"
 	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -67,6 +66,21 @@ func isStaticFile(path string) bool {
 		return false
 	}
 	return slices.Contains(StaticFileSuffix, suffix)
+}
+
+func gzipExceptAdminRoutes(level int) gin.HandlerFunc {
+	gzipHandler := gzip.Gzip(level)
+	return func(c *gin.Context) {
+		path := c.Request.URL.Path
+		if path == config.ADMIN_UI_BASE_PATH ||
+			strings.HasPrefix(path, config.ADMIN_UI_BASE_PATH+"/") ||
+			path == config.ADMIN_ROUTER_PATH ||
+			strings.HasPrefix(path, config.ADMIN_ROUTER_PATH+"/") {
+			c.Next()
+			return
+		}
+		gzipHandler(c)
+	}
 }
 
 func joinPath(dir, path string) string {
@@ -267,7 +281,7 @@ func main() {
 	r.Use(cors.New(corsConfig))
 
 	// web server
-	r.Use(gzip.Gzip(gzip.DefaultCompression))
+	r.Use(gzipExceptAdminRoutes(gzip.DefaultCompression))
 	r.Use(static.Serve("/", static.LocalFile(*webFilePath, false))) // 前端工程
 	r.NoRoute(onNotFound(*webFilePath))
 
@@ -363,6 +377,7 @@ func main() {
 	if cfg.Admin.Enabled {
 		adminAccessController = admin.NewAccessController(&cfg.Admin, globalDB)
 		authHandler.SetAdminAccess(adminAccessController, buildAdminEntryURL(cfg, *adminPort))
+		registerAdminReverseProxy(r, *adminPort)
 	}
 	if cfg.Admin.Enabled {
 		logger := log.New(os.Stdout, "[ADMIN] ", log.LstdFlags)
@@ -585,47 +600,50 @@ func containsProvider(providers []string, provider string) bool {
 
 func buildAdminEntryURL(cfg *config.Config, adminPort int) string {
 	if cfg == nil {
-		return ""
+		return config.ADMIN_UI_BASE_PATH
 	}
 	if explicit := strings.TrimSpace(cfg.Admin.EntryURL); explicit != "" {
 		return strings.TrimRight(explicit, "/")
 	}
 	issuer := strings.TrimSpace(cfg.OIDC.Issuer)
 	if issuer == "" {
-		return ""
+		return config.ADMIN_UI_BASE_PATH
 	}
 	parsed, err := url.Parse(issuer)
 	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-		return ""
+		return config.ADMIN_UI_BASE_PATH
 	}
-
-	host := parsed.Hostname()
-	if host == "" {
-		return ""
-	}
-	port := adminPort
-	if port <= 0 {
-		if parsed.Port() != "" {
-			if parsedPort, convErr := strconv.Atoi(parsed.Port()); convErr == nil {
-				port = parsedPort
-			}
-		}
-	}
-	if port <= 0 {
-		return strings.TrimRight(parsed.Scheme+"://"+parsed.Host, "/")
-	}
-
-	switch {
-	case parsed.Scheme == "http" && port == 80:
-		parsed.Host = host
-	case parsed.Scheme == "https" && port == 443:
-		parsed.Host = host
-	default:
-		parsed.Host = net.JoinHostPort(host, strconv.Itoa(port))
-	}
-	parsed.Path = ""
+	parsed.Path = config.ADMIN_UI_BASE_PATH
 	parsed.RawPath = ""
 	parsed.RawQuery = ""
 	parsed.Fragment = ""
 	return strings.TrimRight(parsed.String(), "/")
+}
+
+func registerAdminReverseProxy(r *gin.Engine, adminPort int) {
+	if r == nil || adminPort <= 0 {
+		return
+	}
+
+	target, err := url.Parse(fmt.Sprintf("http://127.0.0.1:%d", adminPort))
+	if err != nil {
+		log.Printf("Failed to configure admin reverse proxy: %v", err)
+		return
+	}
+
+	proxy := httputil.NewSingleHostReverseProxy(target)
+	originalDirector := proxy.Director
+	proxy.Director = func(req *http.Request) {
+		originalDirector(req)
+		req.Host = target.Host
+	}
+
+	proxyHandler := func(c *gin.Context) {
+		proxy.ServeHTTP(c.Writer, c.Request)
+	}
+
+	r.Any(config.ADMIN_UI_BASE_PATH, proxyHandler)
+	r.Any(config.ADMIN_UI_BASE_PATH+"/*proxyPath", proxyHandler)
+	r.Any(config.ADMIN_ROUTER_PATH, proxyHandler)
+	r.Any(config.ADMIN_ROUTER_PATH+"/*proxyPath", proxyHandler)
 }

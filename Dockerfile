@@ -56,5 +56,5 @@ COPY --from=builder /usr/share/zoneinfo/UTC /usr/share/zoneinfo/UTC
 COPY --from=web-builder /app/web/dist /app/web/
 COPY --from=web-builder /app/admin-web/dist /app/admin-web/
 
-EXPOSE 80 81
+EXPOSE 80
 ENTRYPOINT [ "/app/auth" ]

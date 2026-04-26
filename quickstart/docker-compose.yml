@@ -77,7 +77,6 @@ services:
       - ./oidc-private-key.pem:/app/config/oidc-private-key.pem:ro
     ports:
       - "8080:80"
-      - "8081:81"
 
   oidc-demo:
     image: nginx:alpine
