@@ -139,19 +139,31 @@ func (s *AdminServer) authMiddleware() gin.HandlerFunc {
 			c.Abort()
 			return
 		}
-		isAdmin, sources, err := s.accessController.IsAdminUser(userIDText)
+		if s == nil || s.accessController == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Admin access controller is not initialized"})
+			c.Abort()
+			return
+		}
+		isGlobalAdmin, sources, err := s.accessController.IsAdminUser(userIDText)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to evaluate admin access"})
 			c.Abort()
 			return
 		}
-		if !isAdmin {
+		organizationAdminIDs, err := s.accessController.OrganizationAdminOrganizationIDs(userIDText)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to evaluate organization admin access"})
+			c.Abort()
+			return
+		}
+		if !isGlobalAdmin && len(organizationAdminIDs) == 0 {
 			session.Clear()
 			_ = session.Save()
 			c.JSON(http.StatusForbidden, gin.H{"error": "Administrator access has been revoked"})
 			c.Abort()
 			return
 		}
+		roles = adminSessionRoles(isGlobalAdmin, len(organizationAdminIDs) > 0)
 
 		c.Set("user_id", userIDText)
 		if username := session.Get(sessionUsernameKey); username != nil {
@@ -161,8 +173,22 @@ func (s *AdminServer) authMiddleware() gin.HandlerFunc {
 			c.Set("nickname", nickname)
 		}
 		c.Set("admin_sources", sources)
+		c.Set("admin_access_checked", true)
+		c.Set("admin_is_global", isGlobalAdmin)
+		c.Set("organization_admin_ids", organizationAdminIDs)
 		c.Set("roles", roles)
 
 		c.Next()
+	}
+}
+
+func (s *AdminServer) globalAdminMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if c.GetBool("admin_is_global") {
+			c.Next()
+			return
+		}
+		c.JSON(http.StatusForbidden, gin.H{"error": "Global administrator access is required"})
+		c.Abort()
 	}
 }

@@ -78,6 +78,12 @@ func newIntegrationEnv(t *testing.T) *integrationEnv {
 				RedirectURIs: []string{testRedirectURI},
 				Scopes:       []string{"openid", "profile"},
 			},
+			{
+				ClientID:     "service-api",
+				ClientSecret: "service-secret",
+				GrantTypes:   []string{"client_credentials"},
+				Scopes:       []string{"admin_api", "profile"},
+			},
 		},
 	}
 
@@ -345,6 +351,184 @@ func exchangeAuthorizationCode(t *testing.T, env *integrationEnv, code string) (
 	return accessToken, idToken
 }
 
+func TestClientCredentialsIssuesServiceAccountAccessToken(t *testing.T) {
+	env := newIntegrationEnv(t)
+	defer env.Close()
+
+	tokenResp := performRequest(t, env.router, http.MethodPost, "/oauth2/token", url.Values{
+		"grant_type":    {"client_credentials"},
+		"client_id":     {"service-api"},
+		"client_secret": {"service-secret"},
+		"scope":         {"admin_api"},
+	}, nil)
+	if tokenResp.Code != http.StatusOK {
+		t.Fatalf("expected client_credentials token status 200, got %d with body %s", tokenResp.Code, tokenResp.Body.String())
+	}
+
+	var tokenBody map[string]interface{}
+	if err := json.Unmarshal(tokenResp.Body.Bytes(), &tokenBody); err != nil {
+		t.Fatalf("failed to decode token response: %v", err)
+	}
+	if _, ok := tokenBody["id_token"]; ok {
+		t.Fatalf("client_credentials response must not include id_token: %#v", tokenBody)
+	}
+	if tokenBody["scope"] != "admin_api" {
+		t.Fatalf("expected admin_api scope, got %#v", tokenBody["scope"])
+	}
+	accessToken, _ := tokenBody["access_token"].(string)
+	if accessToken == "" {
+		t.Fatalf("expected access_token in client_credentials response")
+	}
+
+	claims, err := env.provider.ParseAccessToken(accessToken)
+	if err != nil {
+		t.Fatalf("failed to parse client_credentials access token: %v", err)
+	}
+	if claims.Subject != "svc:service-api" || claims.ClientID != "service-api" {
+		t.Fatalf("unexpected service account token identity: %#v", claims)
+	}
+	if claims.ID == "" {
+		t.Fatalf("expected service account access token to include jti")
+	}
+	if claims.GrantType != grantTypeClientCredentials || claims.SubjectType != accessTokenSubjectTypeServiceAccount || !claims.ServiceAccount {
+		t.Fatalf("expected service account token markers, got %#v", claims)
+	}
+	if claims.Scope != "admin_api" {
+		t.Fatalf("expected admin_api scope in token, got %q", claims.Scope)
+	}
+
+	userInfoResp := performBearerRequest(t, env.router, http.MethodGet, "/oauth2/userinfo", accessToken)
+	if userInfoResp.Code != http.StatusUnauthorized {
+		t.Fatalf("service account token should not be accepted by userinfo, got %d: %s", userInfoResp.Code, userInfoResp.Body.String())
+	}
+}
+
+func TestTokenIntrospectionReportsServiceAccountToken(t *testing.T) {
+	env := newIntegrationEnv(t)
+	defer env.Close()
+
+	tokenResp := performRequest(t, env.router, http.MethodPost, "/oauth2/token", url.Values{
+		"grant_type":    {"client_credentials"},
+		"client_id":     {"service-api"},
+		"client_secret": {"service-secret"},
+		"scope":         {"admin_api"},
+	}, nil)
+	if tokenResp.Code != http.StatusOK {
+		t.Fatalf("expected client_credentials token status 200, got %d with body %s", tokenResp.Code, tokenResp.Body.String())
+	}
+	var tokenBody map[string]interface{}
+	if err := json.Unmarshal(tokenResp.Body.Bytes(), &tokenBody); err != nil {
+		t.Fatalf("failed to decode token response: %v", err)
+	}
+	accessToken, _ := tokenBody["access_token"].(string)
+	if accessToken == "" {
+		t.Fatalf("expected access_token in client_credentials response")
+	}
+
+	introspectionResp := performRequest(t, env.router, http.MethodPost, "/oauth2/introspect", url.Values{
+		"client_id":       {"service-api"},
+		"client_secret":   {"service-secret"},
+		"token":           {accessToken},
+		"token_type_hint": {"access_token"},
+	}, nil)
+	if introspectionResp.Code != http.StatusOK {
+		t.Fatalf("expected introspection status 200, got %d with body %s", introspectionResp.Code, introspectionResp.Body.String())
+	}
+	if introspectionResp.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("expected no-store cache control, got %q", introspectionResp.Header().Get("Cache-Control"))
+	}
+	var introspectionBody map[string]interface{}
+	if err := json.Unmarshal(introspectionResp.Body.Bytes(), &introspectionBody); err != nil {
+		t.Fatalf("failed to decode introspection response: %v", err)
+	}
+	if introspectionBody["active"] != true {
+		t.Fatalf("expected active token, got %#v", introspectionBody)
+	}
+	if introspectionBody["sub"] != "svc:service-api" || introspectionBody["client_id"] != "service-api" || introspectionBody["scope"] != "admin_api" {
+		t.Fatalf("unexpected service token introspection identity: %#v", introspectionBody)
+	}
+	if introspectionBody["grant_type"] != grantTypeClientCredentials ||
+		introspectionBody["subject_type"] != accessTokenSubjectTypeServiceAccount ||
+		introspectionBody["service_account"] != true {
+		t.Fatalf("expected service account markers in introspection response, got %#v", introspectionBody)
+	}
+	if introspectionBody["jti"] == "" {
+		t.Fatalf("expected active introspection response to include jti, got %#v", introspectionBody)
+	}
+
+	inactiveResp := performRequest(t, env.router, http.MethodPost, "/oauth2/introspect", url.Values{
+		"client_id":     {"service-api"},
+		"client_secret": {"service-secret"},
+		"token":         {"not-a-jwt"},
+	}, nil)
+	if inactiveResp.Code != http.StatusOK {
+		t.Fatalf("expected inactive introspection status 200, got %d with body %s", inactiveResp.Code, inactiveResp.Body.String())
+	}
+	var inactiveBody map[string]interface{}
+	if err := json.Unmarshal(inactiveResp.Body.Bytes(), &inactiveBody); err != nil {
+		t.Fatalf("failed to decode inactive introspection response: %v", err)
+	}
+	if inactiveBody["active"] != false {
+		t.Fatalf("expected inactive token response, got %#v", inactiveBody)
+	}
+
+	revokeResp := performRequest(t, env.router, http.MethodPost, "/oauth2/revoke", url.Values{
+		"client_id":       {"service-api"},
+		"client_secret":   {"service-secret"},
+		"token":           {accessToken},
+		"token_type_hint": {"access_token"},
+	}, nil)
+	if revokeResp.Code != http.StatusOK {
+		t.Fatalf("expected revocation status 200, got %d with body %s", revokeResp.Code, revokeResp.Body.String())
+	}
+
+	revokedIntrospectionResp := performRequest(t, env.router, http.MethodPost, "/oauth2/introspect", url.Values{
+		"client_id":     {"service-api"},
+		"client_secret": {"service-secret"},
+		"token":         {accessToken},
+	}, nil)
+	if revokedIntrospectionResp.Code != http.StatusOK {
+		t.Fatalf("expected revoked introspection status 200, got %d with body %s", revokedIntrospectionResp.Code, revokedIntrospectionResp.Body.String())
+	}
+	var revokedIntrospectionBody map[string]interface{}
+	if err := json.Unmarshal(revokedIntrospectionResp.Body.Bytes(), &revokedIntrospectionBody); err != nil {
+		t.Fatalf("failed to decode revoked introspection response: %v", err)
+	}
+	if revokedIntrospectionBody["active"] != false {
+		t.Fatalf("expected revoked token to introspect inactive, got %#v", revokedIntrospectionBody)
+	}
+
+	publicResp := performRequest(t, env.router, http.MethodPost, "/oauth2/introspect", url.Values{
+		"client_id": {"demo-spa"},
+		"token":     {accessToken},
+	}, nil)
+	if publicResp.Code != http.StatusUnauthorized {
+		t.Fatalf("expected public client introspection to be rejected, got %d with body %s", publicResp.Code, publicResp.Body.String())
+	}
+}
+
+func TestClientCredentialsRejectsOIDCUserScopes(t *testing.T) {
+	env := newIntegrationEnv(t)
+	defer env.Close()
+
+	tokenResp := performRequest(t, env.router, http.MethodPost, "/oauth2/token", url.Values{
+		"grant_type":    {"client_credentials"},
+		"client_id":     {"service-api"},
+		"client_secret": {"service-secret"},
+		"scope":         {"openid"},
+	}, nil)
+	if tokenResp.Code != http.StatusBadRequest {
+		t.Fatalf("expected invalid_scope status 400, got %d with body %s", tokenResp.Code, tokenResp.Body.String())
+	}
+	var tokenBody map[string]interface{}
+	if err := json.Unmarshal(tokenResp.Body.Bytes(), &tokenBody); err != nil {
+		t.Fatalf("failed to decode invalid_scope response: %v", err)
+	}
+	if tokenBody["error"] != "invalid_scope" {
+		t.Fatalf("expected invalid_scope error, got %#v", tokenBody)
+	}
+}
+
 func TestAuthorizeReusesBrowserSessionAndTokenExchangeSucceeds(t *testing.T) {
 	env := newIntegrationEnv(t)
 	defer env.Close()
@@ -441,6 +625,9 @@ func TestAuthorizeReusesBrowserSessionAndTokenExchangeSucceeds(t *testing.T) {
 	if claims.ClientID != "demo-spa" {
 		t.Fatalf("expected client_id demo-spa, got %s", claims.ClientID)
 	}
+	if claims.ID == "" {
+		t.Fatalf("expected access token to include jti")
+	}
 	if claims.Scope != "openid profile" {
 		t.Fatalf("expected scope 'openid profile', got %q", claims.Scope)
 	}
@@ -511,6 +698,20 @@ func TestAuthorizeReusesBrowserSessionAndTokenExchangeSucceeds(t *testing.T) {
 	}
 	if userInfoBody["userinfo_source"] != "hook" {
 		t.Fatalf("expected custom userinfo claim from hook, got %#v", userInfoBody["userinfo_source"])
+	}
+
+	revokeResp := performRequest(t, env.router, http.MethodPost, "/oauth2/revoke", url.Values{
+		"client_id":       {"demo-spa"},
+		"token":           {accessToken},
+		"token_type_hint": {"access_token"},
+	}, nil)
+	if revokeResp.Code != http.StatusOK {
+		t.Fatalf("expected public client revocation status 200, got %d with body %s", revokeResp.Code, revokeResp.Body.String())
+	}
+
+	revokedUserInfoResp := performBearerRequest(t, env.router, http.MethodGet, "/oauth2/userinfo", accessToken)
+	if revokedUserInfoResp.Code != http.StatusUnauthorized {
+		t.Fatalf("expected revoked user access token to be rejected by userinfo, got %d with body %s", revokedUserInfoResp.Code, revokedUserInfoResp.Body.String())
 	}
 }
 

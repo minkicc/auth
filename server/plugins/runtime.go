@@ -3,6 +3,7 @@ package plugins
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -27,7 +28,9 @@ type Runtime struct {
 	mu       sync.Mutex
 	registry *Registry
 	hooks    *iam.HookRegistry
+	sinks    *AuditSinkRegistry
 	builtins map[string]Summary
+	static   []iam.Hook
 }
 
 type installResult struct {
@@ -45,10 +48,15 @@ func NewRuntime(cfg config.PluginsConfig) (*Runtime, error) {
 	if err != nil {
 		return nil, err
 	}
+	sinks, err := NewAuditSinkRegistry()
+	if err != nil {
+		return nil, err
+	}
 	runtime := &Runtime{
 		cfg:      cfg,
 		registry: registry,
 		hooks:    hooks,
+		sinks:    sinks,
 		builtins: map[string]Summary{},
 	}
 	if err := runtime.reloadLocked(); err != nil {
@@ -71,6 +79,20 @@ func (r *Runtime) Hooks() *iam.HookRegistry {
 	return r.hooks
 }
 
+func (r *Runtime) AuditSinks() *AuditSinkRegistry {
+	if r == nil {
+		return nil
+	}
+	return r.sinks
+}
+
+func (r *Runtime) DispatchSecurityAudit(ctx context.Context, event SecurityAuditSinkEvent) error {
+	if r == nil || r.sinks == nil {
+		return nil
+	}
+	return r.sinks.DispatchSecurityAudit(ctx, event)
+}
+
 func (r *Runtime) List() []Summary {
 	if r == nil || r.registry == nil {
 		return nil
@@ -89,6 +111,19 @@ func (r *Runtime) RegisterBuiltin(summary Summary) error {
 	}
 	summary.Enabled = true
 	r.builtins[summary.ID] = summary
+	return r.reloadLocked()
+}
+
+func (r *Runtime) RegisterHook(hook iam.Hook) error {
+	if r == nil || hook == nil {
+		return nil
+	}
+	if strings.TrimSpace(hook.Name()) == "" {
+		return fmt.Errorf("plugin runtime hook name is required")
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.static = append(r.static, hook)
 	return r.reloadLocked()
 }
 
@@ -379,28 +414,31 @@ func (r *Runtime) UninstallWithActor(id string, actor AuditActor) (err error) {
 }
 
 func (r *Runtime) reloadLocked() error {
-	summaries, hooks, err := loadRuntimeState(r.cfg, r.builtins)
+	summaries, hooks, sinks, err := loadRuntimeState(r.cfg, r.builtins)
 	if err != nil {
 		return err
 	}
+	hooks = append([]iam.Hook{newLifecycleAuditHook(r.sinks)}, hooks...)
+	hooks = append(hooks, r.static...)
 	r.registry.Replace(summaries)
 	r.hooks.Replace(hooks)
+	r.sinks.Replace(sinks)
 	return nil
 }
 
-func loadRuntimeState(cfg config.PluginsConfig, builtins map[string]Summary) ([]Summary, []iam.Hook, error) {
+func loadRuntimeState(cfg config.PluginsConfig, builtins map[string]Summary) ([]Summary, []iam.Hook, []AuditSink, error) {
 	combined := &Registry{}
 	for _, summary := range builtins {
 		combined.Register(summary)
 	}
 
 	if !cfg.Enabled {
-		return combined.List(), nil, nil
+		return combined.List(), nil, nil, nil
 	}
 
 	registry, err := NewRegistry(cfg)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	for _, summary := range registry.List() {
 		combined.Register(summary)
@@ -408,9 +446,13 @@ func loadRuntimeState(cfg config.PluginsConfig, builtins map[string]Summary) ([]
 
 	hooks, err := loadHooks(cfg)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-	return combined.List(), hooks, nil
+	sinks, err := loadAuditSinks(cfg)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	return combined.List(), hooks, sinks, nil
 }
 
 func normalizeConfig(cfg config.PluginsConfig) config.PluginsConfig {
@@ -469,6 +511,16 @@ func loadHooks(cfg config.PluginsConfig) ([]iam.Hook, error) {
 				continue
 			}
 			manifest := plugin.Manifest
+			if manifest.Type == string(PluginTypeClaimMapper) {
+				hook, err := buildClaimMapperHook(manifest, plugin.State)
+				if err != nil {
+					return nil, fmt.Errorf("build claim mapper plugin %s: %w", manifest.ID, err)
+				}
+				if hook != nil {
+					hooks = append(hooks, hook)
+				}
+				continue
+			}
 			if manifest.Type != string(PluginTypeFlowAction) || manifest.HTTPAction == nil {
 				continue
 			}
@@ -482,6 +534,44 @@ func loadHooks(cfg config.PluginsConfig) ([]iam.Hook, error) {
 		}
 	}
 	return hooks, nil
+}
+
+func loadAuditSinks(cfg config.PluginsConfig) ([]AuditSink, error) {
+	if !cfg.Enabled {
+		return nil, nil
+	}
+	sinks := []AuditSink{}
+	enabledFilter := stringSet(cfg.EnabledPlugins)
+	disabledFilter := stringSet(cfg.DisabledPlugins)
+	for _, directory := range cfg.Directories {
+		entries, err := os.ReadDir(directory)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return nil, fmt.Errorf("read plugin directory %q: %w", directory, err)
+		}
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				continue
+			}
+			plugin, err := inspectLocalPluginDir(filepath.Join(directory, entry.Name()), cfg, enabledFilter, disabledFilter)
+			if err != nil {
+				return nil, err
+			}
+			if plugin == nil || !plugin.Enabled || plugin.Manifest.Type != string(PluginTypeAuditSink) || plugin.Manifest.AuditSink == nil {
+				continue
+			}
+			sink, err := buildHTTPAuditSink(cfg, auditSinkConfigFromManifest(plugin.Manifest, plugin.State))
+			if err != nil {
+				return nil, fmt.Errorf("build audit sink plugin %s: %w", plugin.Manifest.ID, err)
+			}
+			if sink != nil {
+				sinks = append(sinks, sink)
+			}
+		}
+	}
+	return sinks, nil
 }
 
 func buildHTTPActionHook(cfg config.PluginsConfig, action config.HTTPActionConfig) (*iam.HTTPActionHook, error) {
@@ -501,6 +591,25 @@ func buildHTTPActionHook(cfg config.PluginsConfig, action config.HTTPActionConfi
 		cfg.AllowPrivateNetworks,
 	)
 	return iam.NewHTTPActionHookWithClient(action, client)
+}
+
+func buildHTTPAuditSink(cfg config.PluginsConfig, sink HTTPAuditSinkConfig) (*HTTPAuditSink, error) {
+	if !sink.Enabled {
+		return nil, nil
+	}
+	sinkURL, err := validateRemoteURL(sink.URL)
+	if err != nil {
+		return nil, fmt.Errorf("audit sink %s has invalid url: %w", strings.TrimSpace(sink.ID), err)
+	}
+	if err := requireHostAllowed("audit sink", sinkURL, cfg.AllowedActionHosts, len(cfg.AllowedActionHosts) == 0); err != nil {
+		return nil, fmt.Errorf("audit sink %s: %w", strings.TrimSpace(sink.ID), err)
+	}
+	client := newRestrictedHTTPClient(
+		HTTPAuditSinkTimeout(sink.TimeoutMS),
+		allowlistForRequest(sinkURL.Host, cfg.AllowedActionHosts),
+		cfg.AllowPrivateNetworks,
+	)
+	return NewHTTPAuditSinkWithClient(sink, client)
 }
 
 func (r *Runtime) primaryDirectory() (string, error) {

@@ -22,6 +22,7 @@ const (
 	RedisKeyPhonePreregister    = "auth_phone_prereg:"
 	RedisKeyOIDCAuthCode        = "auth_oidc_code:"
 	RedisKeyOIDCBrowserSession  = "auth_oidc_browser_session:"
+	RedisKeyOIDCRevokedToken    = "auth_oidc_revoked_token:"
 	RedisKeyEnterpriseOIDCState = "auth_enterprise_oidc_state:"
 	RedisKeyEnterpriseSAMLState = "auth_enterprise_saml_state:"
 )

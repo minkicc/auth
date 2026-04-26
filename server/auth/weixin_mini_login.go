@@ -63,9 +63,9 @@ type MiniProgramSessionResponse struct {
 
 // MiniProgramLogin 微信小程序登录
 // jsCode: 前端 wx.login() 获取的 code
-func (w *WeixinMiniLogin) MiniProgramLogin(jsCode string) (*User, *MiniProgramSessionResponse, error) {
+func (w *WeixinMiniLogin) MiniProgramLogin(jsCode string) (*User, *MiniProgramSessionResponse, bool, error) {
 	if jsCode == "" {
-		return nil, nil, errors.New("jsCode is required")
+		return nil, nil, false, errors.New("jsCode is required")
 	}
 
 	// 1. code2session
@@ -78,23 +78,24 @@ func (w *WeixinMiniLogin) MiniProgramLogin(jsCode string) (*User, *MiniProgramSe
 	)
 	resp, err := doRequest[MiniProgramSessionResponse](url)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to call code2session: %w", err)
+		return nil, nil, false, fmt.Errorf("failed to call code2session: %w", err)
 	}
 	if resp.ErrCode != 0 {
-		return nil, resp, fmt.Errorf("code2session error: %d %s", resp.ErrCode, resp.ErrMsg)
+		return nil, resp, false, fmt.Errorf("code2session error: %d %s", resp.ErrCode, resp.ErrMsg)
 	}
 
 	// 2. 获取 unionid（优先用 code2session 返回的 unionid）
 	unionID := resp.UnionID
 	if unionID == "" {
-		return nil, resp, errors.New("unionid not found")
+		return nil, resp, false, errors.New("unionid not found")
 	}
 
 	// 3. 查找或注册用户
 	user, err := w.GetUserByWeixinID(unionID)
 	if err != nil && err != gorm.ErrRecordNotFound {
-		return nil, resp, err
+		return nil, resp, false, err
 	}
+	created := user == nil
 	if user == nil {
 		// 这里只能用 openid/unionid 注册，昵称头像等需前端补充
 		userInfo := &WeixinUserInfo{
@@ -103,11 +104,11 @@ func (w *WeixinMiniLogin) MiniProgramLogin(jsCode string) (*User, *MiniProgramSe
 		}
 		user, err = w.CreateUserFromWeixin(userInfo)
 		if err != nil {
-			return nil, resp, fmt.Errorf("failed to create user: %w", err)
+			return nil, resp, false, fmt.Errorf("failed to create user: %w", err)
 		}
 	} else {
 		if err := EnsureUserCanAuthenticate(user); err != nil {
-			return nil, resp, err
+			return nil, resp, false, err
 		}
 		// 更新最后登录时间
 		err := w.db.Model(&User{}).Where("user_id = ?", user.UserID).Updates(map[string]interface{}{
@@ -118,7 +119,7 @@ func (w *WeixinMiniLogin) MiniProgramLogin(jsCode string) (*User, *MiniProgramSe
 		}
 	}
 
-	return user, resp, nil
+	return user, resp, created, nil
 }
 
 // GetUserByWeixinID 通过微信 UnionID 获取用户

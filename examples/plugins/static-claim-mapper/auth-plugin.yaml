@@ -1,0 +1,24 @@
+id: static-claim-mapper
+name: Static Claim Mapper
+version: 0.1.0
+type: claim_mapper
+description: Example claim mapper that injects organization-aware custom claims without remote code.
+permissions:
+  - hook:before_token_issue
+  - hook:before_userinfo
+config_schema:
+  - key: tenant_prefix
+    label: Tenant Prefix
+    type: string
+    default: tenant
+    description: Prefix used by the demo tenant_key claim.
+events:
+  - before_token_issue
+  - before_userinfo
+claim_mappings:
+  - claim: tenant_key
+    value: "${config.tenant_prefix}:${claim.org_slug}:${client_id}"
+  - claim: app_roles
+    value_from: claim.org_roles
+  - claim: directory_subject
+    value_from: user.user_id

@@ -373,6 +373,14 @@ func (m *EnterpriseSAMLManager) MetadataXML(slug string) ([]byte, error) {
 }
 
 func (m *EnterpriseSAMLManager) Authenticate(req *http.Request, slug string, possibleRequestIDs []string) (*auth.User, error) {
+	result, err := m.AuthenticateWithResult(req, slug, possibleRequestIDs)
+	if err != nil {
+		return nil, err
+	}
+	return result.User, nil
+}
+
+func (m *EnterpriseSAMLManager) AuthenticateWithResult(req *http.Request, slug string, possibleRequestIDs []string) (*EnterpriseAuthenticationResult, error) {
 	provider, ok := m.provider(slug)
 	if !ok {
 		return nil, fmt.Errorf("enterprise saml provider %q not found", slug)
@@ -391,7 +399,7 @@ func (m *EnterpriseSAMLManager) Authenticate(req *http.Request, slug string, pos
 	if err != nil {
 		return nil, err
 	}
-	return m.findOrCreateUser(provider, info)
+	return m.findOrCreateUserWithResult(provider, info)
 }
 
 func (m *EnterpriseSAMLManager) provider(slug string) (*EnterpriseSAMLProvider, bool) {
@@ -493,13 +501,22 @@ func firstEnterpriseSAMLAttribute(attributes map[string][]string, preferred stri
 }
 
 func (m *EnterpriseSAMLManager) findOrCreateUser(provider *EnterpriseSAMLProvider, info *EnterpriseSAMLUserInfo) (*auth.User, error) {
+	result, err := m.findOrCreateUserWithResult(provider, info)
+	if err != nil {
+		return nil, err
+	}
+	return result.User, nil
+}
+
+func (m *EnterpriseSAMLManager) findOrCreateUserWithResult(provider *EnterpriseSAMLProvider, info *EnterpriseSAMLUserInfo) (*EnterpriseAuthenticationResult, error) {
 	var identity ExternalIdentity
 	err := m.db.Where("provider_type = ? AND provider_id = ? AND subject = ?", IdentityProviderTypeSAML, provider.cfg.Slug, info.Subject).First(&identity).Error
 	switch err {
 	case nil:
-		return m.updateExistingIdentity(provider, &identity, info)
+		user, err := m.updateExistingIdentity(provider, &identity, info)
+		return &EnterpriseAuthenticationResult{User: user}, err
 	case gorm.ErrRecordNotFound:
-		return m.createIdentityUser(provider, info)
+		return m.createIdentityUserWithResult(provider, info)
 	default:
 		return nil, err
 	}
@@ -526,12 +543,22 @@ func (m *EnterpriseSAMLManager) updateExistingIdentity(provider *EnterpriseSAMLP
 }
 
 func (m *EnterpriseSAMLManager) createIdentityUser(provider *EnterpriseSAMLProvider, info *EnterpriseSAMLUserInfo) (*auth.User, error) {
+	result, err := m.createIdentityUserWithResult(provider, info)
+	if err != nil {
+		return nil, err
+	}
+	return result.User, nil
+}
+
+func (m *EnterpriseSAMLManager) createIdentityUserWithResult(provider *EnterpriseSAMLProvider, info *EnterpriseSAMLUserInfo) (*EnterpriseAuthenticationResult, error) {
 	if existingUserID, err := m.lookupVerifiedEmailUserID(info); err != nil {
 		return nil, err
 	} else if existingUserID != "" {
-		return m.linkExistingUser(provider, existingUserID, info)
+		user, err := m.linkExistingUser(provider, existingUserID, info)
+		return &EnterpriseAuthenticationResult{User: user}, err
 	}
-	return m.createNewUser(provider, info)
+	user, err := m.createNewUser(provider, info)
+	return &EnterpriseAuthenticationResult{User: user, Created: true}, err
 }
 
 func (m *EnterpriseSAMLManager) linkExistingUser(provider *EnterpriseSAMLProvider, userID string, info *EnterpriseSAMLUserInfo) (*auth.User, error) {

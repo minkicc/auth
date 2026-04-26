@@ -2,7 +2,9 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -471,6 +473,253 @@ func TestAccountRegisterCreatesBrowserSessionAndLogoutRequiresSameOrigin(t *test
 	})
 	if logoutResp.Code != http.StatusOK {
 		t.Fatalf("expected logout with matching Origin to succeed, got %d with body %s", logoutResp.Code, logoutResp.Body.String())
+	}
+}
+
+func TestAccountLifecycleHooksRun(t *testing.T) {
+	env := newAuthTestEnv(t)
+	defer env.Close()
+
+	var calls []string
+	registry, err := iam.NewHookRegistry(iam.HookFunc{
+		HookName: "recorder",
+		Fn: func(ctx context.Context, event iam.HookEvent, data *iam.HookContext) error {
+			calls = append(calls, string(event)+":"+data.Provider+":"+data.Metadata["identifier"]+":"+data.Metadata["session_id"])
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to build hook registry: %v", err)
+	}
+	env.handler.hookRegistry = registry
+
+	registerResp := performJSONRequest(t, env.router, http.MethodPost, "/api/account/register", map[string]string{
+		"username": "hook_user",
+		"password": "demo12345",
+	}, nil, map[string]string{"Origin": "http://127.0.0.1:8080"})
+	if registerResp.Code != http.StatusOK {
+		t.Fatalf("expected register status 200, got %d with body %s", registerResp.Code, registerResp.Body.String())
+	}
+	sessionCookie := requireCookie(t, registerResp, auth.OIDCSessionCookieName)
+
+	logoutResp := performJSONRequest(t, env.router, http.MethodPost, "/api/logout", nil, sessionCookie, map[string]string{
+		"Origin": "http://127.0.0.1:8080",
+	})
+	if logoutResp.Code != http.StatusOK {
+		t.Fatalf("expected logout status 200, got %d with body %s", logoutResp.Code, logoutResp.Body.String())
+	}
+
+	expectedPrefix := []string{
+		"pre_register:account:hook_user:",
+		"post_register:account:hook_user:",
+		"post_authenticate:account::",
+	}
+	if len(calls) != 4 {
+		t.Fatalf("expected 4 lifecycle hook calls, got %#v", calls)
+	}
+	for i, expected := range expectedPrefix {
+		if calls[i] != expected {
+			t.Fatalf("expected hook call %d to be %q, got %#v", i, expected, calls)
+		}
+	}
+	if !strings.HasPrefix(calls[3], "post_logout:browser_session::") {
+		t.Fatalf("expected post_logout browser_session hook, got %#v", calls)
+	}
+}
+
+func TestAccountPreRegisterHookCanDeny(t *testing.T) {
+	env := newAuthTestEnv(t)
+	defer env.Close()
+
+	denyErr := errors.New("blocked by policy")
+	registry, err := iam.NewHookRegistry(iam.HookFunc{
+		HookName: "deny-register",
+		Fn: func(ctx context.Context, event iam.HookEvent, data *iam.HookContext) error {
+			if event == iam.HookPreRegister {
+				return denyErr
+			}
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to build hook registry: %v", err)
+	}
+	env.handler.hookRegistry = registry
+
+	resp := performJSONRequest(t, env.router, http.MethodPost, "/api/account/register", map[string]string{
+		"username": "denied_user",
+		"password": "demo12345",
+	}, nil, map[string]string{"Origin": "http://127.0.0.1:8080"})
+	if resp.Code != http.StatusForbidden {
+		t.Fatalf("expected denied register status 403, got %d with body %s", resp.Code, resp.Body.String())
+	}
+
+	var count int64
+	if err := env.db.Model(&auth.AccountUser{}).Where("username = ?", "denied_user").Count(&count).Error; err != nil {
+		t.Fatalf("failed to count denied user: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("expected denied pre_register not to create account, found %d", count)
+	}
+}
+
+func TestAccountPreAuthenticateHookCanDeny(t *testing.T) {
+	env := newAuthTestEnv(t)
+	defer env.Close()
+
+	if _, err := env.accountAuth.Register("login_hook_user", "demo12345", "login_hook_user"); err != nil {
+		t.Fatalf("failed to seed account user: %v", err)
+	}
+	registry, err := iam.NewHookRegistry(iam.HookFunc{
+		HookName: "deny-login",
+		Fn: func(ctx context.Context, event iam.HookEvent, data *iam.HookContext) error {
+			if event == iam.HookPreAuthenticate {
+				if data.Provider != "account" || data.Metadata["identifier"] != "login_hook_user" {
+					t.Fatalf("unexpected pre_authenticate context: %#v", data)
+				}
+				return errors.New("login risk too high")
+			}
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to build hook registry: %v", err)
+	}
+	env.handler.hookRegistry = registry
+
+	resp := performJSONRequest(t, env.router, http.MethodPost, "/api/account/login", map[string]string{
+		"username": "login_hook_user",
+		"password": "demo12345",
+	}, nil, map[string]string{"Origin": "http://127.0.0.1:8080"})
+	if resp.Code != http.StatusForbidden {
+		t.Fatalf("expected denied login status 403, got %d with body %s", resp.Code, resp.Body.String())
+	}
+	if cookie := findCookie(resp, auth.OIDCSessionCookieName); cookie != nil && cookie.Value != "" {
+		t.Fatalf("expected denied pre_authenticate not to create browser session, got cookie %#v", cookie)
+	}
+}
+
+func TestEmailLifecycleHooksRun(t *testing.T) {
+	env := newAuthTestEnv(t)
+	defer env.Close()
+
+	var calls []string
+	registry, err := iam.NewHookRegistry(iam.HookFunc{
+		HookName: "email-recorder",
+		Fn: func(ctx context.Context, event iam.HookEvent, data *iam.HookContext) error {
+			calls = append(calls, string(event)+":"+data.Provider+":"+data.Metadata["identifier"]+":"+data.Metadata["login_method"])
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to build hook registry: %v", err)
+	}
+	env.handler.hookRegistry = registry
+
+	registerResp := performJSONRequest(t, env.router, http.MethodPost, "/api/email/register", map[string]string{
+		"email":    " Hook_Email@Example.COM ",
+		"password": "demo12345",
+		"title":    "Verify",
+		"content":  "Please verify your account",
+	}, nil, nil)
+	if registerResp.Code != http.StatusOK {
+		t.Fatalf("expected email register status 200, got %d with body %s", registerResp.Code, registerResp.Body.String())
+	}
+	if len(env.emailService.verificationEmails) != 1 {
+		t.Fatalf("expected one verification email, got %d", len(env.emailService.verificationEmails))
+	}
+
+	token := env.emailService.verificationEmails[0].Token
+	verifyResp := performJSONRequest(t, env.router, http.MethodGet, "/api/email/verify?token="+token, nil, nil, nil)
+	if verifyResp.Code != http.StatusOK {
+		t.Fatalf("expected email verify status 200, got %d with body %s", verifyResp.Code, verifyResp.Body.String())
+	}
+
+	loginResp := performJSONRequest(t, env.router, http.MethodPost, "/api/email/login", map[string]string{
+		"email":    "hook_email@example.com",
+		"password": "demo12345",
+	}, nil, map[string]string{"Origin": "http://127.0.0.1:8080"})
+	if loginResp.Code != http.StatusOK {
+		t.Fatalf("expected email login status 200, got %d with body %s", loginResp.Code, loginResp.Body.String())
+	}
+
+	expected := []string{
+		"pre_register:email:hook_email@example.com:",
+		"post_register:email:hook_email@example.com:",
+		"post_authenticate:email::",
+		"pre_authenticate:email:hook_email@example.com:password",
+		"post_authenticate:email::",
+	}
+	if len(calls) != len(expected) {
+		t.Fatalf("expected %d email lifecycle hook calls, got %#v", len(expected), calls)
+	}
+	for i := range expected {
+		if calls[i] != expected[i] {
+			t.Fatalf("expected email hook call %d to be %q, got %#v", i, expected[i], calls)
+		}
+	}
+}
+
+func TestPhoneLifecycleHooksRun(t *testing.T) {
+	env := newAuthTestEnv(t)
+	defer env.Close()
+
+	var calls []string
+	registry, err := iam.NewHookRegistry(iam.HookFunc{
+		HookName: "phone-recorder",
+		Fn: func(ctx context.Context, event iam.HookEvent, data *iam.HookContext) error {
+			calls = append(calls, string(event)+":"+data.Provider+":"+data.Metadata["identifier"]+":"+data.Metadata["login_method"])
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to build hook registry: %v", err)
+	}
+	env.handler.hookRegistry = registry
+
+	preregisterResp := performJSONRequest(t, env.router, http.MethodPost, "/api/phone/preregister", map[string]string{
+		"phone":    "+86 138-0013-8000",
+		"password": "demo12345",
+		"nickname": "phone hook",
+	}, nil, nil)
+	if preregisterResp.Code != http.StatusOK {
+		t.Fatalf("expected phone preregister status 200, got %d with body %s", preregisterResp.Code, preregisterResp.Body.String())
+	}
+	if len(env.smsService.verificationSMS) != 1 {
+		t.Fatalf("expected one verification SMS, got %d", len(env.smsService.verificationSMS))
+	}
+
+	code := env.smsService.verificationSMS[0].Code
+	verifyResp := performJSONRequest(t, env.router, http.MethodPost, "/api/phone/verify-register", map[string]string{
+		"phone": "+8613800138000",
+		"code":  code,
+	}, nil, map[string]string{"Origin": "http://127.0.0.1:8080"})
+	if verifyResp.Code != http.StatusOK {
+		t.Fatalf("expected phone verify-register status 200, got %d with body %s", verifyResp.Code, verifyResp.Body.String())
+	}
+
+	loginResp := performJSONRequest(t, env.router, http.MethodPost, "/api/phone/login", map[string]string{
+		"phone":    "+8613800138000",
+		"password": "demo12345",
+	}, nil, map[string]string{"Origin": "http://127.0.0.1:8080"})
+	if loginResp.Code != http.StatusOK {
+		t.Fatalf("expected phone login status 200, got %d with body %s", loginResp.Code, loginResp.Body.String())
+	}
+
+	expected := []string{
+		"pre_register:phone:+8613800138000:",
+		"post_register:phone:+8613800138000:",
+		"post_authenticate:phone::",
+		"pre_authenticate:phone:+8613800138000:password",
+		"post_authenticate:phone::",
+	}
+	if len(calls) != len(expected) {
+		t.Fatalf("expected %d phone lifecycle hook calls, got %#v", len(expected), calls)
+	}
+	for i := range expected {
+		if calls[i] != expected[i] {
+			t.Fatalf("expected phone hook call %d to be %q, got %#v", i, expected[i], calls)
+		}
 	}
 }
 

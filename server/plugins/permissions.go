@@ -11,6 +11,8 @@ import (
 
 const (
 	PermissionNetworkHTTPAction = "network:http_action"
+	PermissionNetworkAuditSink  = "network:audit_sink"
+	PermissionAuditSecurity     = "audit:security"
 
 	permissionHookPrefix = "hook:"
 )
@@ -41,6 +43,15 @@ func ValidateManifestPermissions(manifest Manifest, cfg config.PluginsConfig) er
 			return fmt.Errorf("plugin %s: %w", manifest.ID, err)
 		}
 	}
+	if manifest.AuditSink != nil {
+		sinkURL, err := validateRemoteURL(manifest.AuditSink.URL)
+		if err != nil {
+			return fmt.Errorf("plugin %s has invalid audit_sink.url: %w", manifest.ID, err)
+		}
+		if err := requireHostAllowed("audit sink", sinkURL, cfg.AllowedActionHosts, len(cfg.AllowedActionHosts) == 0); err != nil {
+			return fmt.Errorf("plugin %s: %w", manifest.ID, err)
+		}
+	}
 
 	allowed := permissionSet(cfg.AllowedPermissions)
 	if len(allowed) == 0 {
@@ -68,6 +79,9 @@ func requiredManifestPermissions(manifest Manifest) ([]string, error) {
 	}
 	if manifest.Entry == "http_action" || manifest.HTTPAction != nil {
 		permissions = append(permissions, PermissionNetworkHTTPAction)
+	}
+	if manifest.Type == string(PluginTypeAuditSink) || manifest.AuditSink != nil {
+		permissions = append(permissions, PermissionNetworkAuditSink, PermissionAuditSecurity)
 	}
 	return normalizePermissionList(permissions), nil
 }
@@ -102,6 +116,9 @@ func hookPermission(event string) string {
 func isKnownPermission(permission string) bool {
 	permission = strings.TrimSpace(strings.ToLower(permission))
 	if permission == PermissionNetworkHTTPAction {
+		return true
+	}
+	if permission == PermissionNetworkAuditSink || permission == PermissionAuditSecurity {
 		return true
 	}
 	if strings.HasPrefix(permission, permissionHookPrefix) {

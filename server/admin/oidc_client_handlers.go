@@ -15,26 +15,31 @@ import (
 )
 
 type oidcClientPayload struct {
-	Name                 string                                   `json:"name"`
-	ClientID             string                                   `json:"client_id"`
-	ClientSecret         string                                   `json:"client_secret"`
-	RedirectURIs         []string                                 `json:"redirect_uris"`
-	Scopes               []string                                 `json:"scopes"`
-	Public               *bool                                    `json:"public"`
-	RequirePKCE          *bool                                    `json:"require_pkce"`
-	RequireOrganization  *bool                                    `json:"require_organization"`
-	AllowedOrganizations []string                                 `json:"allowed_organizations"`
-	RequiredOrgRoles     []string                                 `json:"required_org_roles"`
-	RequiredOrgRolesAll  []string                                 `json:"required_org_roles_all"`
-	RequiredOrgGroups    []string                                 `json:"required_org_groups"`
-	RequiredOrgGroupsAll []string                                 `json:"required_org_groups_all"`
-	ScopePolicies        map[string]config.OIDCOrganizationPolicy `json:"scope_policies"`
-	Enabled              *bool                                    `json:"enabled"`
+	Name                  string                                   `json:"name"`
+	ClientID              string                                   `json:"client_id"`
+	ClientSecret          string                                   `json:"client_secret"`
+	GrantTypes            []string                                 `json:"grant_types"`
+	ServiceAccountSubject string                                   `json:"service_account_subject"`
+	RedirectURIs          []string                                 `json:"redirect_uris"`
+	Scopes                []string                                 `json:"scopes"`
+	Public                *bool                                    `json:"public"`
+	RequirePKCE           *bool                                    `json:"require_pkce"`
+	RequireOrganization   *bool                                    `json:"require_organization"`
+	AllowedOrganizations  []string                                 `json:"allowed_organizations"`
+	RequiredOrgRoles      []string                                 `json:"required_org_roles"`
+	RequiredOrgRolesAll   []string                                 `json:"required_org_roles_all"`
+	RequiredOrgGroups     []string                                 `json:"required_org_groups"`
+	RequiredOrgGroupsAll  []string                                 `json:"required_org_groups_all"`
+	ScopePolicies         map[string]config.OIDCOrganizationPolicy `json:"scope_policies"`
+	Enabled               *bool                                    `json:"enabled"`
 }
 
 type oidcClientView struct {
 	Name                   string                                   `json:"name,omitempty"`
 	ClientID               string                                   `json:"client_id"`
+	GrantTypes             []string                                 `json:"grant_types,omitempty"`
+	ServiceAccountEnabled  bool                                     `json:"service_account_enabled"`
+	ServiceAccountSubject  string                                   `json:"service_account_subject,omitempty"`
 	RedirectURIs           []string                                 `json:"redirect_uris"`
 	Scopes                 []string                                 `json:"scopes,omitempty"`
 	Public                 bool                                     `json:"public"`
@@ -289,6 +294,12 @@ func (s *AdminServer) oidcClientConfigFromPayload(req oidcClientPayload, current
 	if current == nil || req.ClientID != "" {
 		clientCfg.ClientID = strings.TrimSpace(req.ClientID)
 	}
+	if current == nil || req.GrantTypes != nil {
+		clientCfg.GrantTypes = req.GrantTypes
+	}
+	if current == nil || req.ServiceAccountSubject != "" {
+		clientCfg.ServiceAccountSubject = strings.TrimSpace(req.ServiceAccountSubject)
+	}
 	if current == nil || req.RedirectURIs != nil {
 		clientCfg.RedirectURIs = req.RedirectURIs
 	}
@@ -451,6 +462,9 @@ func oidcClientViewFromConfig(clientCfg config.OIDCClientConfig, enabled, editab
 	return oidcClientView{
 		Name:                   clientCfg.Name,
 		ClientID:               clientCfg.ClientID,
+		GrantTypes:             append([]string(nil), clientCfg.GrantTypes...),
+		ServiceAccountEnabled:  containsString(clientCfg.GrantTypes, "client_credentials"),
+		ServiceAccountSubject:  clientCfg.ServiceAccountSubject,
 		RedirectURIs:           append([]string(nil), clientCfg.RedirectURIs...),
 		Scopes:                 append([]string(nil), clientCfg.Scopes...),
 		Public:                 clientCfg.Public,

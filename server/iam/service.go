@@ -36,6 +36,8 @@ func (s *Service) AutoMigrate() error {
 		&OrganizationRole{},
 		&OrganizationRolePermission{},
 		&OrganizationRoleBinding{},
+		&OrganizationAdminPrincipal{},
+		&ClaimMapperRule{},
 	)
 }
 
@@ -65,6 +67,10 @@ func (s *Service) GenerateOrganizationRoleID() (string, error) {
 
 func (s *Service) GenerateOrganizationRoleBindingID() (string, error) {
 	return s.generateUniqueID(OrganizationRoleBindingIDPrefix, &OrganizationRoleBinding{}, "binding_id")
+}
+
+func (s *Service) GenerateClaimMapperID() (string, error) {
+	return s.generateUniqueID(ClaimMapperIDPrefix, &ClaimMapperRule{}, "mapper_id")
 }
 
 func (s *Service) generateUniqueID(prefix string, model any, column string) (string, error) {

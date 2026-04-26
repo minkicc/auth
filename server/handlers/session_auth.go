@@ -11,7 +11,11 @@ import (
 )
 
 func (h *AuthHandler) completeBrowserLogin(c *gin.Context, user *auth.User, message string) {
-	session, err := h.createBrowserSession(c, user)
+	h.completeBrowserLoginWithProvider(c, user, message, "")
+}
+
+func (h *AuthHandler) completeBrowserLoginWithProvider(c *gin.Context, user *auth.User, message string, provider string) {
+	session, err := h.createBrowserSessionWithProvider(c, user, provider)
 	if err != nil {
 		if appErr, ok := err.(*auth.AppError); ok {
 			c.JSON(appErr.GetHTTPStatus(), gin.H{"error": appErr.Error()})
@@ -44,10 +48,14 @@ func (h *AuthHandler) completeBrowserLogin(c *gin.Context, user *auth.User, mess
 }
 
 func (h *AuthHandler) createBrowserSession(c *gin.Context, user *auth.User) (*auth.Session, error) {
+	return h.createBrowserSessionWithProvider(c, user, "")
+}
+
+func (h *AuthHandler) createBrowserSessionWithProvider(c *gin.Context, user *auth.User, provider string) (*auth.Session, error) {
 	if err := auth.EnsureUserCanAuthenticate(user); err != nil {
 		return nil, err
 	}
-	if err := h.runHook(c, iam.HookPostAuthenticate, user, nil); err != nil {
+	if err := h.runHook(c, iam.HookPostAuthenticate, user, provider, nil, nil); err != nil {
 		return nil, auth.NewPermissionDeniedError(err.Error())
 	}
 
@@ -63,19 +71,22 @@ func (h *AuthHandler) createBrowserSession(c *gin.Context, user *auth.User) (*au
 	return session, nil
 }
 
-func (h *AuthHandler) runHook(c *gin.Context, event iam.HookEvent, user *auth.User, claims map[string]any) error {
+func (h *AuthHandler) runHook(c *gin.Context, event iam.HookEvent, user *auth.User, provider string, claims map[string]any, metadata map[string]string) error {
 	if h == nil || h.hookRegistry == nil {
 		return nil
 	}
+	if metadata == nil {
+		metadata = map[string]string{}
+	}
+	metadata["path"] = c.Request.URL.Path
+	metadata["method"] = c.Request.Method
 	return h.hookRegistry.Run(c.Request.Context(), event, &iam.HookContext{
 		User:      user,
+		Provider:  provider,
 		IP:        c.ClientIP(),
 		UserAgent: c.Request.UserAgent(),
 		Claims:    claims,
-		Metadata: map[string]string{
-			"path":   c.Request.URL.Path,
-			"method": c.Request.Method,
-		},
+		Metadata:  metadata,
 	})
 }
 
@@ -140,7 +151,7 @@ func (h *AuthHandler) authenticateOIDCAccessToken(c *gin.Context) error {
 		return fmt.Errorf("missing bearer token")
 	}
 
-	claims, err := h.oidcProvider.ParseAccessToken(token)
+	claims, err := h.oidcProvider.ValidateAccessToken(c, token)
 	if err != nil || claims.TokenType != "access_token" {
 		return fmt.Errorf("invalid_token")
 	}

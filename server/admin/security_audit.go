@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strconv"
@@ -16,16 +17,18 @@ import (
 )
 
 const (
-	securityAuditActionSecretsReseal          = "secrets_reseal"
-	securityAuditActionOIDCClientCreate       = "oidc_client_create"
-	securityAuditActionOIDCClientUpdate       = "oidc_client_update"
-	securityAuditActionOIDCClientDelete       = "oidc_client_delete"
-	securityAuditActionIdentityProviderCreate = "identity_provider_create"
-	securityAuditActionIdentityProviderUpdate = "identity_provider_update"
-	securityAuditActionIdentityProviderDelete = "identity_provider_delete"
-	securityAuditActionAdminPrincipalCreate   = "admin_principal_create"
-	securityAuditActionAdminPrincipalDelete   = "admin_principal_delete"
-	securityAuditExportMaxRows                = 5000
+	securityAuditActionSecretsReseal           = "secrets_reseal"
+	securityAuditActionOIDCClientCreate        = "oidc_client_create"
+	securityAuditActionOIDCClientUpdate        = "oidc_client_update"
+	securityAuditActionOIDCClientDelete        = "oidc_client_delete"
+	securityAuditActionIdentityProviderCreate  = "identity_provider_create"
+	securityAuditActionIdentityProviderUpdate  = "identity_provider_update"
+	securityAuditActionIdentityProviderDelete  = "identity_provider_delete"
+	securityAuditActionAdminPrincipalCreate    = "admin_principal_create"
+	securityAuditActionAdminPrincipalDelete    = "admin_principal_delete"
+	securityAuditActionOrganizationAdminCreate = "organization_admin_create"
+	securityAuditActionOrganizationAdminDelete = "organization_admin_delete"
+	securityAuditExportMaxRows                 = 5000
 )
 
 type SecurityAuditEvent struct {
@@ -115,7 +118,22 @@ func (s *AdminServer) appendSecurityAudit(action string, actor plugins.AuditActo
 	if err != nil {
 		auditEvent.Error = err.Error()
 	}
-	_ = s.db.Create(&auditEvent).Error
+	if createErr := s.db.Create(&auditEvent).Error; createErr != nil {
+		return
+	}
+	if s.plugins != nil {
+		if dispatchErr := s.plugins.DispatchSecurityAudit(context.Background(), plugins.SecurityAuditSinkEvent{
+			ID:      auditEvent.EventID,
+			Time:    auditEvent.Time.Format(time.RFC3339),
+			Action:  auditEvent.Action,
+			Actor:   actor,
+			Success: auditEvent.Success,
+			Error:   auditEvent.Error,
+			Details: details,
+		}); dispatchErr != nil && s.logger != nil {
+			s.logger.Printf("Failed to dispatch security audit sink event %s: %v", auditEvent.EventID, dispatchErr)
+		}
+	}
 }
 
 func (s *AdminServer) listSecurityAudit(limit int) ([]securityAuditEntryView, error) {
@@ -332,6 +350,8 @@ func securityAuditDetailsForOIDCClient(view oidcClientView, previousClientID str
 		"enabled":              strconv.FormatBool(view.Enabled),
 		"require_pkce":         strconv.FormatBool(view.RequirePKCE),
 		"require_organization": strconv.FormatBool(view.RequireOrganization),
+		"grant_types":          strings.Join(view.GrantTypes, ","),
+		"service_account":      strconv.FormatBool(view.ServiceAccountEnabled),
 	}
 	if previousClientID = strings.TrimSpace(previousClientID); previousClientID != "" && previousClientID != view.ClientID {
 		details["previous_client_id"] = previousClientID
@@ -369,6 +389,8 @@ func securityAuditDetailsForOIDCClientRecord(record oidc.ClientRecord) map[strin
 		details["public"] = strconv.FormatBool(clientCfg.Public)
 		details["require_pkce"] = strconv.FormatBool(clientCfg.RequirePKCE)
 		details["require_organization"] = strconv.FormatBool(clientCfg.RequireOrganization)
+		details["grant_types"] = strings.Join(clientCfg.GrantTypes, ",")
+		details["service_account"] = strconv.FormatBool(containsString(clientCfg.GrantTypes, "client_credentials"))
 		details["redirect_uri_count"] = strconv.Itoa(len(clientCfg.RedirectURIs))
 		if len(clientCfg.RequiredOrgRoles) > 0 {
 			details["required_org_roles_count"] = strconv.Itoa(len(clientCfg.RequiredOrgRoles))

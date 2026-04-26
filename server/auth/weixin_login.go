@@ -203,35 +203,36 @@ func (w *WeixinLogin) GetUserByWeixinID(unionID string) (*User, error) {
 	return &user, nil
 }
 
-// RegisterOrLoginWithWeixin Register or login user via WeChat.
-func (w *WeixinLogin) RegisterOrLoginWithWeixin(code string) (*User, error) {
+// RegisterOrLoginWithWeixin registers or logs in a user via WeChat.
+func (w *WeixinLogin) RegisterOrLoginWithWeixin(code string) (*User, bool, error) {
 	// 1. Handle WeChat callback, get access token and OpenID
 	loginResp, err := w.HandleCallback(code)
 	if err != nil {
-		return nil, fmt.Errorf("failed to process WeChat callback: %w", err)
+		return nil, false, fmt.Errorf("failed to process WeChat callback: %w", err)
 	}
 
 	// 2. Get WeChat user information
 	userInfo, err := w.GetUserInfo(loginResp.AccessToken, loginResp.OpenID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get WeChat user information: %w", err)
+		return nil, false, fmt.Errorf("failed to get WeChat user information: %w", err)
 	}
 
 	// 3. Check if this WeChat user already exists
 	user, err := w.GetUserByWeixinID(userInfo.UnionID)
 	if err != nil && err != gorm.ErrRecordNotFound {
-		return nil, err
+		return nil, false, err
 	}
 
 	// 4. If user doesn't exist, create a new user
+	created := user == nil
 	if user == nil {
 		user, err = w.CreateUserFromWeixin(userInfo)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create WeChat user: %w", err)
+			return nil, false, fmt.Errorf("failed to create WeChat user: %w", err)
 		}
 	} else {
 		if err := EnsureUserCanAuthenticate(user); err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		// 5. If user already exists, update user information
 		// if err := w.UpdateWeixinUserInfo(user.UserID, userInfo); err != nil {
@@ -249,7 +250,7 @@ func (w *WeixinLogin) RegisterOrLoginWithWeixin(code string) (*User, error) {
 		}
 	}
 
-	return user, nil
+	return user, created, nil
 }
 
 // CreateUserFromWeixin Create system user from WeChat user information
