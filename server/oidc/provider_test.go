@@ -3,9 +3,12 @@ package oidc
 import (
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
 	"minki.cc/mkauth/server/config"
 )
@@ -38,6 +41,105 @@ func TestMatchSecret(t *testing.T) {
 	}
 	if matchSecret(string(hashedSecret), "wrong") {
 		t.Fatalf("expected bcrypt secret mismatch")
+	}
+}
+
+func TestProtectAccessTokenClaimsRestoresProtectedFields(t *testing.T) {
+	now := time.Unix(1710000000, 0)
+	claims := AccessTokenClaims{
+		Scope:          "openid profile",
+		ClientID:       "demo-spa",
+		TokenType:      "access_token",
+		TokenVersion:   1,
+		GrantType:      grantTypeClientCredentials,
+		SubjectType:    accessTokenSubjectTypeServiceAccount,
+		ServiceAccount: true,
+		OrgID:          "org_acme",
+		OrgSlug:        "acme",
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    "https://auth.example.com",
+			Subject:   "usr_test",
+			Audience:  jwt.ClaimStrings{"demo-spa"},
+			IssuedAt:  jwt.NewNumericDate(now),
+			ExpiresAt: jwt.NewNumericDate(now.Add(time.Hour)),
+			NotBefore: jwt.NewNumericDate(now.Add(-time.Minute)),
+			ID:        "jwt-id",
+		},
+	}
+	claimMap := map[string]any{
+		"iss":             "evil",
+		"sub":             "evil",
+		"aud":             []string{"evil"},
+		"scope":           "evil",
+		"client_id":       "evil",
+		"token_type":      "evil",
+		"token_version":   99,
+		"grant_type":      "evil",
+		"subject_type":    "evil",
+		"service_account": false,
+		"iat":             int64(1),
+		"exp":             int64(2),
+		"nbf":             int64(3),
+		"jti":             "evil",
+		"org_id":          "evil",
+		"org_slug":        "evil",
+		"custom":          "keep",
+	}
+
+	protectAccessTokenClaims(claimMap, claims)
+
+	expected := map[string]any{
+		"iss":             "https://auth.example.com",
+		"sub":             "usr_test",
+		"aud":             []string{"demo-spa"},
+		"scope":           "openid profile",
+		"client_id":       "demo-spa",
+		"token_type":      "access_token",
+		"token_version":   1,
+		"grant_type":      grantTypeClientCredentials,
+		"subject_type":    accessTokenSubjectTypeServiceAccount,
+		"service_account": true,
+		"iat":             now.Unix(),
+		"exp":             now.Add(time.Hour).Unix(),
+		"nbf":             now.Add(-time.Minute).Unix(),
+		"jti":             "jwt-id",
+		"org_id":          "org_acme",
+		"org_slug":        "acme",
+		"custom":          "keep",
+	}
+	if !reflect.DeepEqual(claimMap, expected) {
+		t.Fatalf("protected claims were not restored:\nexpected %#v\nactual   %#v", expected, claimMap)
+	}
+}
+
+func TestProtectAccessTokenClaimsRemovesUnsetOptionalProtectedFields(t *testing.T) {
+	claims := AccessTokenClaims{
+		Scope:        "openid",
+		ClientID:     "demo-spa",
+		TokenType:    "access_token",
+		TokenVersion: 1,
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:   "https://auth.example.com",
+			Subject:  "usr_test",
+			Audience: jwt.ClaimStrings{"demo-spa"},
+		},
+	}
+	claimMap := map[string]any{
+		"nbf":             int64(3),
+		"jti":             "evil",
+		"grant_type":      "evil",
+		"subject_type":    "evil",
+		"service_account": true,
+		"org_id":          "evil",
+		"org_slug":        "evil",
+	}
+
+	protectAccessTokenClaims(claimMap, claims)
+
+	for _, key := range []string{"iat", "exp", "nbf", "jti", "grant_type", "subject_type", "service_account", "org_id", "org_slug"} {
+		if _, ok := claimMap[key]; ok {
+			t.Fatalf("expected %s to be removed from unset optional protected claims: %#v", key, claimMap)
+		}
 	}
 }
 

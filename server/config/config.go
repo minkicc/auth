@@ -394,6 +394,8 @@ type OIDCClientConfig struct {
 	Name                   string                            `json:"name" yaml:"name"`
 	ClientID               string                            `json:"client_id" yaml:"client_id"`
 	ClientSecret           string                            `json:"client_secret" yaml:"client_secret"`
+	GrantTypes             []string                          `json:"grant_types" yaml:"grant_types"`
+	ServiceAccountSubject  string                            `json:"service_account_subject" yaml:"service_account_subject"`
 	RedirectURIs           []string                          `json:"redirect_uris" yaml:"redirect_uris"`
 	Scopes                 []string                          `json:"scopes" yaml:"scopes"`
 	Public                 bool                              `json:"public" yaml:"public"`

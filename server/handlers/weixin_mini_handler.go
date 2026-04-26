@@ -10,6 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"minki.cc/mkauth/server/auth"
+	"minki.cc/mkauth/server/iam"
 )
 
 // WeixinMiniLogin 处理微信小程序登录
@@ -26,8 +27,15 @@ func (h *AuthHandler) WeixinMiniLogin(c *gin.Context) {
 		return
 	}
 
+	if err := h.runHook(c, iam.HookPreAuthenticate, nil, "weixin_mini", nil, map[string]string{
+		"login_method": "js_code",
+	}); err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		return
+	}
+
 	// 调用微信小程序登录服务
-	user, _, err := h.weixinMiniLogin.MiniProgramLogin(code)
+	user, _, created, err := h.weixinMiniLogin.MiniProgramLogin(code)
 	if err != nil {
 		h.logger.Printf("WeChat mini program login failed: %v", err)
 		if appErr, ok := err.(*auth.AppError); ok {
@@ -37,6 +45,12 @@ func (h *AuthHandler) WeixinMiniLogin(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "WeChat mini program login failed"})
 		return
 	}
+	if created {
+		if err := h.runHook(c, iam.HookPostRegister, user, "weixin_mini", nil, nil); err != nil {
+			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+			return
+		}
+	}
 
-	h.completeBrowserLogin(c, user, "")
+	h.completeBrowserLoginWithProvider(c, user, "", "weixin_mini")
 }

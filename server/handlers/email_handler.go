@@ -11,6 +11,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"minki.cc/mkauth/server/auth"
+	"minki.cc/mkauth/server/iam"
 )
 
 func emailAttemptKey(scope, email string) string {
@@ -47,6 +48,14 @@ func (h *AuthHandler) EmailLogin(c *gin.Context) {
 		return
 	}
 
+	if err := h.runHook(c, iam.HookPreAuthenticate, nil, "email", nil, map[string]string{
+		"identifier":   req.Email,
+		"login_method": "password",
+	}); err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		return
+	}
+
 	// Use email to login
 	user, err := h.emailAuth.EmailLogin(req.Email, req.Password)
 	if err != nil {
@@ -59,7 +68,7 @@ func (h *AuthHandler) EmailLogin(c *gin.Context) {
 	// Record successful login attempt
 	h.accountAuth.RecordLoginAttempt(req.Email, clientIP, true)
 
-	h.completeBrowserLogin(c, user, "")
+	h.completeBrowserLoginWithProvider(c, user, "", "email")
 }
 
 // EmailRegister Email pre-registration
@@ -95,6 +104,13 @@ func (h *AuthHandler) EmailRegister(c *gin.Context) {
 		return
 	}
 
+	if err := h.runHook(c, iam.HookPreRegister, nil, "email", nil, map[string]string{
+		"identifier": req.Email,
+	}); err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		return
+	}
+
 	// Pre-register email user, only send verification email, don't create user
 	_, err = h.emailAuth.EmailPreregister(req.Email, req.Password, req.Nickname, req.Title, req.Content)
 	if err != nil {
@@ -123,7 +139,21 @@ func (h *AuthHandler) EmailVerify(c *gin.Context) {
 		return
 	}
 
-	h.completeBrowserLogin(c, user, "Email verification successful, registration complete")
+	metadata := map[string]string{
+		"verification": "email",
+	}
+	if h.accountAuth != nil {
+		var emailUser auth.EmailUser
+		if err := h.accountAuth.DB().Where("user_id = ?", user.UserID).First(&emailUser).Error; err == nil && emailUser.Email != "" {
+			metadata["identifier"] = emailUser.Email
+		}
+	}
+	if err := h.runHook(c, iam.HookPostRegister, user, "email", nil, metadata); err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		return
+	}
+
+	h.completeBrowserLoginWithProvider(c, user, "Email verification successful, registration complete", "email")
 }
 
 // ResendEmailVerification Resend email verification

@@ -71,12 +71,15 @@ type authCode struct {
 }
 
 type AccessTokenClaims struct {
-	Scope        string `json:"scope"`
-	ClientID     string `json:"client_id"`
-	TokenType    string `json:"token_type"`
-	TokenVersion int    `json:"token_version,omitempty"`
-	OrgID        string `json:"org_id,omitempty"`
-	OrgSlug      string `json:"org_slug,omitempty"`
+	Scope          string `json:"scope"`
+	ClientID       string `json:"client_id"`
+	TokenType      string `json:"token_type"`
+	TokenVersion   int    `json:"token_version,omitempty"`
+	GrantType      string `json:"grant_type,omitempty"`
+	SubjectType    string `json:"subject_type,omitempty"`
+	ServiceAccount bool   `json:"service_account,omitempty"`
+	OrgID          string `json:"org_id,omitempty"`
+	OrgSlug        string `json:"org_slug,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -151,6 +154,8 @@ func (p *Provider) RegisterRoutes(r *gin.Engine) {
 	r.GET("/oauth2/jwks", p.jwks)
 	r.GET("/oauth2/authorize", p.authorize)
 	r.POST("/oauth2/token", p.token)
+	r.POST("/oauth2/introspect", p.introspect)
+	r.POST("/oauth2/revoke", p.revoke)
 	r.GET("/oauth2/logout", p.logout)
 	r.GET("/oauth2/userinfo", p.userInfo)
 	r.POST("/oauth2/userinfo", p.userInfo)
@@ -162,6 +167,8 @@ func (p *Provider) discovery(c *gin.Context) {
 		"issuer":                                issuer,
 		"authorization_endpoint":                issuer + "/oauth2/authorize",
 		"token_endpoint":                        issuer + "/oauth2/token",
+		"introspection_endpoint":                issuer + "/oauth2/introspect",
+		"revocation_endpoint":                   issuer + "/oauth2/revoke",
 		"end_session_endpoint":                  issuer + "/oauth2/logout",
 		"userinfo_endpoint":                     issuer + "/oauth2/userinfo",
 		"jwks_uri":                              issuer + "/oauth2/jwks",
@@ -170,9 +177,18 @@ func (p *Provider) discovery(c *gin.Context) {
 		"id_token_signing_alg_values_supported": []string{"RS256"},
 		"scopes_supported":                      defaultScopes,
 		"claims_supported":                      []string{"sub", "preferred_username", "name", "picture", "email", "email_verified", "org_id", "org_slug", "org_roles", "org_groups"},
-		"grant_types_supported":                 []string{"authorization_code"},
+		"grant_types_supported":                 []string{grantTypeAuthorizationCode, grantTypeClientCredentials},
 		"token_endpoint_auth_methods_supported": []string{"client_secret_basic", "client_secret_post", "none"},
-		"code_challenge_methods_supported":      []string{"S256"},
+		"introspection_endpoint_auth_methods_supported": []string{
+			"client_secret_basic",
+			"client_secret_post",
+		},
+		"revocation_endpoint_auth_methods_supported": []string{
+			"client_secret_basic",
+			"client_secret_post",
+			"none",
+		},
+		"code_challenge_methods_supported": []string{"S256"},
 	})
 }
 
@@ -275,7 +291,18 @@ func (p *Provider) token(c *gin.Context) {
 		return
 	}
 
-	if c.PostForm("grant_type") != "authorization_code" {
+	switch strings.TrimSpace(c.PostForm("grant_type")) {
+	case grantTypeAuthorizationCode:
+		p.tokenAuthorizationCode(c, client)
+	case grantTypeClientCredentials:
+		p.tokenClientCredentials(c, client)
+	default:
+		c.JSON(http.StatusBadRequest, gin.H{"error": "unsupported_grant_type"})
+	}
+}
+
+func (p *Provider) tokenAuthorizationCode(c *gin.Context, client config.OIDCClientConfig) {
+	if !clientSupportsGrant(client, grantTypeAuthorizationCode) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "unsupported_grant_type"})
 		return
 	}
@@ -340,6 +367,68 @@ func (p *Provider) token(c *gin.Context) {
 	})
 }
 
+func (p *Provider) tokenClientCredentials(c *gin.Context, client config.OIDCClientConfig) {
+	if !clientSupportsGrant(client, grantTypeClientCredentials) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "unsupported_grant_type"})
+		return
+	}
+	if client.Public {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid_client"})
+		return
+	}
+
+	scopes, ok := serviceAccountTokenScopes(client, strings.Fields(c.PostForm("scope")))
+	if !ok {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_scope"})
+		return
+	}
+	scope := strings.Join(scopes, " ")
+	accessToken, expiresIn, err := p.signServiceAccountAccessToken(c, client, scope)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+		return
+	}
+
+	c.Header("Cache-Control", "no-store")
+	c.Header("Pragma", "no-cache")
+	c.JSON(http.StatusOK, gin.H{
+		"access_token": accessToken,
+		"token_type":   "Bearer",
+		"expires_in":   int(expiresIn.Seconds()),
+		"scope":        scope,
+	})
+}
+
+func serviceAccountTokenScopes(client config.OIDCClientConfig, requested []string) ([]string, bool) {
+	allowedScopes := normalizeRequestedScopes(client.Scopes)
+	requestedScopes := normalizeRequestedScopes(requested)
+	if len(requestedScopes) == 0 {
+		result := make([]string, 0, len(allowedScopes))
+		for _, scope := range allowedScopes {
+			if isUserOIDCScope(scope) {
+				continue
+			}
+			result = append(result, scope)
+		}
+		return result, true
+	}
+	for _, scope := range requestedScopes {
+		if isUserOIDCScope(scope) || !containsString(allowedScopes, scope) {
+			return nil, false
+		}
+	}
+	return requestedScopes, true
+}
+
+func isUserOIDCScope(scope string) bool {
+	switch strings.ToLower(strings.TrimSpace(scope)) {
+	case "openid", "profile", "email":
+		return true
+	default:
+		return false
+	}
+}
+
 func (p *Provider) userInfo(c *gin.Context) {
 	token := bearerToken(c.GetHeader("Authorization"))
 	if token == "" {
@@ -348,8 +437,13 @@ func (p *Provider) userInfo(c *gin.Context) {
 		return
 	}
 
-	claims, err := p.ParseAccessToken(token)
+	claims, err := p.ValidateAccessToken(c, token)
 	if err != nil || claims.TokenType != "access_token" {
+		c.Header("WWW-Authenticate", `Bearer error="invalid_token"`)
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid_token"})
+		return
+	}
+	if claims.ServiceAccount || claims.SubjectType == accessTokenSubjectTypeServiceAccount || claims.GrantType == grantTypeClientCredentials {
 		c.Header("WWW-Authenticate", `Bearer error="invalid_token"`)
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid_token"})
 		return
@@ -403,6 +497,151 @@ func (p *Provider) userInfo(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
+func (p *Provider) introspect(c *gin.Context) {
+	client, ok := p.authenticateClient(c)
+	if !ok {
+		return
+	}
+	if client.Public {
+		c.Header("WWW-Authenticate", `Basic realm="mkauth"`)
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid_client"})
+		return
+	}
+
+	token := strings.TrimSpace(c.PostForm("token"))
+	if token == "" {
+		writeInactiveIntrospection(c)
+		return
+	}
+	if hint := strings.TrimSpace(c.PostForm("token_type_hint")); hint != "" && hint != "access_token" {
+		writeInactiveIntrospection(c)
+		return
+	}
+
+	claims, err := p.ValidateAccessToken(c, token)
+	if err != nil || claims.TokenType != "access_token" {
+		writeInactiveIntrospection(c)
+		return
+	}
+	if !tokenBelongsToClient(client, claims) {
+		writeInactiveIntrospection(c)
+		return
+	}
+	if !p.accessTokenSubjectStillActive(client, claims) {
+		writeInactiveIntrospection(c)
+		return
+	}
+
+	writeActiveIntrospection(c, claims)
+}
+
+func (p *Provider) revoke(c *gin.Context) {
+	client, ok := p.authenticateClient(c)
+	if !ok {
+		return
+	}
+
+	token := strings.TrimSpace(c.PostForm("token"))
+	if token == "" {
+		writeRevocationOK(c)
+		return
+	}
+	if hint := strings.TrimSpace(c.PostForm("token_type_hint")); hint != "" && hint != "access_token" {
+		writeRevocationOK(c)
+		return
+	}
+
+	claims, err := p.ParseAccessToken(token)
+	if err == nil && claims.TokenType == "access_token" && claims.Issuer == p.issuer(c) && tokenBelongsToClient(client, claims) {
+		_ = p.revokeAccessToken(claims)
+	}
+	writeRevocationOK(c)
+}
+
+func tokenBelongsToClient(client config.OIDCClientConfig, claims *AccessTokenClaims) bool {
+	if client.ClientID == "" || claims == nil || claims.ClientID != client.ClientID {
+		return false
+	}
+	if !containsString([]string(claims.Audience), client.ClientID) {
+		return false
+	}
+	return true
+}
+
+func (p *Provider) accessTokenSubjectStillActive(client config.OIDCClientConfig, claims *AccessTokenClaims) bool {
+	if claims == nil {
+		return false
+	}
+	if claims.ServiceAccount || claims.SubjectType == accessTokenSubjectTypeServiceAccount || claims.GrantType == grantTypeClientCredentials {
+		return clientSupportsGrant(client, grantTypeClientCredentials) &&
+			claims.GrantType == grantTypeClientCredentials &&
+			claims.SubjectType == accessTokenSubjectTypeServiceAccount &&
+			claims.ServiceAccount &&
+			claims.Subject == serviceAccountSubject(client)
+	}
+	user, err := p.accountAuth.GetUserByID(claims.Subject)
+	if err != nil || auth.EnsureUserCanAuthenticate(user) != nil {
+		return false
+	}
+	return auth.NormalizeTokenVersion(claims.TokenVersion) == auth.EffectiveUserTokenVersion(user)
+}
+
+func writeInactiveIntrospection(c *gin.Context) {
+	writeIntrospection(c, gin.H{"active": false})
+}
+
+func writeActiveIntrospection(c *gin.Context, claims *AccessTokenClaims) {
+	response := gin.H{
+		"active":     true,
+		"scope":      claims.Scope,
+		"client_id":  claims.ClientID,
+		"token_type": "Bearer",
+		"sub":        claims.Subject,
+		"iss":        claims.Issuer,
+		"aud":        []string(claims.Audience),
+	}
+	if claims.IssuedAt != nil {
+		response["iat"] = claims.IssuedAt.Unix()
+	}
+	if claims.ExpiresAt != nil {
+		response["exp"] = claims.ExpiresAt.Unix()
+	}
+	if claims.NotBefore != nil {
+		response["nbf"] = claims.NotBefore.Unix()
+	}
+	if claims.ID != "" {
+		response["jti"] = claims.ID
+	}
+	if claims.GrantType != "" {
+		response["grant_type"] = claims.GrantType
+	}
+	if claims.SubjectType != "" {
+		response["subject_type"] = claims.SubjectType
+	}
+	if claims.ServiceAccount {
+		response["service_account"] = true
+	}
+	if claims.OrgID != "" {
+		response["org_id"] = claims.OrgID
+	}
+	if claims.OrgSlug != "" {
+		response["org_slug"] = claims.OrgSlug
+	}
+	writeIntrospection(c, response)
+}
+
+func writeIntrospection(c *gin.Context, response gin.H) {
+	c.Header("Cache-Control", "no-store")
+	c.Header("Pragma", "no-cache")
+	c.JSON(http.StatusOK, response)
+}
+
+func writeRevocationOK(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
+	c.Header("Pragma", "no-cache")
+	c.Status(http.StatusOK)
+}
+
 func (p *Provider) logout(c *gin.Context) {
 	postLogoutRedirectURI := strings.TrimSpace(c.Query("post_logout_redirect_uri"))
 	clientID := strings.TrimSpace(c.Query("client_id"))
@@ -447,9 +686,43 @@ func (p *Provider) signAccessToken(c *gin.Context, user *auth.User, client confi
 			Audience:  jwt.ClaimStrings{client.ClientID},
 			IssuedAt:  jwt.NewNumericDate(now),
 			ExpiresAt: jwt.NewNumericDate(now.Add(ttl)),
+			ID:        randomToken(24),
 		},
 	}
-	value, err := p.signer.sign(claims)
+	claimMap := accessTokenClaimMap(claims)
+	if err := p.runHook(c, iam.HookBeforeTokenIssue, user, client.ClientID, claimMap); err != nil {
+		return "", 0, err
+	}
+	protectAccessTokenClaims(claimMap, claims)
+	value, err := p.signer.sign(jwt.MapClaims(claimMap))
+	return value, ttl, err
+}
+
+func (p *Provider) signServiceAccountAccessToken(c *gin.Context, client config.OIDCClientConfig, scope string) (string, time.Duration, error) {
+	now := time.Now()
+	ttl := p.accessTokenTTL()
+	claims := AccessTokenClaims{
+		Scope:          scope,
+		ClientID:       client.ClientID,
+		TokenType:      "access_token",
+		GrantType:      grantTypeClientCredentials,
+		SubjectType:    accessTokenSubjectTypeServiceAccount,
+		ServiceAccount: true,
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    p.issuer(c),
+			Subject:   serviceAccountSubject(client),
+			Audience:  jwt.ClaimStrings{client.ClientID},
+			IssuedAt:  jwt.NewNumericDate(now),
+			ExpiresAt: jwt.NewNumericDate(now.Add(ttl)),
+			ID:        randomToken(24),
+		},
+	}
+	claimMap := accessTokenClaimMap(claims)
+	if err := p.runHook(c, iam.HookBeforeTokenIssue, nil, client.ClientID, claimMap); err != nil {
+		return "", 0, err
+	}
+	protectAccessTokenClaims(claimMap, claims)
+	value, err := p.signer.sign(jwt.MapClaims(claimMap))
 	return value, ttl, err
 }
 
@@ -505,6 +778,48 @@ func (p *Provider) ParseAccessToken(token string) (*AccessTokenClaims, error) {
 		return nil, errors.New("invalid token")
 	}
 	return claims, nil
+}
+
+func (p *Provider) ValidateAccessToken(c *gin.Context, token string) (*AccessTokenClaims, error) {
+	claims, err := p.ParseAccessToken(token)
+	if err != nil {
+		return nil, err
+	}
+	if claims.TokenType != "access_token" {
+		return nil, errors.New("invalid token type")
+	}
+	if c != nil && claims.Issuer != p.issuer(c) {
+		return nil, errors.New("invalid issuer")
+	}
+	if p.accessTokenRevoked(claims) {
+		return nil, errors.New("revoked token")
+	}
+	return claims, nil
+}
+
+func (p *Provider) revokeAccessToken(claims *AccessTokenClaims) error {
+	if p == nil || p.redis == nil || claims == nil || strings.TrimSpace(claims.ID) == "" {
+		return nil
+	}
+	ttl := p.accessTokenTTL()
+	if claims.ExpiresAt != nil {
+		ttl = time.Until(claims.ExpiresAt.Time)
+	}
+	if ttl <= 0 {
+		return nil
+	}
+	return p.redis.Set(common.RedisKeyOIDCRevokedToken+claims.ID, true, ttl)
+}
+
+func (p *Provider) accessTokenRevoked(claims *AccessTokenClaims) bool {
+	if p == nil || p.redis == nil || claims == nil || strings.TrimSpace(claims.ID) == "" {
+		return false
+	}
+	var revoked bool
+	if err := p.redis.Get(common.RedisKeyOIDCRevokedToken+claims.ID, &revoked); err != nil {
+		return false
+	}
+	return revoked
 }
 
 func (p *Provider) runHook(c *gin.Context, event iam.HookEvent, user *auth.User, clientID string, claims map[string]any) error {
@@ -575,6 +890,107 @@ func idTokenClaimMap(claims idTokenClaims) map[string]any {
 	return result
 }
 
+func accessTokenClaimMap(claims AccessTokenClaims) map[string]any {
+	result := map[string]any{
+		"iss":        claims.Issuer,
+		"sub":        claims.Subject,
+		"aud":        []string(claims.Audience),
+		"scope":      claims.Scope,
+		"client_id":  claims.ClientID,
+		"token_type": claims.TokenType,
+	}
+	if claims.TokenVersion > 0 {
+		result["token_version"] = claims.TokenVersion
+	}
+	if claims.IssuedAt != nil {
+		result["iat"] = claims.IssuedAt.Unix()
+	}
+	if claims.ExpiresAt != nil {
+		result["exp"] = claims.ExpiresAt.Unix()
+	}
+	if claims.NotBefore != nil {
+		result["nbf"] = claims.NotBefore.Unix()
+	}
+	if claims.ID != "" {
+		result["jti"] = claims.ID
+	}
+	if claims.GrantType != "" {
+		result["grant_type"] = claims.GrantType
+	}
+	if claims.SubjectType != "" {
+		result["subject_type"] = claims.SubjectType
+	}
+	if claims.ServiceAccount {
+		result["service_account"] = true
+	}
+	if claims.OrgID != "" {
+		result["org_id"] = claims.OrgID
+	}
+	if claims.OrgSlug != "" {
+		result["org_slug"] = claims.OrgSlug
+	}
+	return result
+}
+
+func protectAccessTokenClaims(claimMap map[string]any, claims AccessTokenClaims) {
+	claimMap["iss"] = claims.Issuer
+	claimMap["sub"] = claims.Subject
+	claimMap["aud"] = []string(claims.Audience)
+	claimMap["scope"] = claims.Scope
+	claimMap["client_id"] = claims.ClientID
+	claimMap["token_type"] = claims.TokenType
+	if claims.TokenVersion > 0 {
+		claimMap["token_version"] = claims.TokenVersion
+	} else {
+		delete(claimMap, "token_version")
+	}
+	if claims.IssuedAt != nil {
+		claimMap["iat"] = claims.IssuedAt.Unix()
+	} else {
+		delete(claimMap, "iat")
+	}
+	if claims.ExpiresAt != nil {
+		claimMap["exp"] = claims.ExpiresAt.Unix()
+	} else {
+		delete(claimMap, "exp")
+	}
+	if claims.NotBefore != nil {
+		claimMap["nbf"] = claims.NotBefore.Unix()
+	} else {
+		delete(claimMap, "nbf")
+	}
+	if claims.ID != "" {
+		claimMap["jti"] = claims.ID
+	} else {
+		delete(claimMap, "jti")
+	}
+	if claims.GrantType != "" {
+		claimMap["grant_type"] = claims.GrantType
+	} else {
+		delete(claimMap, "grant_type")
+	}
+	if claims.SubjectType != "" {
+		claimMap["subject_type"] = claims.SubjectType
+	} else {
+		delete(claimMap, "subject_type")
+	}
+	if claims.ServiceAccount {
+		claimMap["service_account"] = true
+	} else {
+		delete(claimMap, "service_account")
+	}
+	if claims.OrgID != "" {
+		claimMap["org_id"] = claims.OrgID
+	} else {
+		delete(claimMap, "org_id")
+	}
+	if claims.OrgSlug != "" {
+		claimMap["org_slug"] = claims.OrgSlug
+	} else {
+		delete(claimMap, "org_slug")
+	}
+}
+
 func protectIDTokenClaims(claimMap map[string]any, claims idTokenClaims) {
 	claimMap["iss"] = claims.Issuer
 	claimMap["sub"] = claims.Subject
@@ -630,6 +1046,10 @@ func (p *Provider) validAuthorizeRequest(c *gin.Context) (config.OIDCClientConfi
 	client, ok := p.findClient(clientID)
 	if !ok {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_client"})
+		return config.OIDCClientConfig{}, "", false
+	}
+	if !clientSupportsGrant(client, grantTypeAuthorizationCode) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "unsupported_grant_type"})
 		return config.OIDCClientConfig{}, "", false
 	}
 	if redirectURI == "" || !containsString(client.RedirectURIs, redirectURI) {
@@ -830,6 +1250,13 @@ func (p *Provider) validPostLogoutRedirect(clientID string, redirectURI string) 
 
 func (p *Provider) allowedScopes(client config.OIDCClientConfig) []string {
 	return effectiveAllowedScopes(client)
+}
+
+func serviceAccountSubject(client config.OIDCClientConfig) string {
+	if subject := strings.TrimSpace(client.ServiceAccountSubject); subject != "" {
+		return subject
+	}
+	return defaultServiceAccountSubject(client.ClientID)
 }
 
 func (p *Provider) lookupEmail(userID string) (string, bool) {

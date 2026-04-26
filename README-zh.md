@@ -32,7 +32,7 @@ MKAuth 当前最适合定位为一个可扩展的 B2B CIAM 平台：
 - 通过可安装插件和 HTTP Actions 扩展认证流
 - 提供敏感配置加密、reseal、安全审计和导出等运维能力
 
-它目前还不适合直接定义为完整 Workforce IAM 套件。要走到那一步，还需要补齐更完整的 RBAC/策略执行、delegated admin、service account 以及 MFA/WebAuthn 能力。
+它目前还不适合直接定义为完整 Workforce IAM 套件。要走到那一步，还需要补齐更完整的 RBAC/策略执行、delegated admin、更完整的 service account 生命周期管理以及 MFA/WebAuthn 能力。
 
 ## 当前平台能力
 
@@ -44,6 +44,8 @@ MKAuth 当前最适合定位为一个可扩展的 B2B CIAM 平台：
 - Inbound SCIM Users / Groups
 - 组织感知的 OIDC Claims 与 OIDC Client 级组织访问策略
 - 后台可管理并支持热刷新的 OIDC Clients
+- OAuth2 `client_credentials` service account token，并支持 confidential client 做 token introspection 和 access token revocation
+- 组织级委派管理员，支持按组织范围进入后台管理
 - 可安装插件运行时与 HTTP Actions
 - 敏感配置加密、密钥轮换回读、reseal 与安全审计导出任务
 
@@ -269,10 +271,16 @@ plugins:
   enabled_plugins: []
   disabled_plugins: []
   allowed_permissions:
+    - "hook:pre_register"
+    - "hook:post_register"
+    - "hook:pre_authenticate"
     - "hook:post_authenticate"
     - "hook:before_token_issue"
     - "hook:before_userinfo"
+    - "hook:post_logout"
     - "network:http_action"
+    - "network:audit_sink"
+    - "audit:security"
   require_signature: false
   allow_private_networks: false
   allowed_catalog_hosts:
@@ -296,8 +304,13 @@ plugins:
       name: "Claims Enricher"
       enabled: false
       events:
+        - "pre_register"
+        - "post_register"
+        - "pre_authenticate"
+        - "post_authenticate"
         - "before_token_issue"
         - "before_userinfo"
+        - "post_logout"
       url: "https://actions.example.com/mkauth"
       secret: "YOUR_ACTION_BEARER_SECRET"
       timeout_ms: 3000
@@ -322,15 +335,23 @@ plugins:
 
 这些 host allowlist 支持精确 host、`host:port`、`.example.com` 和 `*.example.com`。catalog 里的插件下载地址默认只能指向“同 catalog host”或者显式允许的下载域。
 
-远程插件下载和插件 HTTP Action 默认都会拒绝回环、私网、链路本地、多播和未指定 IP 地址。生产环境建议保持 `allow_private_networks: false`，除非你的插件目录、ZIP 包或 HTTP Action 端点明确部署在可信私有网络里。
+远程插件下载、插件 HTTP Action 和 audit sink webhook 默认都会拒绝回环、私网、链路本地、多播和未指定 IP 地址。生产环境建议保持 `allow_private_networks: false`，除非你的插件目录、ZIP 包、HTTP Action 端点或审计 webhook 端点明确部署在可信私有网络里。
 
 对于本地插件，把包含 `mkauth-plugin.yaml` 的目录打成 ZIP，然后在后台插件页上传即可。`flow_action` 类型的本地插件可以在 manifest 里直接携带自己的 `http_action` 运行配置，因此不需要再额外修改主配置文件。
 
 后台会在上传 ZIP 安装前先做预检，展示解析出的 manifest、包 SHA-256、签名状态、申请权限、是否覆盖现有插件，以及哪些已保存配置会被保留或丢弃。
 
-本地插件 manifest 必须声明运行权限。HTTP Action 需要 `network:http_action`，每个 hook 事件都要声明对应的 `hook:<event>` 权限，例如 `hook:before_token_issue`。如果 `plugins.allowed_permissions` 非空，MKAuth 会拒绝申请了 allowlist 之外权限的插件。
+本地插件 manifest 必须声明运行权限。HTTP Action 需要 `network:http_action`，每个 hook 事件都要声明对应的 `hook:<event>` 权限，例如 `hook:before_token_issue`。Audit sink 插件需要 `network:audit_sink` 和 `audit:security`。如果 `plugins.allowed_permissions` 非空，MKAuth 会拒绝申请了 allowlist 之外权限的插件。
+
+Flow Action 可以订阅 `pre_register`、`post_register`、`pre_authenticate`、`post_authenticate`、`before_token_issue`、`before_userinfo` 和 `post_logout`。账号密码、邮箱、手机号、Google、微信、微信小程序以及企业 LDAP/OIDC/SAML 浏览器登录链路都会在可用位置触发生命周期 hook，并带上 provider 元数据；token 和 userinfo hook 则用于下游 OIDC 发 token 和 `/oauth2/userinfo`。
 
 本地插件 manifest 还可以声明 `config_schema`。后台会按 schema 生成配置表单，把配置写入 `mkauth-plugin.state.yaml`，保存后自动重载运行时。对于本地 HTTP Action 插件，保存配置可覆盖 `url`、`secret`、`secret_env`、`timeout_ms` 和 `fail_open`。
+
+本地 `claim_mapper` 插件可以声明 `claim_mappings`，无需远程代码就能把自定义 claim 注入 ID Token、access token 和 `/oauth2/userinfo`。映射可以使用带模板的静态 `value`，例如 `${config.tenant_prefix}`、`${claim.org_slug}`、`${client_id}`、`${user.username}`，也可以用 `value_from` 复制上下文值，例如 `claim.org_roles` 或 `user.user_id`。Claim mapper 不能覆盖 `sub`、`iss`、`aud`、`exp`、`scope`、`client_id`、`org_id`、`org_roles` 等受保护协议/组织 claim。
+
+后台设置页也提供了数据库托管的 Claim Mapper。这类规则使用同样的确定性映射模型，可以不重新安装插件就启停和编辑，也可以限定到指定 client 或 organization，并会写入后台安全审计。
+
+本地 `audit_sink` 插件可以把后台安全审计事件转发到 HTTPS webhook。它也可以显式订阅认证生命周期外发，例如配置 `resource_types: ["auth_lifecycle"]` 或指定 `pre_authenticate` 这类 lifecycle `actions`。生命周期外发是 fail-open，不会阻塞登录主链路。sink manifest 可以按 `actions`、`resource_types`、安全审计事件的成功/失败状态过滤，并复用 `allowed_action_hosts` 与私网限制。载荷格式见 [examples/plugins/audit-webhook-sink](examples/plugins/audit-webhook-sink/README.md)。
 
 如果你希望只允许可信插件，可配置 `trusted_signers`，并开启 `require_signature: true`。MKAuth 会校验 `mkauth-plugin.sig` 对 manifest 原文的签名，并在后台展示签名状态和上传包的 SHA-256 指纹。
 
@@ -364,12 +385,15 @@ go run ./pluginsign sign -manifest ../examples/plugins/http-claims-action/mkauth
 - 后台安全审计导出：`GET /admin-api/security/audit/export`
 - 后台安全审计导出任务：`GET /admin-api/security/audit/export-jobs`、`POST /admin-api/security/audit/export-jobs`、`POST /admin-api/security/audit/export-jobs/cleanup`、`GET /admin-api/security/audit/export-jobs/:job_id`、`DELETE /admin-api/security/audit/export-jobs/:job_id`、`GET /admin-api/security/audit/export-jobs/:job_id/download`
 - 后台 Secrets 状态/重写：`GET /admin-api/security/secrets/status`、`POST /admin-api/security/secrets/reseal`
+- 后台 Claim Mappers：`GET /admin-api/claim-mappers`、`POST /admin-api/claim-mappers`、`PATCH /admin-api/claim-mappers/:id`、`DELETE /admin-api/claim-mappers/:id`
 
-一个完整的本地插件示例见 [examples/plugins/http-claims-action](examples/plugins/http-claims-action/README.md)，远程目录示例见 [examples/plugins/catalog.yaml](examples/plugins/catalog.yaml)。
+完整的本地插件示例见 [examples/plugins/http-claims-action](examples/plugins/http-claims-action/README.md)、[examples/plugins/static-claim-mapper](examples/plugins/static-claim-mapper/README.md) 和 [examples/plugins/audit-webhook-sink](examples/plugins/audit-webhook-sink/README.md)，远程目录示例见 [examples/plugins/catalog.yaml](examples/plugins/catalog.yaml)。
 
 ### CIAM/IAM 组织管理
 
-启用管理后台后，可以在 `组织管理` 菜单里维护 B2B 租户。当前后台已经支持创建和编辑组织、绑定邮箱域名、把已有用户加入组织、给成员配置轻量角色名，并且可以直接给组织配置 Enterprise OIDC 和 Enterprise SAML 上游登录源。
+启用管理后台后，可以在 `组织管理` 菜单里维护 B2B 租户。当前后台已经支持创建和编辑组织、绑定邮箱域名、把已有用户加入组织、给成员配置轻量角色名、管理组织级委派管理员，并且可以直接给组织配置 Enterprise OIDC 和 Enterprise SAML 上游登录源。
+
+全局管理员可以把一个或多个组织委派给普通平台用户。被委派的组织管理员可以登录管理后台，但只能看到自己被授权的组织，并且只能管理组织本地资源；用户管理、插件、OIDC Clients、安全设置等全局能力仍然要求全局管理员身份。
 
 下面接口里的 `:id` 可以传组织 ID，也可以传组织 slug。第一版暂不提供组织硬删除，暂时不用的组织建议把状态改成 `inactive`。
 
@@ -377,6 +401,7 @@ go run ./pluginsign sign -manifest ../examples/plugins/http-claims-action/mkauth
 
 - 组织列表/创建：`GET /admin-api/organizations`、`POST /admin-api/organizations`
 - 组织详情/更新：`GET /admin-api/organizations/:id`、`PATCH /admin-api/organizations/:id`
+- 组织管理员：`GET /admin-api/organizations/:id/admins`、`POST /admin-api/organizations/:id/admins`、`DELETE /admin-api/organizations/:id/admins/:user_id`
 - 组织域名：`GET /admin-api/organizations/:id/domains`、`POST /admin-api/organizations/:id/domains`
 - 域名更新/删除：`PATCH /admin-api/organizations/:id/domains/:domain`、`DELETE /admin-api/organizations/:id/domains/:domain`
 - 组织成员：`GET /admin-api/organizations/:id/memberships`、`POST /admin-api/organizations/:id/memberships`
@@ -534,6 +559,8 @@ oidc:
       client_id: "demo-spa"
       public: true
       require_pkce: true
+      grant_types:
+        - "authorization_code"
       redirect_uris:
         - "https://app.example.com/callback"
       scopes:
@@ -560,9 +587,20 @@ oidc:
       #   admin_api:
       #     required_org_roles:
       #       - "admin"
+    - name: "Service API"
+      client_id: "service-api"
+      client_secret: "CHANGE_ME"
+      public: false
+      grant_types:
+        - "client_credentials"
+      # 可选：默认是 "svc:<client_id>"
+      # service_account_subject: "svc:service-api"
+      scopes:
+        - "admin_api"
 ```
 
 静态 YAML 仍然适合做启动时引导配置，但现在也可以直接在管理后台 `Settings -> OIDC Clients` 里创建、更新、禁用和删除数据库托管的 OIDC client。保存后会立即热刷新，无需重启服务。
+机器到机器接入可以创建 `grant_types: ["client_credentials"]` 的 confidential client。这类 client 可以不配置 `redirect_uris`，只会拿到 `access_token`，默认 token subject 是 `svc:<client_id>`，也可以用 `service_account_subject` 显式指定。Confidential client 可以通过 `POST /oauth2/introspect` introspect 自己签发到同一 client 的 access token；public client 不能调用 introspection。客户端也可以通过 `POST /oauth2/revoke` 主动撤销自己 client 下的 access token。
 同一个 `Settings` 页面现在也提供了 `Secrets Security` 区块，可以查看数据库敏感配置加密是否启用，并在换 key 后一键把已存量的 OIDC client / 企业身份源 secrets 重写到当前主 key。
 同一套后台安全审计现在不仅会记录 Secrets 重写，还会记录数据库托管 OIDC client 和企业身份源的创建、更新、删除，方便后续追查是谁改了敏感配置，以及操作是否执行成功。
 `GET /admin-api/security/audit` 现在支持 `page`、`size`、`action`、`resource_type`、`client_id`、`provider_id`、`organization_id`、`actor_id`、`query`、`time_from`、`time_to`、`success` 查询参数；其中 `client_id`、`provider_id`、`organization_id` 是精确匹配筛选，适合直接按资源标识排查问题。`time_from` 和 `time_to` 支持 RFC3339，也支持 `YYYY-MM-DD` 这种按整天筛选的写法。`GET /admin-api/security/audit/export` 会把当前筛选结果导出成 CSV，每次导出最多 5000 行。对于更重的导出场景，现在也支持后台异步导出：`POST /admin-api/security/audit/export-jobs` 创建任务，`GET /admin-api/security/audit/export-jobs` 查看最近任务，`GET /admin-api/security/audit/export-jobs/:job_id` 查询状态，`GET /admin-api/security/audit/export-jobs/:job_id/download` 在完成后下载结果。`DELETE /admin-api/security/audit/export-jobs/:job_id` 可以删除单个已完成或已失败任务，`POST /admin-api/security/audit/export-jobs/cleanup` 会按当前保留策略清理已完成或已失败的旧任务。这个保留策略现在可以通过 `auth_admin.security_audit_export_job_retention_days` 配置，自动按小时清理则可以通过 `auth_admin.security_audit_export_job_auto_cleanup` 开关控制。旧的 `GET /admin-api/security/secrets/audit` 仍然保留为兼容别名，`GET /admin-api/security/secrets/audit/export` 也同样兼容导出。管理后台的“设置”页面现在会把安全审计筛选同步到页面 URL，支持一键复制当前筛选链接，同时也支持直接打开审计详情抽屉查看完整操作者和 details 字段，并一键复制审计 ID、资源标识和详情 JSON，也可以一键跳回同 `client_id / provider_id / organization_id` 的审计历史，还能直接打开对应的 OIDC client 或企业身份源配置，同时提供“同步导出 CSV”和“后台导出”两种方式；现在也会额外展示最近后台导出任务，方便页面刷新后继续跟踪和下载结果，并支持单条删除和旧任务清理。“组织管理”页面里也已经把这套审计按组织上下文接了进去，默认只展示该组织企业身份源相关的安全变更，现在同样会把筛选同步到 URL、支持一键复制筛选链接，也可以直接生成某个企业登录源失败记录的深链，并支持同样的后台异步导出、当前组织维度的最近导出任务列表，以及对应的删除/清理操作。
@@ -571,6 +609,8 @@ oidc:
 - `/.well-known/openid-configuration`
 - `/oauth2/authorize`
 - `/oauth2/token`
+- `/oauth2/introspect`
+- `/oauth2/revoke`
 - `/oauth2/logout`
 - `/oauth2/userinfo`
 - `/oauth2/jwks`
@@ -646,7 +686,48 @@ curl -X POST http://localhost:8080/oauth2/token \
   --data-urlencode 'code_verifier=dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk'
 ```
 
-### 方式二：使用 MKAuth 浏览器会话接口
+### 方式二：OAuth2 Client Credentials 机器服务接入
+
+适合后端到后端调用，没有浏览器用户参与。客户端必须是 confidential，并显式允许 `client_credentials`。
+
+```bash
+curl -X POST http://localhost:8080/oauth2/token \
+  -H 'Content-Type: application/x-www-form-urlencoded' \
+  --data-urlencode 'grant_type=client_credentials' \
+  --data-urlencode 'client_id=service-api' \
+  --data-urlencode 'client_secret=CHANGE_ME' \
+  --data-urlencode 'scope=admin_api'
+```
+
+响应只包含 `access_token`、`token_type`、`expires_in` 和 `scope`，不会返回 `id_token`。Service account token 也会被 `/oauth2/userinfo` 明确拒绝，避免把机器身份误当作用户身份。
+
+资源服务可以用 introspection 校验自己 client 下的 access token：
+
+```bash
+curl -X POST http://localhost:8080/oauth2/introspect \
+  -H 'Content-Type: application/x-www-form-urlencoded' \
+  --data-urlencode 'client_id=service-api' \
+  --data-urlencode 'client_secret=CHANGE_ME' \
+  --data-urlencode "token=$ACCESS_TOKEN" \
+  --data-urlencode 'token_type_hint=access_token'
+```
+
+返回结构遵循 OAuth2 token introspection 风格。active token 会包含 `active`、`sub`、`client_id`、`scope`、`aud`、`iss`、`exp`，service account token 还会带上 `grant_type=client_credentials`、`subject_type=service_account` 等标记。
+
+如果需要在过期前主动撤销 access token：
+
+```bash
+curl -X POST http://localhost:8080/oauth2/revoke \
+  -H 'Content-Type: application/x-www-form-urlencoded' \
+  --data-urlencode 'client_id=service-api' \
+  --data-urlencode 'client_secret=CHANGE_ME' \
+  --data-urlencode "token=$ACCESS_TOKEN" \
+  --data-urlencode 'token_type_hint=access_token'
+```
+
+MKAuth 会把已撤销 access token 的 `jti` 写入 Redis，并保留到原 token 过期时间。已撤销 token 会被 `/oauth2/userinfo`、`/oauth2/introspect` 以及 MKAuth `/api` bearer-token 鉴权拒绝。
+
+### 方式三：使用 MKAuth 浏览器会话接口
 
 适合登录页本身就由 MKAuth 承载，或者你的前端能在同一个浏览器上下文里直接调用 MKAuth，并复用 `oidc_session` cookie。
 

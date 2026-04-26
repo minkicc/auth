@@ -341,6 +341,32 @@ func main() {
 	}); err != nil {
 		log.Fatalf("Failed to register builtin plugin: %v", err)
 	}
+	if err := pluginRuntime.RegisterBuiltin(plugins.Summary{
+		ID:          "enterprise_ldap",
+		Name:        "Enterprise LDAP/AD",
+		Type:        string(plugins.PluginTypeIdentityConnector),
+		Source:      plugins.PluginSourceBuiltin,
+		Entry:       "builtin",
+		Description: "Upstream enterprise LDAP/AD identity connector and group sync",
+		Enabled:     true,
+	}); err != nil {
+		log.Fatalf("Failed to register builtin plugin: %v", err)
+	}
+	if err := pluginRuntime.RegisterBuiltin(plugins.Summary{
+		ID:          "database_claim_mappers",
+		Name:        "Admin Claim Mappers",
+		Type:        string(plugins.PluginTypeClaimMapper),
+		Source:      plugins.PluginSourceBuiltin,
+		Entry:       "database",
+		Description: "Admin-managed custom claim mappings stored in the database",
+		Events:      []string{string(iam.HookBeforeTokenIssue), string(iam.HookBeforeUserInfo)},
+		Enabled:     true,
+	}); err != nil {
+		log.Fatalf("Failed to register builtin plugin: %v", err)
+	}
+	if err := pluginRuntime.RegisterHook(iam.NewDatabaseClaimMapperHook(globalDB)); err != nil {
+		log.Fatalf("Failed to register database claim mapper hook: %v", err)
+	}
 	pluginRegistry := pluginRuntime.Registry()
 	hookRegistry := pluginRuntime.Hooks()
 

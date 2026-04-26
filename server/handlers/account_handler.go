@@ -13,6 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"minki.cc/mkauth/server/auth"
 	"minki.cc/mkauth/server/config"
+	"minki.cc/mkauth/server/iam"
 )
 
 // User registration type constants
@@ -48,6 +49,13 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	}
 	req.Username = normalizedUsername
 
+	if err := h.runHook(c, iam.HookPreRegister, nil, "account", nil, map[string]string{
+		"identifier": req.Username,
+	}); err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		return
+	}
+
 	user, err := h.accountAuth.Register(req.Username, req.Password, req.Username)
 	if err != nil {
 		var appErr *auth.AppError
@@ -59,7 +67,14 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		return
 	}
 
-	h.completeBrowserLogin(c, user, "")
+	if err := h.runHook(c, iam.HookPostRegister, user, "account", nil, map[string]string{
+		"identifier": req.Username,
+	}); err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		return
+	}
+
+	h.completeBrowserLoginWithProvider(c, user, "", "account")
 }
 
 // Login Regular login
@@ -92,6 +107,13 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
+	if err := h.runHook(c, iam.HookPreAuthenticate, nil, "account", nil, map[string]string{
+		"identifier": req.Username,
+	}); err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		return
+	}
+
 	user, err := h.accountAuth.Login(req.Username, req.Password)
 	if err != nil {
 		// Record failed login attempt
@@ -103,20 +125,46 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	// Record successful login attempt
 	h.accountAuth.RecordLoginAttempt(req.Username, clientIP, true)
 
-	h.completeBrowserLogin(c, user, "")
+	h.completeBrowserLoginWithProvider(c, user, "", "account")
 }
 
 // Logout Logout handling
 func (h *AuthHandler) Logout(c *gin.Context) {
+	userID, hasUserID := c.Get("user_id")
+	sessionID, hasSessionID := c.Get("session_id")
+	userIDStr := ""
+	sessionIDStr := ""
+	if hasUserID {
+		if value, ok := userID.(string); ok {
+			userIDStr = value
+		}
+	}
+	if hasSessionID {
+		if value, ok := sessionID.(string); ok {
+			sessionIDStr = value
+		}
+	}
+
 	// Clear browser session cookie
 	h.clearBrowserSession(c)
 
-	userID, hasUserID := c.Get("user_id")
-	sessionID, hasSessionID := c.Get("session_id")
-	if hasUserID && hasSessionID {
-		if err := h.sessionMgr.DeleteSession(userID.(string), sessionID.(string)); err != nil {
+	if userIDStr != "" && sessionIDStr != "" {
+		if err := h.sessionMgr.DeleteSession(userIDStr, sessionIDStr); err != nil {
 			h.logger.Printf("Failed to delete session: %v", err)
 		}
+	}
+
+	var user *auth.User
+	if userIDStr != "" {
+		if resolved, err := h.accountAuth.GetUserByID(userIDStr); err == nil {
+			user = resolved
+		}
+	}
+	if err := h.runHook(c, iam.HookPostLogout, user, "browser_session", nil, map[string]string{
+		"user_id":    userIDStr,
+		"session_id": sessionIDStr,
+	}); err != nil && h.logger != nil {
+		h.logger.Printf("Post logout hook failed for user %s: %v", userIDStr, err)
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Logout successful"})

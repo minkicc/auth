@@ -9,6 +9,7 @@ import (
 
 	"minki.cc/mkauth/server/auth"
 	"minki.cc/mkauth/server/common"
+	"minki.cc/mkauth/server/iam"
 )
 
 const enterpriseSAMLStateTTL = 15 * time.Minute
@@ -91,23 +92,39 @@ func (h *AuthHandler) EnterpriseSAMLACS(c *gin.Context) {
 		return
 	}
 
+	if err := h.runHook(c, iam.HookPreAuthenticate, nil, "enterprise_saml", nil, map[string]string{
+		"provider_slug": callbackSlug,
+	}); err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		return
+	}
+
 	possibleRequestIDs := []string{}
 	if stateData.RequestID != "" {
 		possibleRequestIDs = append(possibleRequestIDs, stateData.RequestID)
 	}
 
-	user, err := h.enterpriseSAML.Authenticate(c.Request, callbackSlug, possibleRequestIDs)
+	result, err := h.enterpriseSAML.AuthenticateWithResult(c.Request, callbackSlug, possibleRequestIDs)
 	if err != nil {
 		h.logger.Printf("Enterprise SAML ACS failed: %v", err)
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "enterprise saml authentication failed"})
 		return
+	}
+	user := result.User
+	if result.Created {
+		if err := h.runHook(c, iam.HookPostRegister, user, "enterprise_saml", nil, map[string]string{
+			"provider_slug": callbackSlug,
+		}); err != nil {
+			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+			return
+		}
 	}
 
 	returnURI := stateData.ReturnURI
 	if returnURI == "" {
 		returnURI = "/profile"
 	}
-	if _, err := h.createBrowserSession(c, user); err != nil {
+	if _, err := h.createBrowserSessionWithProvider(c, user, "enterprise_saml"); err != nil {
 		if appErr, ok := err.(*auth.AppError); ok {
 			c.JSON(appErr.GetHTTPStatus(), gin.H{"error": appErr.Error()})
 			return

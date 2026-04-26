@@ -16,6 +16,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 	"minki.cc/mkauth/server/config"
+	"minki.cc/mkauth/server/iam"
 )
 
 type PluginType string
@@ -35,16 +36,18 @@ const (
 )
 
 type Manifest struct {
-	ID           string              `json:"id" yaml:"id"`
-	Name         string              `json:"name" yaml:"name"`
-	Version      string              `json:"version" yaml:"version"`
-	Type         string              `json:"type" yaml:"type"`
-	Entry        string              `json:"entry" yaml:"entry"`
-	Description  string              `json:"description" yaml:"description"`
-	Events       []string            `json:"events" yaml:"events"`
-	Permissions  []string            `json:"permissions" yaml:"permissions"`
-	ConfigSchema []ConfigField       `json:"config_schema,omitempty" yaml:"config_schema,omitempty"`
-	HTTPAction   *ManifestHTTPAction `json:"http_action,omitempty" yaml:"http_action,omitempty"`
+	ID            string              `json:"id" yaml:"id"`
+	Name          string              `json:"name" yaml:"name"`
+	Version       string              `json:"version" yaml:"version"`
+	Type          string              `json:"type" yaml:"type"`
+	Entry         string              `json:"entry" yaml:"entry"`
+	Description   string              `json:"description" yaml:"description"`
+	Events        []string            `json:"events" yaml:"events"`
+	Permissions   []string            `json:"permissions" yaml:"permissions"`
+	ConfigSchema  []ConfigField       `json:"config_schema,omitempty" yaml:"config_schema,omitempty"`
+	ClaimMappings []ClaimMapping      `json:"claim_mappings,omitempty" yaml:"claim_mappings,omitempty"`
+	HTTPAction    *ManifestHTTPAction `json:"http_action,omitempty" yaml:"http_action,omitempty"`
+	AuditSink     *ManifestAuditSink  `json:"audit_sink,omitempty" yaml:"audit_sink,omitempty"`
 }
 
 type ConfigField struct {
@@ -66,23 +69,44 @@ type ManifestHTTPAction struct {
 	FailOpen  bool   `json:"fail_open,omitempty" yaml:"fail_open,omitempty"`
 }
 
+type ManifestAuditSink struct {
+	URL           string   `json:"url" yaml:"url"`
+	Secret        string   `json:"secret,omitempty" yaml:"secret,omitempty"`
+	SecretEnv     string   `json:"secret_env,omitempty" yaml:"secret_env,omitempty"`
+	TimeoutMS     int      `json:"timeout_ms,omitempty" yaml:"timeout_ms,omitempty"`
+	FailOpen      bool     `json:"fail_open,omitempty" yaml:"fail_open,omitempty"`
+	Actions       []string `json:"actions,omitempty" yaml:"actions,omitempty"`
+	ResourceTypes []string `json:"resource_types,omitempty" yaml:"resource_types,omitempty"`
+	SuccessOnly   bool     `json:"success_only,omitempty" yaml:"success_only,omitempty"`
+	FailureOnly   bool     `json:"failure_only,omitempty" yaml:"failure_only,omitempty"`
+}
+
+type ClaimMapping struct {
+	Claim         string   `json:"claim" yaml:"claim"`
+	Value         string   `json:"value,omitempty" yaml:"value,omitempty"`
+	ValueFrom     string   `json:"value_from,omitempty" yaml:"value_from,omitempty"`
+	Clients       []string `json:"clients,omitempty" yaml:"clients,omitempty"`
+	Organizations []string `json:"organizations,omitempty" yaml:"organizations,omitempty"`
+}
+
 type Summary struct {
-	ID                string        `json:"id"`
-	Name              string        `json:"name"`
-	Version           string        `json:"version,omitempty"`
-	Type              string        `json:"type"`
-	Source            PluginSource  `json:"source"`
-	Entry             string        `json:"entry,omitempty"`
-	Description       string        `json:"description,omitempty"`
-	Events            []string      `json:"events,omitempty"`
-	Permissions       []string      `json:"permissions,omitempty"`
-	ConfigSchema      []ConfigField `json:"config_schema,omitempty"`
-	ConfigConfigured  bool          `json:"config_configured,omitempty"`
-	Enabled           bool          `json:"enabled"`
-	SignatureVerified bool          `json:"signature_verified"`
-	SignerKeyID       string        `json:"signer_key_id,omitempty"`
-	PackageSHA256     string        `json:"package_sha256,omitempty"`
-	Path              string        `json:"path,omitempty"`
+	ID                string         `json:"id"`
+	Name              string         `json:"name"`
+	Version           string         `json:"version,omitempty"`
+	Type              string         `json:"type"`
+	Source            PluginSource   `json:"source"`
+	Entry             string         `json:"entry,omitempty"`
+	Description       string         `json:"description,omitempty"`
+	Events            []string       `json:"events,omitempty"`
+	Permissions       []string       `json:"permissions,omitempty"`
+	ConfigSchema      []ConfigField  `json:"config_schema,omitempty"`
+	ClaimMappings     []ClaimMapping `json:"claim_mappings,omitempty"`
+	ConfigConfigured  bool           `json:"config_configured,omitempty"`
+	Enabled           bool           `json:"enabled"`
+	SignatureVerified bool           `json:"signature_verified"`
+	SignerKeyID       string         `json:"signer_key_id,omitempty"`
+	PackageSHA256     string         `json:"package_sha256,omitempty"`
+	Path              string         `json:"path,omitempty"`
 }
 
 var pluginIDPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{1,62}$`)
@@ -187,6 +211,7 @@ func (r *Registry) LoadDirectory(directory string, cfg config.PluginsConfig, ena
 			Events:            append([]string(nil), plugin.Manifest.Events...),
 			Permissions:       append([]string(nil), plugin.Manifest.Permissions...),
 			ConfigSchema:      append([]ConfigField(nil), plugin.Manifest.ConfigSchema...),
+			ClaimMappings:     append([]ClaimMapping(nil), plugin.Manifest.ClaimMappings...),
 			ConfigConfigured:  hasConfiguredPluginConfig(plugin.Manifest, plugin.State),
 			Enabled:           plugin.Enabled,
 			SignatureVerified: plugin.Verification.Verified,
@@ -220,6 +245,7 @@ func LoadManifestContent(content []byte, path string) (Manifest, error) {
 	manifest.Events = normalizeEventList(manifest.Events)
 	manifest.Permissions = normalizePermissionList(manifest.Permissions)
 	manifest.ConfigSchema = normalizeConfigSchema(manifest.ConfigSchema)
+	manifest.ClaimMappings = normalizeClaimMappings(manifest.ClaimMappings)
 	if manifest.ID == "" {
 		return Manifest{}, fmt.Errorf("plugin manifest %q missing id", path)
 	}
@@ -232,8 +258,14 @@ func LoadManifestContent(content []byte, path string) (Manifest, error) {
 	if manifest.Type == "" {
 		return Manifest{}, fmt.Errorf("plugin manifest %q missing type", path)
 	}
+	if manifest.Type == string(PluginTypeClaimMapper) && len(manifest.Events) == 0 {
+		manifest.Events = []string{string(iam.HookBeforeTokenIssue), string(iam.HookBeforeUserInfo)}
+	}
 	if manifest.Entry == "" && manifest.HTTPAction != nil {
 		manifest.Entry = "http_action"
+	}
+	if manifest.Entry == "" && manifest.AuditSink != nil {
+		manifest.Entry = "audit_sink"
 	}
 	if manifest.Entry == "" {
 		manifest.Entry = "manifest"
@@ -241,10 +273,29 @@ func LoadManifestContent(content []byte, path string) (Manifest, error) {
 	if manifest.Entry == "http_action" && manifest.HTTPAction == nil {
 		return Manifest{}, fmt.Errorf("plugin manifest %q missing http_action configuration", path)
 	}
+	if manifest.Type == string(PluginTypeAuditSink) && manifest.AuditSink == nil {
+		return Manifest{}, fmt.Errorf("plugin manifest %q type %q requires audit_sink configuration", path, PluginTypeAuditSink)
+	}
+	if manifest.Entry == "audit_sink" && manifest.AuditSink == nil {
+		return Manifest{}, fmt.Errorf("plugin manifest %q missing audit_sink configuration", path)
+	}
+	if manifest.AuditSink != nil {
+		manifest.AuditSink.URL = strings.TrimSpace(manifest.AuditSink.URL)
+		manifest.AuditSink.Secret = strings.TrimSpace(manifest.AuditSink.Secret)
+		manifest.AuditSink.SecretEnv = strings.TrimSpace(manifest.AuditSink.SecretEnv)
+		manifest.AuditSink.Actions = normalizeStringList(manifest.AuditSink.Actions, true)
+		manifest.AuditSink.ResourceTypes = normalizeStringList(manifest.AuditSink.ResourceTypes, true)
+		if manifest.AuditSink.SuccessOnly && manifest.AuditSink.FailureOnly {
+			return Manifest{}, fmt.Errorf("plugin manifest %q audit_sink cannot set both success_only and failure_only", path)
+		}
+	}
 	if !isSupportedPluginType(manifest.Type) {
 		return Manifest{}, fmt.Errorf("plugin manifest %q has unsupported type %q", path, manifest.Type)
 	}
 	if err := validateConfigSchema(manifest.ConfigSchema, path); err != nil {
+		return Manifest{}, err
+	}
+	if err := validateClaimMappings(manifest, path); err != nil {
 		return Manifest{}, err
 	}
 	return manifest, nil

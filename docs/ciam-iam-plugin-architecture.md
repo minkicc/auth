@@ -16,8 +16,11 @@ For the near-term execution plan and backlog, see [docs/roadmap.md](roadmap.md).
 Implemented:
 
 - Foundation tables for organizations, organization domains, enterprise identity provider shells, external identities, and organization memberships.
-- Flow hook boundaries for `post_authenticate`, `before_token_issue`, and `before_userinfo`.
+- Flow hook boundaries for `pre_register`, `post_register`, `pre_authenticate`, `post_authenticate`, `before_token_issue`, `before_userinfo`, and `post_logout`.
 - Installable plugin runtime with local ZIP packages, catalog installation, URL installation, preview, config schema, signatures, audit log, backups, restore, and in-process reload.
+- Local `claim_mapper` plugins with static/context/config-derived claim mappings for ID Tokens, access tokens, and `/oauth2/userinfo`.
+- Admin-managed database Claim Mappers with enable/disable, client and organization targeting, security audit records, and runtime application without plugin reinstall.
+- Local `audit_sink` plugins that forward admin security audit events and opt-in auth lifecycle events to HTTPS webhooks with action/resource/success filters.
 - `enterprise_oidc` as the first upstream enterprise identity connector.
 - `enterprise_saml` as the second upstream enterprise identity connector.
 - `enterprise_ldap` as the third upstream enterprise identity connector.
@@ -27,6 +30,8 @@ Implemented:
 - OIDC client-level organization access policy using `require_organization`, `allowed_organizations`, `required_org_roles`, `required_org_roles_all`, `required_org_groups`, `required_org_groups_all`, and scope-specific policy overlays.
 - Unified organization authorization resolution for memberships, groups, first-class role bindings, and permission keys, plus reusable organization authorization middleware/helpers for future API enforcement.
 - Admin-managed downstream OIDC clients with runtime reload, so relying party registration no longer has to live only in YAML.
+- OAuth2 `client_credentials`, service-account token subjects, confidential-client token introspection, and Redis-backed access-token revocation for machine-to-machine access.
+- Delegated organization administrators with organization-scoped admin-console access.
 - Optional at-rest encryption for admin-managed OIDC client secrets and enterprise identity provider secrets.
 - Key rotation fallback support plus an admin-triggered reseal operation for managed secrets.
 - Admin audit visibility for managed secret reseal operations plus admin-managed OIDC client and enterprise identity provider CRUD activity.
@@ -68,6 +73,23 @@ Flow actions run at stable points in the authentication lifecycle:
 
 These hooks are intended for custom claims, risk checks, automatic organization assignment, audit fanout, and profile enrichment.
 
+### Claim Mappers
+
+Claim mappers are deterministic custom token and userinfo mappings. They can be delivered as manifest-only local plugins, or managed directly from the admin Settings page as database records. They do not run remote code and are best for mappings such as:
+
+- copy `org_roles` into an application-specific `app_roles` claim
+- render a `tenant_key` from plugin config, `org_slug`, and `client_id`
+- expose an internal or directory subject under a client-specific claim name
+
+Supported plugin mapper sources include `claim.<name>`, `config.<key>`, `metadata.<key>`, `user.user_id`, `user.username`, `user.nickname`, `client_id`, and `organization_id`. Database-managed mappers support the same runtime context sources except `config.<key>`, because their rule fields are already the editable configuration. Static `value` fields can use `${...}` templates with the same sources. Protected protocol and organization claims such as `sub`, `iss`, `aud`, `exp`, `scope`, `client_id`, `org_id`, and `org_roles` cannot be overwritten by claim mappers.
+
+Admin-managed Claim Mapper endpoints:
+
+- `GET /admin-api/claim-mappers`
+- `POST /admin-api/claim-mappers`
+- `PATCH /admin-api/claim-mappers/:id`
+- `DELETE /admin-api/claim-mappers/:id`
+
 ## Installable Plugin Runtime
 
 The runtime now supports two delivery styles without requiring Go `.so` plugins:
@@ -87,9 +109,13 @@ plugins:
   enabled_plugins: []
   disabled_plugins: []
   allowed_permissions:
+    - "hook:pre_register"
+    - "hook:post_register"
+    - "hook:pre_authenticate"
     - "hook:post_authenticate"
     - "hook:before_token_issue"
     - "hook:before_userinfo"
+    - "hook:post_logout"
     - "network:http_action"
   require_signature: false
   allow_private_networks: false
@@ -125,8 +151,11 @@ name: "Claims Enricher"
 version: "0.1.0"
 type: "flow_action"
 permissions:
+  - "hook:pre_authenticate"
+  - "hook:post_authenticate"
   - "hook:before_token_issue"
   - "hook:before_userinfo"
+  - "hook:post_logout"
   - "network:http_action"
 config_schema:
   - key: "url"
@@ -143,8 +172,11 @@ config_schema:
     type: "boolean"
     default: "false"
 events:
+  - "pre_authenticate"
+  - "post_authenticate"
   - "before_token_issue"
   - "before_userinfo"
+  - "post_logout"
 http_action:
   url: "https://actions.example.com/mkauth"
   secret_env: "MKAUTH_CLAIMS_SECRET"
@@ -162,7 +194,63 @@ signature: "BASE64_SIGNATURE_OF_RAW_MANIFEST_CONTENT"
 
 For local `flow_action` plugins, the manifest itself carries the runtime execution details through `http_action`, so installation no longer depends on an extra `plugins.http_actions` block in the main config.
 
-Manifest permissions are mandatory for executable capabilities. HTTP actions must declare `network:http_action`, and each hook event must declare a matching `hook:<event>` permission. If `allowed_permissions` is configured, install and reload reject plugins that request permissions outside that server-side allowlist.
+For local `claim_mapper` plugins, the manifest carries mapping rules through `claim_mappings`:
+
+```yaml
+id: "static-claim-mapper"
+name: "Static Claim Mapper"
+version: "0.1.0"
+type: "claim_mapper"
+permissions:
+  - "hook:before_token_issue"
+  - "hook:before_userinfo"
+events:
+  - "before_token_issue"
+  - "before_userinfo"
+config_schema:
+  - key: "tenant_prefix"
+    type: "string"
+    default: "tenant"
+claim_mappings:
+  - claim: "tenant_key"
+    value: "${config.tenant_prefix}:${claim.org_slug}:${client_id}"
+  - claim: "app_roles"
+    value_from: "claim.org_roles"
+```
+
+For local `audit_sink` plugins, the manifest carries webhook delivery details through `audit_sink`:
+
+```yaml
+id: "audit-webhook-sink"
+name: "Audit Webhook Sink"
+version: "0.1.0"
+type: "audit_sink"
+permissions:
+  - "audit:security"
+  - "network:audit_sink"
+config_schema:
+  - key: "url"
+    type: "url"
+    required: true
+  - key: "secret"
+    type: "secret"
+    sensitive: true
+audit_sink:
+  url: "https://audit.example.com/mkauth/events"
+  secret_env: "MKAUTH_AUDIT_WEBHOOK_TOKEN"
+  timeout_ms: 3000
+  fail_open: true
+  resource_types:
+    - "oidc_client"
+    - "identity_provider"
+    - "claim_mapper"
+```
+
+The webhook receives `{ plugin_id, event: "security_audit", audit: { ... } }`, including the audit ID, action, actor, success flag, error, and structured details. Sink dispatch runs after the security audit record is persisted; delivery failures are logged but do not roll back the admin operation.
+
+Audit sinks can also explicitly opt into authentication lifecycle fanout. To receive lifecycle events, configure `resource_types: ["auth_lifecycle"]`, or filter by lifecycle `actions` such as `pre_authenticate`, `post_register`, and `before_token_issue`. Lifecycle fanout sends `{ plugin_id, event: "lifecycle", lifecycle: { event, user_id, provider, client_id, organization_id, ip, user_agent, metadata } }`. This path is always fail-open and is intended for observability, SIEM fanout, and troubleshooting rather than policy enforcement.
+
+Manifest permissions are mandatory for executable capabilities. HTTP actions must declare `network:http_action`, and each hook event must declare a matching `hook:<event>` permission. Audit sinks must declare `network:audit_sink` and `audit:security`. If `allowed_permissions` is configured, install and reload reject plugins that request permissions outside that server-side allowlist.
 
 `config_schema` makes installed plugins configurable from the admin console. Values are stored in `mkauth-plugin.state.yaml`, sensitive fields are not echoed back by the admin API, and local HTTP Action plugins can use saved config to override `url`, `secret`, `secret_env`, `timeout_ms`, and `fail_open`.
 
@@ -177,7 +265,7 @@ Runtime behavior:
 7. Replace and uninstall operations create rollback snapshots under `.mkauth-plugin-backups`; restore revalidates signature, permissions, and host policy before activation.
 8. Catalog listing responses are annotated with local install state, installed version, installed package SHA-256, and whether an update appears available.
 9. Replace/update operations preserve the plugin's enabled/disabled state and saved config keys that still exist in the new manifest.
-10. The registry and hook runtime reload in place, so new plugins can start participating in `post_authenticate`, `before_token_issue`, and `before_userinfo` without a process restart.
+10. The registry, hook runtime, and audit sink runtime reload in place, so new plugins can start participating in register/authenticate/logout lifecycle hooks, `before_token_issue`, `before_userinfo`, claim mapping, and audit forwarding without a process restart.
 
 Signature behavior:
 
@@ -504,6 +592,7 @@ The chooser UI loads `GET /api/user/organizations`, which returns the current us
 7. Add manual organization group administration and `org_groups` claims. Done.
 8. Add `enterprise_saml` after the OIDC path is stable. Done.
 9. Add LDAP connector after the OIDC and SAML paths are stable. Done.
+10. Extend lifecycle hook coverage across account, email, phone, social, and enterprise browser-login flows. Done.
 
 ## Non-Goals For The First Version
 

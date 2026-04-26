@@ -41,6 +41,7 @@ const (
 	OrganizationGroupIDPrefix       = "grp_"
 	OrganizationRoleIDPrefix        = "rol_"
 	OrganizationRoleBindingIDPrefix = "rbd_"
+	ClaimMapperIDPrefix             = "clm_"
 	ManualOrganizationGroupProvider = "manual"
 	DefaultIdentityProviderPriority = 100
 	readableRandomIDLength          = 16
@@ -171,4 +172,28 @@ type OrganizationRoleBinding struct {
 	SubjectID      string                 `json:"subject_id" gorm:"size:32;not null;uniqueIndex:idx_organization_role_binding"`
 	CreatedAt      time.Time              `json:"created_at"`
 	UpdatedAt      time.Time              `json:"updated_at"`
+}
+
+// OrganizationAdminPrincipal grants organization-scoped admin access.
+type OrganizationAdminPrincipal struct {
+	OrganizationID string    `json:"organization_id" gorm:"primaryKey;size:32"`
+	UserID         string    `json:"user_id" gorm:"primaryKey;size:32"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
+}
+
+// ClaimMapperRule stores admin-managed custom claim mappings.
+type ClaimMapperRule struct {
+	MapperID          string    `json:"mapper_id" gorm:"primaryKey;size:32"`
+	Name              string    `json:"name" gorm:"size:120;not null"`
+	Description       string    `json:"description,omitempty" gorm:"size:255"`
+	Enabled           bool      `json:"enabled" gorm:"not null;default:true"`
+	Claim             string    `json:"claim" gorm:"size:128;not null;index"`
+	Value             string    `json:"value,omitempty" gorm:"type:text"`
+	ValueFrom         string    `json:"value_from,omitempty" gorm:"size:160"`
+	EventsJSON        string    `json:"events_json,omitempty" gorm:"type:text"`
+	ClientIDsJSON     string    `json:"client_ids_json,omitempty" gorm:"type:text"`
+	OrganizationsJSON string    `json:"organizations_json,omitempty" gorm:"type:text"`
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
 }

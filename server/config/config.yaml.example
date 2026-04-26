@@ -40,6 +40,8 @@ oidc:
       client_id: "demo-spa"
       public: true
       require_pkce: true
+      grant_types:
+        - "authorization_code"
       redirect_uris:
         - "http://127.0.0.1:3000/callback"
       scopes:
@@ -75,12 +77,28 @@ oidc:
       client_secret: "CHANGE_ME"
       public: false
       require_pkce: true
+      grant_types:
+        - "authorization_code"
       redirect_uris:
         - "http://127.0.0.1:8080/auth/callback"
       scopes:
         - "openid"
         - "profile"
         - "email"
+    - name: "Service API"
+      client_id: "service-api"
+      client_secret: "CHANGE_ME"
+      public: false
+      grant_types:
+        - "client_credentials"
+      # Optional. Defaults to "svc:<client_id>".
+      # service_account_subject: "svc:service-api"
+      # The same confidential client can validate its own access tokens at:
+      # POST /oauth2/introspect
+      # Clients can revoke their own access tokens at:
+      # POST /oauth2/revoke
+      scopes:
+        - "admin_api"
 
 iam:
   # Optional static bootstrap. You can also create enterprise OIDC/SAML/LDAP
@@ -169,10 +187,16 @@ plugins:
   # Optional: restrict local plugin manifests to this permission allowlist.
   # Leave empty to allow every currently supported plugin permission.
   allowed_permissions:
+    - "hook:pre_register"
+    - "hook:post_register"
+    - "hook:pre_authenticate"
     - "hook:post_authenticate"
     - "hook:before_token_issue"
     - "hook:before_userinfo"
+    - "hook:post_logout"
     - "network:http_action"
+    - "network:audit_sink"
+    - "audit:security"
   # When enabled, local plugins must provide a valid mkauth-plugin.sig file.
   require_signature: false
   # Keep false in production unless remote plugin catalogs/packages are hosted
@@ -205,9 +229,13 @@ plugins:
       name: "Claims Enricher"
       enabled: false
       events:
+        - "pre_register"
+        - "post_register"
+        - "pre_authenticate"
+        - "post_authenticate"
         - "before_token_issue"
         - "before_userinfo"
-        - "post_authenticate"
+        - "post_logout"
       url: "https://actions.example.com/mkauth"
       secret: "YOUR_ACTION_BEARER_SECRET"
       timeout_ms: 3000

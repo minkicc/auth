@@ -5,9 +5,13 @@ type: flow_action
 entry: http_action
 description: Example manifest for an HTTP action that can enrich token and userinfo claims.
 permissions:
+  - hook:pre_register
+  - hook:post_register
+  - hook:pre_authenticate
   - hook:before_token_issue
   - hook:before_userinfo
   - hook:post_authenticate
+  - hook:post_logout
   - network:http_action
 config_schema:
   - key: url
@@ -30,9 +34,13 @@ config_schema:
     type: boolean
     default: "false"
 events:
+  - pre_register
+  - post_register
+  - pre_authenticate
   - before_token_issue
   - before_userinfo
   - post_authenticate
+  - post_logout
 http_action:
   url: "https://actions.example.com/mkauth"
   secret_env: "MKAUTH_HTTP_CLAIMS_SECRET"

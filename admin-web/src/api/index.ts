@@ -72,6 +72,8 @@ export interface UserInfo {
   nickname?: string
   roles: string[]
   sources?: string[]
+  global_admin?: boolean
+  organization_admin_ids?: string[]
   profile_url?: string
 }
 
@@ -88,6 +90,21 @@ export interface AdminPrincipal {
 
 export interface AdminPrincipalListResponse {
   admins: AdminPrincipal[]
+  total: number
+}
+
+export interface OrganizationAdminPrincipal {
+  organization_id: string
+  user_id: string
+  username?: string
+  nickname?: string
+  status?: string
+  created_at?: string
+  updated_at?: string
+}
+
+export interface OrganizationAdminPrincipalListResponse {
+  admins: OrganizationAdminPrincipal[]
   total: number
 }
 
@@ -310,6 +327,9 @@ export interface OrganizationListResponse {
 export interface OIDCClient {
   name?: string
   client_id: string
+  grant_types?: string[]
+  service_account_enabled?: boolean
+  service_account_subject?: string
   redirect_uris: string[]
   scopes?: string[]
   public: boolean
@@ -336,6 +356,21 @@ export interface OIDCOrganizationPolicy {
   required_org_roles_all?: string[]
   required_org_groups?: string[]
   required_org_groups_all?: string[]
+}
+
+export interface AdminClaimMapper {
+  mapper_id: string
+  name: string
+  description?: string
+  enabled: boolean
+  claim: string
+  value?: string
+  value_from?: string
+  events: string[]
+  clients?: string[]
+  organizations?: string[]
+  created_at: string
+  updated_at: string
 }
 
 export interface SecuritySecretsStatus {
@@ -445,12 +480,21 @@ export interface PluginInfo {
   events?: string[]
   permissions?: string[]
   config_schema?: PluginConfigField[]
+  claim_mappings?: PluginClaimMapping[]
   config_configured?: boolean
   enabled: boolean
   signature_verified: boolean
   signer_key_id?: string
   package_sha256?: string
   path?: string
+}
+
+export interface PluginClaimMapping {
+  claim: string
+  value?: string
+  value_from?: string
+  clients?: string[]
+  organizations?: string[]
 }
 
 export interface PluginConfigField {
@@ -481,6 +525,7 @@ export interface PluginInstallPreview {
   events?: string[]
   permissions?: string[]
   config_schema?: PluginConfigField[]
+  claim_mappings?: PluginClaimMapping[]
   package_sha256: string
   signature_verified: boolean
   signer_key_id?: string
@@ -642,6 +687,21 @@ class ServerApi {
   // 获取组织域名
   getOrganizationDomains(id: string): Promise<{ domains: OrganizationDomain[] }> {
     return api.get(`/organizations/${id}/domains`).then(res => res.data)
+  }
+
+  // 获取组织管理员
+  getOrganizationAdmins(id: string): Promise<OrganizationAdminPrincipalListResponse> {
+    return api.get(`/organizations/${id}/admins`).then(res => res.data)
+  }
+
+  // 添加组织管理员
+  createOrganizationAdmin(id: string, payload: { user_id?: string; username?: string; user_ref?: string }): Promise<{ admin: OrganizationAdminPrincipal }> {
+    return api.post(`/organizations/${id}/admins`, payload).then(res => res.data)
+  }
+
+  // 删除组织管理员
+  deleteOrganizationAdmin(id: string, userId: string): Promise<{ message: string }> {
+    return api.delete(`/organizations/${id}/admins/${encodeURIComponent(userId)}`).then(res => res.data)
   }
 
   // 添加组织域名
@@ -849,6 +909,8 @@ class ServerApi {
     name?: string
     client_id: string
     client_secret?: string
+    grant_types?: string[]
+    service_account_subject?: string
     redirect_uris: string[]
     scopes?: string[]
     public?: boolean
@@ -870,6 +932,8 @@ class ServerApi {
     name?: string
     client_id?: string
     client_secret?: string
+    grant_types?: string[]
+    service_account_subject?: string
     redirect_uris?: string[]
     scopes?: string[]
     public?: boolean
@@ -889,6 +953,26 @@ class ServerApi {
   // 删除 OIDC client
   deleteOIDCClient(clientId: string): Promise<{ message: string }> {
     return api.delete(`/oidc/clients/${encodeURIComponent(clientId)}`).then(res => res.data)
+  }
+
+  // 获取后台可配置 Claim Mapper
+  getClaimMappers(): Promise<{ claim_mappers: AdminClaimMapper[] }> {
+    return api.get('/claim-mappers').then(res => res.data)
+  }
+
+  // 创建后台可配置 Claim Mapper
+  createClaimMapper(payload: Partial<AdminClaimMapper>): Promise<{ claim_mapper: AdminClaimMapper }> {
+    return api.post('/claim-mappers', payload).then(res => res.data)
+  }
+
+  // 更新后台可配置 Claim Mapper
+  updateClaimMapper(mapperId: string, payload: Partial<AdminClaimMapper>): Promise<{ claim_mapper: AdminClaimMapper }> {
+    return api.patch(`/claim-mappers/${encodeURIComponent(mapperId)}`, payload).then(res => res.data)
+  }
+
+  // 删除后台可配置 Claim Mapper
+  deleteClaimMapper(mapperId: string): Promise<{ message: string }> {
+    return api.delete(`/claim-mappers/${encodeURIComponent(mapperId)}`).then(res => res.data)
   }
 
   // 查询 secrets 加密状态

@@ -202,6 +202,14 @@ func (m *EnterpriseLDAPManager) ProvidersForOrganization(organizationID string) 
 }
 
 func (m *EnterpriseLDAPManager) Authenticate(ctx context.Context, slug, username, password string) (*auth.User, error) {
+	result, err := m.AuthenticateWithResult(ctx, slug, username, password)
+	if err != nil {
+		return nil, err
+	}
+	return result.User, nil
+}
+
+func (m *EnterpriseLDAPManager) AuthenticateWithResult(ctx context.Context, slug, username, password string) (*EnterpriseAuthenticationResult, error) {
 	provider, ok := m.provider(slug)
 	if !ok {
 		return nil, fmt.Errorf("enterprise ldap provider %q not found", slug)
@@ -210,7 +218,7 @@ func (m *EnterpriseLDAPManager) Authenticate(ctx context.Context, slug, username
 	if err != nil {
 		return nil, err
 	}
-	return m.findOrCreateUser(provider, info)
+	return m.findOrCreateUserWithResult(provider, info)
 }
 
 func (m *EnterpriseLDAPManager) provider(slug string) (*EnterpriseLDAPProvider, bool) {
@@ -505,13 +513,22 @@ func ldapEntryAttributeValue(entry *ldap.Entry, attr string) string {
 }
 
 func (m *EnterpriseLDAPManager) findOrCreateUser(provider *EnterpriseLDAPProvider, info *EnterpriseLDAPUserInfo) (*auth.User, error) {
+	result, err := m.findOrCreateUserWithResult(provider, info)
+	if err != nil {
+		return nil, err
+	}
+	return result.User, nil
+}
+
+func (m *EnterpriseLDAPManager) findOrCreateUserWithResult(provider *EnterpriseLDAPProvider, info *EnterpriseLDAPUserInfo) (*EnterpriseAuthenticationResult, error) {
 	var identity ExternalIdentity
 	err := m.db.Where("provider_type = ? AND provider_id = ? AND subject = ?", IdentityProviderTypeLDAP, provider.cfg.Slug, info.Subject).First(&identity).Error
 	switch err {
 	case nil:
-		return m.updateExistingIdentity(provider, &identity, info)
+		user, err := m.updateExistingIdentity(provider, &identity, info)
+		return &EnterpriseAuthenticationResult{User: user}, err
 	case gorm.ErrRecordNotFound:
-		return m.createIdentityUser(provider, info)
+		return m.createIdentityUserWithResult(provider, info)
 	default:
 		return nil, err
 	}
@@ -546,12 +563,22 @@ func (m *EnterpriseLDAPManager) updateExistingIdentity(provider *EnterpriseLDAPP
 }
 
 func (m *EnterpriseLDAPManager) createIdentityUser(provider *EnterpriseLDAPProvider, info *EnterpriseLDAPUserInfo) (*auth.User, error) {
+	result, err := m.createIdentityUserWithResult(provider, info)
+	if err != nil {
+		return nil, err
+	}
+	return result.User, nil
+}
+
+func (m *EnterpriseLDAPManager) createIdentityUserWithResult(provider *EnterpriseLDAPProvider, info *EnterpriseLDAPUserInfo) (*EnterpriseAuthenticationResult, error) {
 	if existingUserID, err := m.lookupVerifiedEmailUserID(info); err != nil {
 		return nil, err
 	} else if existingUserID != "" {
-		return m.linkExistingUser(provider, existingUserID, info)
+		user, err := m.linkExistingUser(provider, existingUserID, info)
+		return &EnterpriseAuthenticationResult{User: user}, err
 	}
-	return m.createNewUser(provider, info)
+	user, err := m.createNewUser(provider, info)
+	return &EnterpriseAuthenticationResult{User: user, Created: true}, err
 }
 
 func (m *EnterpriseLDAPManager) linkExistingUser(provider *EnterpriseLDAPProvider, userID string, info *EnterpriseLDAPUserInfo) (*auth.User, error) {

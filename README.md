@@ -32,7 +32,7 @@ MKAuth is currently best positioned as an extensible B2B CIAM platform:
 - installable plugins and HTTP actions for custom identity workflows
 - admin-grade security operations such as secret encryption, reseal, audit, and export
 
-MKAuth is not yet a full workforce IAM suite. It still needs deeper RBAC/policy enforcement, broader delegated administration, service accounts, and MFA/WebAuthn before it should be presented that way.
+MKAuth is not yet a full workforce IAM suite. It still needs deeper RBAC/policy enforcement, broader delegated administration, richer service-account lifecycle management, and MFA/WebAuthn before it should be presented that way.
 
 ## Current Platform Capabilities
 
@@ -44,6 +44,8 @@ MKAuth is not yet a full workforce IAM suite. It still needs deeper RBAC/policy 
 - Inbound SCIM Users and Groups
 - Organization-aware OIDC claims and client-level organization access policy
 - Admin-managed downstream OIDC clients with runtime reload
+- OAuth2 `client_credentials` service-account tokens with confidential-client token introspection and access-token revocation
+- Delegated organization administrators with organization-scoped admin access
 - Installable plugin runtime and HTTP actions
 - Secret encryption, key rotation fallback, reseal, and security audit export jobs
 
@@ -263,10 +265,16 @@ plugins:
   enabled_plugins: []
   disabled_plugins: []
   allowed_permissions:
+    - "hook:pre_register"
+    - "hook:post_register"
+    - "hook:pre_authenticate"
     - "hook:post_authenticate"
     - "hook:before_token_issue"
     - "hook:before_userinfo"
+    - "hook:post_logout"
     - "network:http_action"
+    - "network:audit_sink"
+    - "audit:security"
   require_signature: false
   allow_private_networks: false
   allowed_catalog_hosts:
@@ -290,8 +298,13 @@ plugins:
       name: "Claims Enricher"
       enabled: false
       events:
+        - "pre_register"
+        - "post_register"
+        - "pre_authenticate"
+        - "post_authenticate"
         - "before_token_issue"
         - "before_userinfo"
+        - "post_logout"
       url: "https://actions.example.com/mkauth"
       secret: "YOUR_ACTION_BEARER_SECRET"
       timeout_ms: 3000
@@ -316,15 +329,23 @@ For safer production rollout, restrict remote sources with:
 
 These host allowlists support exact hosts, `host:port`, `.example.com`, and `*.example.com`. A catalog entry can only point to the same host as the catalog itself, or to an explicitly allowed download host.
 
-Remote plugin downloads and plugin HTTP Actions also reject loopback, private, link-local, multicast, and unspecified IP addresses by default. Keep `allow_private_networks: false` in production unless your plugin catalog, ZIP packages, or HTTP Action endpoints are intentionally served from a trusted private network.
+Remote plugin downloads, plugin HTTP Actions, and audit sink webhooks also reject loopback, private, link-local, multicast, and unspecified IP addresses by default. Keep `allow_private_networks: false` in production unless your plugin catalog, ZIP packages, HTTP Action endpoints, or audit webhook endpoints are intentionally served from a trusted private network.
 
 For local packages, zip a directory that contains `mkauth-plugin.yaml` and install it from the admin plugin page. A local `flow_action` plugin can carry its own runtime `http_action` block in the manifest, so it does not require an extra main-config entry.
 
 The admin console previews uploaded ZIP packages before installation. The preview shows the parsed manifest, package SHA-256, signature status, requested permissions, whether the plugin will replace an existing install, and which saved config keys will be preserved or dropped.
 
-Local manifests must declare their runtime permissions. HTTP actions need `network:http_action`, and every hook event needs its matching `hook:<event>` permission, for example `hook:before_token_issue`. If `plugins.allowed_permissions` is not empty, MKAuth rejects plugins that request permissions outside that allowlist.
+Local manifests must declare their runtime permissions. HTTP actions need `network:http_action`, and every hook event needs its matching `hook:<event>` permission, for example `hook:before_token_issue`. Audit sink plugins need `network:audit_sink` and `audit:security`. If `plugins.allowed_permissions` is not empty, MKAuth rejects plugins that request permissions outside that allowlist.
+
+Flow actions can subscribe to `pre_register`, `post_register`, `pre_authenticate`, `post_authenticate`, `before_token_issue`, `before_userinfo`, and `post_logout`. Account/password, email, phone, Google, WeChat, WeChat mini program, and enterprise LDAP/OIDC/SAML browser-login flows now invoke lifecycle hooks with provider metadata where available; token and userinfo hooks apply to downstream OIDC issuance and `/oauth2/userinfo`.
 
 Local manifests can also declare `config_schema`. The admin console reads that schema, stores values in `mkauth-plugin.state.yaml`, and reloads the runtime after saving. For local HTTP Action plugins, saved config can override `url`, `secret`, `secret_env`, `timeout_ms`, and `fail_open`.
+
+Local `claim_mapper` plugins can declare `claim_mappings` to inject custom claims into ID Tokens, access tokens, and `/oauth2/userinfo` without running remote code. A mapping can use a static `value` with templates such as `${config.tenant_prefix}`, `${claim.org_slug}`, `${client_id}`, and `${user.username}`, or copy an existing context value with `value_from`, for example `claim.org_roles` or `user.user_id`. Claim mappers cannot overwrite protected protocol or organization claims such as `sub`, `iss`, `aud`, `exp`, `scope`, `client_id`, `org_id`, and `org_roles`.
+
+The admin console also has database-managed Claim Mappers under Settings. These rules use the same deterministic mapping model, can be enabled/disabled without reinstalling a plugin, can be scoped to specific clients or organizations, and are audited through the admin security audit log.
+
+Local `audit_sink` plugins can forward admin security audit events to an HTTPS webhook. They can also opt into authentication lifecycle fanout by filtering `resource_types: ["auth_lifecycle"]` or specific lifecycle `actions` such as `pre_authenticate`. Lifecycle fanout is fail-open and does not block login. The sink manifest can filter by `actions`, `resource_types`, success/failure state for security audit events, and uses the same `allowed_action_hosts` plus private-network restrictions as HTTP Actions. See [examples/plugins/audit-webhook-sink](examples/plugins/audit-webhook-sink/README.md) for the payload format.
 
 If you want signed packages, add `trusted_signers` and set `require_signature: true`. MKAuth verifies `mkauth-plugin.sig` against the raw manifest content and shows signature status plus the uploaded package SHA-256 fingerprint in the admin UI.
 
@@ -358,12 +379,15 @@ Useful endpoints:
 - Admin security audit export: `GET /admin-api/security/audit/export`
 - Admin security audit export jobs: `GET /admin-api/security/audit/export-jobs`, `POST /admin-api/security/audit/export-jobs`, `POST /admin-api/security/audit/export-jobs/cleanup`, `GET /admin-api/security/audit/export-jobs/:job_id`, `DELETE /admin-api/security/audit/export-jobs/:job_id`, `GET /admin-api/security/audit/export-jobs/:job_id/download`
 - Admin secrets status/reseal: `GET /admin-api/security/secrets/status`, `POST /admin-api/security/secrets/reseal`
+- Admin Claim Mappers: `GET /admin-api/claim-mappers`, `POST /admin-api/claim-mappers`, `PATCH /admin-api/claim-mappers/:id`, `DELETE /admin-api/claim-mappers/:id`
 
-See [examples/plugins/http-claims-action](examples/plugins/http-claims-action/README.md) for a self-contained local plugin example, and [examples/plugins/catalog.yaml](examples/plugins/catalog.yaml) for a catalog example.
+See [examples/plugins/http-claims-action](examples/plugins/http-claims-action/README.md), [examples/plugins/static-claim-mapper](examples/plugins/static-claim-mapper/README.md), and [examples/plugins/audit-webhook-sink](examples/plugins/audit-webhook-sink/README.md) for self-contained local plugin examples, and [examples/plugins/catalog.yaml](examples/plugins/catalog.yaml) for a catalog example.
 
 ### CIAM/IAM organization management
 
-After enabling the admin console, open the `Organizations` menu to manage B2B tenants. The admin UI can create and edit organizations, attach verified email domains, assign existing users to organizations with lightweight role names, and configure Enterprise OIDC, Enterprise SAML, plus Enterprise LDAP/AD providers per organization.
+After enabling the admin console, open the `Organizations` menu to manage B2B tenants. The admin UI can create and edit organizations, attach verified email domains, assign existing users to organizations with lightweight role names, manage organization-scoped administrators, and configure Enterprise OIDC, Enterprise SAML, plus Enterprise LDAP/AD providers per organization.
+
+Global administrators can delegate one or more organizations to regular platform users. Delegated organization administrators can sign in to the admin console, see only their assigned organizations, and manage organization-local resources without receiving global access to users, plugins, OIDC clients, or security settings.
 
 The organization ID or slug can be used in the `:id` path segment. Organizations are not hard-deleted in this first version; set their status to `inactive` when they should no longer be used.
 
@@ -371,6 +395,7 @@ Useful admin endpoints:
 
 - Organization list/create: `GET /admin-api/organizations`, `POST /admin-api/organizations`
 - Organization detail/update: `GET /admin-api/organizations/:id`, `PATCH /admin-api/organizations/:id`
+- Organization administrators: `GET /admin-api/organizations/:id/admins`, `POST /admin-api/organizations/:id/admins`, `DELETE /admin-api/organizations/:id/admins/:user_id`
 - Organization domains: `GET /admin-api/organizations/:id/domains`, `POST /admin-api/organizations/:id/domains`
 - Domain update/delete: `PATCH /admin-api/organizations/:id/domains/:domain`, `DELETE /admin-api/organizations/:id/domains/:domain`
 - Organization memberships: `GET /admin-api/organizations/:id/memberships`, `POST /admin-api/organizations/:id/memberships`
@@ -532,6 +557,8 @@ oidc:
       client_id: "demo-spa"
       public: true
       require_pkce: true
+      grant_types:
+        - "authorization_code"
       redirect_uris:
         - "https://app.example.com/callback"
       scopes:
@@ -558,9 +585,20 @@ oidc:
       #   admin_api:
       #     required_org_roles:
       #       - "admin"
+    - name: "Service API"
+      client_id: "service-api"
+      client_secret: "CHANGE_ME"
+      public: false
+      grant_types:
+        - "client_credentials"
+      # Optional. Defaults to "svc:<client_id>".
+      # service_account_subject: "svc:service-api"
+      scopes:
+        - "admin_api"
 ```
 
 Static YAML is still supported for bootstrap, but MKAuth can now also manage OIDC clients from the admin console under `Settings -> OIDC Clients`. Database-managed clients are reloaded at runtime immediately after create, update, disable, or delete, so you do not need to restart the service for normal client lifecycle changes.
+For machine-to-machine integrations, create a confidential client with `grant_types: ["client_credentials"]`. It can omit `redirect_uris`, receives an `access_token` only, and uses `svc:<client_id>` as the default token subject unless `service_account_subject` is configured. Confidential clients can introspect their own access tokens through `POST /oauth2/introspect`; public clients cannot use introspection. Clients can also revoke their own access tokens through `POST /oauth2/revoke`.
 The same Settings page now also exposes `Secrets Security`, which shows whether database encryption is enabled and lets an admin reseal stored OIDC client / enterprise provider secrets to the current primary key after a key rotation.
 The same admin security audit log now covers secrets reseal operations plus create, update, and delete activity for admin-managed OIDC clients and enterprise identity providers, so you can review both who changed sensitive configuration and whether the operation succeeded.
 `GET /admin-api/security/audit` supports `page`, `size`, `action`, `resource_type`, `client_id`, `provider_id`, `organization_id`, `actor_id`, `query`, `time_from`, `time_to`, and `success` query parameters. `client_id`, `provider_id`, and `organization_id` are exact-match filters for faster operational tracing. `time_from` and `time_to` accept RFC3339 timestamps, and `YYYY-MM-DD` is also accepted for whole-day filtering. `GET /admin-api/security/audit/export` exports the currently filtered result set as CSV, capped at 5000 rows per export. For longer-running exports, `POST /admin-api/security/audit/export-jobs` creates a background CSV export job, `GET /admin-api/security/audit/export-jobs` lists recent jobs, `GET /admin-api/security/audit/export-jobs/:job_id` returns the current status, and `GET /admin-api/security/audit/export-jobs/:job_id/download` downloads the generated CSV after completion. `DELETE /admin-api/security/audit/export-jobs/:job_id` removes a completed or failed job, while `POST /admin-api/security/audit/export-jobs/cleanup` clears completed/failed jobs according to the current retention policy. That retention policy is now configurable under `auth_admin.security_audit_export_job_retention_days`, and automatic hourly cleanup can be toggled with `auth_admin.security_audit_export_job_auto_cleanup`. The older `GET /admin-api/security/secrets/audit` path is still kept as a compatibility alias, and `GET /admin-api/security/secrets/audit/export` mirrors the CSV export for compatibility. The admin Settings page now keeps security-audit filters in the page URL, supports copying a shareable filtered link, includes an audit detail drawer for inspecting the full actor and details payload, plus one-click copy for audit IDs and resource identifiers, one-click jumps back into filtered audit history, direct open actions for managed OIDC clients or enterprise identity providers, and both immediate CSV export plus non-blocking background export jobs. The same page now also keeps a recent background-export list so operators can continue tracking and downloading completed exports after a refresh, delete a single completed/failed export job, or clean up older settled jobs. The Organizations page now does the same for organization-scoped identity-provider audit views, persisting filters into the URL, supporting copyable filtered links, allowing direct failed-record deep links for a selected provider, supporting the same background export flow for large audit result sets, and showing recent export jobs scoped to the current organization with the same cleanup actions.
@@ -569,6 +607,8 @@ When enabled, MKAuth exposes these standard endpoints:
 - `/.well-known/openid-configuration`
 - `/oauth2/authorize`
 - `/oauth2/token`
+- `/oauth2/introspect`
+- `/oauth2/revoke`
 - `/oauth2/logout`
 - `/oauth2/userinfo`
 - `/oauth2/jwks`
@@ -644,7 +684,48 @@ curl -X POST http://localhost:8080/oauth2/token \
   --data-urlencode 'code_verifier=dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk'
 ```
 
-### Pattern 2: use MKAuth browser session APIs
+### Pattern 2: OAuth2 Client Credentials for services
+
+Use this for backend-to-backend calls where no browser user is present. The client must be confidential and explicitly allow `client_credentials`.
+
+```bash
+curl -X POST http://localhost:8080/oauth2/token \
+  -H 'Content-Type: application/x-www-form-urlencoded' \
+  --data-urlencode 'grant_type=client_credentials' \
+  --data-urlencode 'client_id=service-api' \
+  --data-urlencode 'client_secret=CHANGE_ME' \
+  --data-urlencode 'scope=admin_api'
+```
+
+The response contains `access_token`, `token_type`, `expires_in`, and `scope`. It does not contain an `id_token`, and service-account tokens are intentionally rejected by `/oauth2/userinfo`.
+
+Resource services can validate one of their own access tokens with introspection:
+
+```bash
+curl -X POST http://localhost:8080/oauth2/introspect \
+  -H 'Content-Type: application/x-www-form-urlencoded' \
+  --data-urlencode 'client_id=service-api' \
+  --data-urlencode 'client_secret=CHANGE_ME' \
+  --data-urlencode "token=$ACCESS_TOKEN" \
+  --data-urlencode 'token_type_hint=access_token'
+```
+
+The response follows the OAuth2 token introspection shape and includes `active`, `sub`, `client_id`, `scope`, `aud`, `iss`, `exp`, plus service-account markers such as `grant_type=client_credentials` and `subject_type=service_account` when the token is active.
+
+To revoke an access token before it expires:
+
+```bash
+curl -X POST http://localhost:8080/oauth2/revoke \
+  -H 'Content-Type: application/x-www-form-urlencoded' \
+  --data-urlencode 'client_id=service-api' \
+  --data-urlencode 'client_secret=CHANGE_ME' \
+  --data-urlencode "token=$ACCESS_TOKEN" \
+  --data-urlencode 'token_type_hint=access_token'
+```
+
+MKAuth records revoked access-token `jti` values in Redis until the original token expiration. Revoked tokens are rejected by `/oauth2/userinfo`, `/oauth2/introspect`, and MKAuth `/api` bearer-token authentication.
+
+### Pattern 3: use MKAuth browser session APIs
 
 This is useful when your login page is hosted by MKAuth itself, or when your frontend can call MKAuth in the same browser context and reuse the `oidc_session` cookie.
 

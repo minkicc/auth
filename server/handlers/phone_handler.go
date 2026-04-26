@@ -11,6 +11,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"minki.cc/mkauth/server/auth"
+	"minki.cc/mkauth/server/iam"
 )
 
 // PhoneRegisterRequest Phone registration request
@@ -84,6 +85,14 @@ func (h *AuthHandler) PhoneCodeLogin(c *gin.Context) {
 		return
 	}
 
+	if err := h.runHook(c, iam.HookPreAuthenticate, nil, "phone", nil, map[string]string{
+		"identifier":   req.Phone,
+		"login_method": "code",
+	}); err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		return
+	}
+
 	// Try verification code login
 	user, err := h.phoneAuth.PhoneCodeLogin(req.Phone, req.Code)
 	if err != nil {
@@ -93,7 +102,7 @@ func (h *AuthHandler) PhoneCodeLogin(c *gin.Context) {
 	}
 	_ = h.accountAuth.RecordLoginAttempt(attemptKey, clientIP, true)
 
-	h.completeBrowserLogin(c, user, "Login successful")
+	h.completeBrowserLoginWithProvider(c, user, "Login successful", "phone")
 }
 
 // SendVerificationCode Handle send verification code request
@@ -258,6 +267,13 @@ func (h *AuthHandler) PhonePreregister(c *gin.Context) {
 		return
 	}
 
+	if err := h.runHook(c, iam.HookPreRegister, nil, "phone", nil, map[string]string{
+		"identifier": req.Phone,
+	}); err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		return
+	}
+
 	// Pre-register phone user, send verification code
 	_, err = h.phoneAuth.PhonePreregister(req.Phone, req.Password, req.Nickname)
 	if err != nil {
@@ -353,7 +369,15 @@ func (h *AuthHandler) VerifyPhoneAndRegister(c *gin.Context) {
 	}
 	_ = h.accountAuth.RecordLoginAttempt(attemptKey, clientIP, true)
 
-	h.completeBrowserLogin(c, user, "Phone verification successful, registration complete")
+	if err := h.runHook(c, iam.HookPostRegister, user, "phone", nil, map[string]string{
+		"identifier":   req.Phone,
+		"verification": "phone",
+	}); err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		return
+	}
+
+	h.completeBrowserLoginWithProvider(c, user, "Phone verification successful, registration complete", "phone")
 }
 
 // PhoneLogin Phone number + password login
@@ -382,6 +406,14 @@ func (h *AuthHandler) PhoneLogin(c *gin.Context) {
 		return
 	}
 
+	if err := h.runHook(c, iam.HookPreAuthenticate, nil, "phone", nil, map[string]string{
+		"identifier":   req.Phone,
+		"login_method": "password",
+	}); err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		return
+	}
+
 	// Try to login
 	user, err := h.phoneAuth.PhoneLogin(req.Phone, req.Password)
 	if err != nil {
@@ -401,7 +433,7 @@ func (h *AuthHandler) PhoneLogin(c *gin.Context) {
 	}
 	_ = h.accountAuth.RecordLoginAttempt(attemptKey, clientIP, true)
 
-	h.completeBrowserLogin(c, user, "Login successful")
+	h.completeBrowserLoginWithProvider(c, user, "Login successful", "phone")
 }
 
 // SendLoginSMS Send login verification code

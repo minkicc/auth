@@ -16,7 +16,7 @@ plugins:
 
 The `mkauth-plugin.yaml` file already contains the runtime `http_action` block, so no extra `plugins.http_actions` entry is required for this local plugin.
 
-The manifest also declares the permissions it needs. This example requests `network:http_action` plus the hook permissions for `before_token_issue`, `before_userinfo`, and `post_authenticate`; installation fails if those permissions are missing or blocked by `plugins.allowed_permissions`.
+The manifest also declares the permissions it needs. This example requests `network:http_action` plus hook permissions for registration, authentication, token, userinfo, and logout lifecycle events; installation fails if those permissions are missing or blocked by `plugins.allowed_permissions`.
 
 The manifest includes a `config_schema`, so after installation the admin plugin page can configure the action URL, secret environment variable, timeout, and fail-open behavior without editing the main server config.
 

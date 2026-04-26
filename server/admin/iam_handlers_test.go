@@ -24,7 +24,7 @@ func TestOrganizationAdminHandlersManageDomainsAndMemberships(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to open sqlite: %v", err)
 	}
-	if err := db.AutoMigrate(&auth.User{}); err != nil {
+	if err := db.AutoMigrate(&auth.User{}, &auth.AccountUser{}); err != nil {
 		t.Fatalf("failed to migrate users: %v", err)
 	}
 	if err := iam.NewService(db).AutoMigrate(); err != nil {
@@ -39,10 +39,13 @@ func TestOrganizationAdminHandlersManageDomainsAndMemberships(t *testing.T) {
 		t.Fatalf("failed to create user: %v", err)
 	}
 
-	server := &AdminServer{db: db}
+	server := &AdminServer{db: db, accessController: NewAccessController(&config.AdminConfig{}, db)}
 	router := gin.New()
 	router.GET("/organizations", server.handleListOrganizations)
 	router.POST("/organizations", server.handleCreateOrganization)
+	router.GET("/organizations/:id/admins", server.handleListOrganizationAdmins)
+	router.POST("/organizations/:id/admins", server.handleCreateOrganizationAdmin)
+	router.DELETE("/organizations/:id/admins/:user_id", server.handleDeleteOrganizationAdmin)
 	router.GET("/organizations/:id/domains", server.handleListOrganizationDomains)
 	router.POST("/organizations/:id/domains", server.handleCreateOrganizationDomain)
 	router.PATCH("/organizations/:id/domains/:domain", server.handleUpdateOrganizationDomain)
@@ -66,6 +69,36 @@ func TestOrganizationAdminHandlersManageDomainsAndMemberships(t *testing.T) {
 	}
 	if createBody.Organization.OrganizationID == "" || createBody.Organization.Slug != "acme" {
 		t.Fatalf("unexpected organization response: %#v", createBody.Organization)
+	}
+
+	orgAdminResp := performJSON(t, router, http.MethodPost, "/organizations/acme/admins", map[string]any{
+		"user_ref": "usr_admin_test",
+	})
+	if orgAdminResp.Code != http.StatusCreated {
+		t.Fatalf("expected organization admin status 201, got %d: %s", orgAdminResp.Code, orgAdminResp.Body.String())
+	}
+	var orgAdminBody struct {
+		Admin OrganizationAdminPrincipalView `json:"admin"`
+	}
+	if err := json.Unmarshal(orgAdminResp.Body.Bytes(), &orgAdminBody); err != nil {
+		t.Fatalf("failed to decode organization admin body: %v", err)
+	}
+	if orgAdminBody.Admin.UserID != "usr_admin_test" || orgAdminBody.Admin.Nickname != "Ada" {
+		t.Fatalf("unexpected organization admin response: %#v", orgAdminBody.Admin)
+	}
+	orgAdminsResp := performJSON(t, router, http.MethodGet, "/organizations/acme/admins", nil)
+	if orgAdminsResp.Code != http.StatusOK {
+		t.Fatalf("expected organization admins list status 200, got %d: %s", orgAdminsResp.Code, orgAdminsResp.Body.String())
+	}
+	var orgAdminsBody struct {
+		Admins []OrganizationAdminPrincipalView `json:"admins"`
+		Total  int                              `json:"total"`
+	}
+	if err := json.Unmarshal(orgAdminsResp.Body.Bytes(), &orgAdminsBody); err != nil {
+		t.Fatalf("failed to decode organization admins list: %v", err)
+	}
+	if orgAdminsBody.Total != 1 || len(orgAdminsBody.Admins) != 1 {
+		t.Fatalf("unexpected organization admins list: %#v", orgAdminsBody)
 	}
 
 	domainResp := performJSON(t, router, http.MethodPost, "/organizations/acme/domains", map[string]any{
@@ -115,6 +148,11 @@ func TestOrganizationAdminHandlersManageDomainsAndMemberships(t *testing.T) {
 	}
 	if listBody.Total != 1 || len(listBody.Organizations) != 1 {
 		t.Fatalf("unexpected organization list: %#v", listBody)
+	}
+
+	deleteOrgAdminResp := performJSON(t, router, http.MethodDelete, "/organizations/acme/admins/usr_admin_test", nil)
+	if deleteOrgAdminResp.Code != http.StatusOK {
+		t.Fatalf("expected organization admin delete status 200, got %d: %s", deleteOrgAdminResp.Code, deleteOrgAdminResp.Body.String())
 	}
 }
 

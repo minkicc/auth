@@ -389,7 +389,7 @@
         <div class="card-header">
           <div>
             <h2>OIDC Clients</h2>
-            <p class="subhead">为业务系统创建和维护下游 OIDC client，支持 redirect URI、PKCE 和组织级授权策略。</p>
+            <p class="subhead">为业务系统和机器服务创建下游 OIDC / OAuth client，支持 PKCE、client_credentials 和组织级授权策略。</p>
           </div>
           <div class="toolbar-actions">
             <el-button :loading="oidcLoading" @click="loadOIDCClients">刷新</el-button>
@@ -426,6 +426,11 @@
             <el-tag :type="row.public ? 'success' : 'warning'" effect="plain">
               {{ row.public ? 'Public' : 'Confidential' }}
             </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="授权方式" min-width="180">
+          <template #default="{ row }">
+            <span class="events">{{ formatGrantTypes(row.grant_types) }}</span>
           </template>
         </el-table-column>
         <el-table-column label="状态" width="110">
@@ -474,6 +479,102 @@
                 删除
               </el-button>
               <el-tag v-else effect="plain" type="info">只读</el-tag>
+            </div>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-card>
+
+    <el-card class="settings-card">
+      <template #header>
+        <div class="card-header">
+          <div>
+            <h2>Claim Mappers</h2>
+            <p class="subhead">直接在后台配置 token / userinfo 自定义 claim，不需要重新打包插件。</p>
+          </div>
+          <div class="toolbar-actions">
+            <el-button :loading="claimMapperLoading" @click="loadClaimMappers">刷新</el-button>
+            <el-button type="primary" @click="openClaimMapperDialog()">新建 Mapper</el-button>
+          </div>
+        </div>
+      </template>
+
+      <el-alert
+        v-if="claimMapperLoadError"
+        class="plugin-alert"
+        :title="claimMapperLoadError"
+        type="warning"
+        :closable="false"
+        show-icon
+      />
+
+      <el-alert
+        class="plugin-alert"
+        title="Claim Mapper 会在 before_token_issue / before_userinfo 阶段运行，可按 client 或 organization 限定范围；服务端会拒绝覆盖 sub、iss、aud、exp、scope、client_id、org_id 等受保护 claim。"
+        type="info"
+        :closable="false"
+        show-icon
+      />
+
+      <el-table
+        v-loading="claimMapperLoading"
+        :data="claimMappers"
+        row-key="mapper_id"
+        empty-text="暂无 Claim Mapper"
+      >
+        <el-table-column label="名称" min-width="180">
+          <template #default="{ row }">
+            <div class="oidc-name">
+              <strong>{{ row.name }}</strong>
+              <span>{{ row.mapper_id }}</span>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column label="状态" width="110">
+          <template #default="{ row }">
+            <el-tag :type="row.enabled ? 'success' : 'info'" effect="plain">
+              {{ row.enabled ? '已启用' : '已禁用' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="claim" label="Claim" min-width="150" />
+        <el-table-column label="来源" min-width="220">
+          <template #default="{ row }">
+            <span class="events">{{ formatAdminClaimMapperSource(row) }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="事件" min-width="220">
+          <template #default="{ row }">
+            <span class="events">{{ formatEvents(row.events) }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="范围" min-width="260">
+          <template #default="{ row }">
+            <span class="events">{{ formatAdminClaimMapperScope(row) }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="说明" min-width="180">
+          <template #default="{ row }">{{ row.description || '-' }}</template>
+        </el-table-column>
+        <el-table-column label="操作" width="160" fixed="right">
+          <template #default="{ row }">
+            <div class="table-actions">
+              <el-button
+                link
+                type="primary"
+                :loading="claimMapperActionLoadingId === `edit:${row.mapper_id}`"
+                @click="openClaimMapperDialog(row)"
+              >
+                编辑
+              </el-button>
+              <el-button
+                link
+                type="danger"
+                :loading="claimMapperActionLoadingId === `delete:${row.mapper_id}`"
+                @click="deleteClaimMapper(row)"
+              >
+                删除
+              </el-button>
             </div>
           </template>
         </el-table-column>
@@ -663,6 +764,11 @@
         <el-table-column label="权限" min-width="240">
           <template #default="{ row }">
             <span class="events">{{ formatPermissions(row.permissions) }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="Claims" min-width="260">
+          <template #default="{ row }">
+            <span class="events">{{ formatClaimMappings(row.claim_mappings) }}</span>
           </template>
         </el-table-column>
         <el-table-column label="说明" min-width="220">
@@ -860,6 +966,10 @@
           <strong>事件</strong>
           <p class="events">{{ formatEvents(installPreview.events) }}</p>
         </div>
+        <div v-if="installPreview.claim_mappings?.length" class="preview-block">
+          <strong>Claim 映射</strong>
+          <p class="events">{{ formatClaimMappings(installPreview.claim_mappings) }}</p>
+        </div>
         <div v-if="installPreview.preserved_config_keys?.length || installPreview.dropped_config_keys?.length" class="preview-block">
           <strong>配置继承</strong>
           <p v-if="installPreview.preserved_config_keys?.length" class="events">
@@ -973,6 +1083,16 @@
           </el-form-item>
         </div>
 
+        <el-form-item label="Grant Types">
+          <el-input
+            v-model="oidcForm.grant_types_text"
+            type="textarea"
+            :rows="2"
+            placeholder="每行一个，例如 authorization_code 或 client_credentials"
+          />
+          <div class="form-tip">浏览器/用户登录使用 authorization_code；机器服务调用使用 client_credentials，必须是 Confidential client。</div>
+        </el-form-item>
+
         <el-form-item :label="oidcForm.public ? 'Client Secret（可留空）' : 'Client Secret *'">
           <el-input
             v-model="oidcForm.client_secret"
@@ -983,13 +1103,23 @@
           />
         </el-form-item>
 
-        <el-form-item label="Redirect URIs *">
+        <el-form-item label="Service Account Subject">
+          <el-input
+            v-model="oidcForm.service_account_subject"
+            placeholder="留空默认 svc:<client_id>"
+            clearable
+          />
+          <div class="form-tip">仅 client_credentials 生效，会作为机器 token 的 sub。</div>
+        </el-form-item>
+
+        <el-form-item label="Redirect URIs">
           <el-input
             v-model="oidcForm.redirect_uris_text"
             type="textarea"
             :rows="4"
             placeholder="每行一个，例如：https://app.example.com/callback"
           />
+          <div class="form-tip">authorization_code 需要至少一个回调地址；纯 client_credentials 客户端可以留空。</div>
         </el-form-item>
 
         <el-form-item label="Scopes">
@@ -997,7 +1127,7 @@
             v-model="oidcForm.scopes_text"
             type="textarea"
             :rows="2"
-            placeholder="每行一个，默认 openid / profile / email"
+            placeholder="每行一个；用户登录默认 openid / profile / email，机器服务建议显式配置如 admin_api"
           />
         </el-form-item>
 
@@ -1064,6 +1194,88 @@
       </template>
     </el-dialog>
 
+    <el-dialog
+      v-model="claimMapperDialogVisible"
+      :title="claimMapperDialogMode === 'create' ? '新建 Claim Mapper' : `编辑 Claim Mapper ${claimMapperForm.mapper_id}`"
+      width="720px"
+    >
+      <el-form label-position="top">
+        <div class="oidc-form-grid">
+          <el-form-item label="名称 *">
+            <el-input v-model="claimMapperForm.name" placeholder="Tenant Claim" clearable />
+          </el-form-item>
+          <el-form-item label="状态">
+            <el-switch
+              v-model="claimMapperForm.enabled"
+              inline-prompt
+              active-text="启用"
+              inactive-text="禁用"
+            />
+          </el-form-item>
+        </div>
+
+        <div class="oidc-form-grid">
+          <el-form-item label="Claim *">
+            <el-input v-model="claimMapperForm.claim" placeholder="tenant_key" clearable />
+          </el-form-item>
+          <el-form-item label="Value From">
+            <el-input v-model="claimMapperForm.value_from" placeholder="claim.org_roles / user.user_id" clearable />
+          </el-form-item>
+        </div>
+
+        <el-form-item label="Static Value">
+          <el-input
+            v-model="claimMapperForm.value"
+            type="textarea"
+            :rows="3"
+            placeholder="例如：tenant:${claim.org_slug}:${client_id}。如果设置了 Value From，这里请留空。"
+          />
+          <div class="form-tip">支持模板：${claim.org_slug}、${client_id}、${user.username}、${metadata.path}。Static Value 和 Value From 二选一。</div>
+        </el-form-item>
+
+        <el-form-item label="事件">
+          <el-input
+            v-model="claimMapperForm.events_text"
+            type="textarea"
+            :rows="2"
+            placeholder="before_token_issue / before_userinfo，每行一个"
+          />
+        </el-form-item>
+
+        <div class="oidc-form-grid">
+          <el-form-item label="限定 Clients">
+            <el-input
+              v-model="claimMapperForm.clients_text"
+              type="textarea"
+              :rows="3"
+              placeholder="每行一个 client_id；留空表示全部"
+            />
+          </el-form-item>
+          <el-form-item label="限定 Organizations">
+            <el-input
+              v-model="claimMapperForm.organizations_text"
+              type="textarea"
+              :rows="3"
+              placeholder="每行一个 organization ID 或 slug；留空表示全部"
+            />
+          </el-form-item>
+        </div>
+
+        <el-form-item label="说明">
+          <el-input
+            v-model="claimMapperForm.description"
+            type="textarea"
+            :rows="2"
+            placeholder="描述这个 claim 的用途"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="claimMapperDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="claimMapperDialogSubmitting" @click="saveClaimMapper">保存</el-button>
+      </template>
+    </el-dialog>
+
     <SecurityAuditDetailDrawer
       v-model="securityAuditDetailVisible"
       :entry="selectedSecurityAuditEntry"
@@ -1080,16 +1292,19 @@ import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import { ElMessageBox } from 'element-plus/es/components/message-box/index'
-import { serverApi, type AdminPrincipal, type CatalogPluginInfo, type OIDCClient, type OIDCOrganizationPolicy, type PluginAuditEntry, type PluginBackupInfo, type PluginConfigField, type PluginInfo, type PluginInstallPreview, type SecurityAuditEntry, type SecurityAuditExportJob, type SecurityAuditQuery, type SecuritySecretsStatus } from '@/api'
+import { serverApi, type AdminClaimMapper, type AdminPrincipal, type CatalogPluginInfo, type OIDCClient, type OIDCOrganizationPolicy, type PluginAuditEntry, type PluginBackupInfo, type PluginClaimMapping, type PluginConfigField, type PluginInfo, type PluginInstallPreview, type SecurityAuditEntry, type SecurityAuditExportJob, type SecurityAuditQuery, type SecuritySecretsStatus } from '@/api'
 import SecurityAuditDetailDrawer from '@/components/SecurityAuditDetailDrawer.vue'
 
 type OIDCDialogMode = 'create' | 'edit'
+type ClaimMapperDialogMode = 'create' | 'edit'
 
 interface OIDCClientFormState {
   original_client_id: string
   name: string
   client_id: string
   client_secret: string
+  grant_types_text: string
+  service_account_subject: string
   redirect_uris_text: string
   scopes_text: string
   allowed_organizations_text: string
@@ -1122,6 +1337,19 @@ interface AdminCreateFormState {
   user_ref: string
 }
 
+interface ClaimMapperFormState {
+  mapper_id: string
+  name: string
+  description: string
+  enabled: boolean
+  claim: string
+  value: string
+  value_from: string
+  events_text: string
+  clients_text: string
+  organizations_text: string
+}
+
 const loading = ref(false)
 const actionLoadingId = ref('')
 const replaceOnInstall = ref(false)
@@ -1146,6 +1374,10 @@ const oidcLoading = ref(false)
 const oidcActionLoadingId = ref('')
 const oidcLoadError = ref('')
 const oidcClients = ref<OIDCClient[]>([])
+const claimMapperLoading = ref(false)
+const claimMapperActionLoadingId = ref('')
+const claimMapperLoadError = ref('')
+const claimMappers = ref<AdminClaimMapper[]>([])
 const adminLoading = ref(false)
 const adminActionLoadingId = ref('')
 const adminLoadError = ref('')
@@ -1156,6 +1388,9 @@ const adminCreateForm = reactive<AdminCreateFormState>({
 const oidcDialogVisible = ref(false)
 const oidcDialogMode = ref<OIDCDialogMode>('create')
 const oidcDialogSubmitting = ref(false)
+const claimMapperDialogVisible = ref(false)
+const claimMapperDialogMode = ref<ClaimMapperDialogMode>('create')
+const claimMapperDialogSubmitting = ref(false)
 const securityLoading = ref(false)
 const securityResealLoading = ref(false)
 const securityAuditLoading = ref(false)
@@ -1191,6 +1426,8 @@ const oidcForm = reactive<OIDCClientFormState>({
   name: '',
   client_id: '',
   client_secret: '',
+  grant_types_text: '',
+  service_account_subject: '',
   redirect_uris_text: '',
   scopes_text: '',
   allowed_organizations_text: '',
@@ -1205,6 +1442,18 @@ const oidcForm = reactive<OIDCClientFormState>({
   enabled: true,
   client_secret_configured: false
 })
+const claimMapperForm = reactive<ClaimMapperFormState>({
+  mapper_id: '',
+  name: '',
+  description: '',
+  enabled: true,
+  claim: '',
+  value: '',
+  value_from: '',
+  events_text: 'before_token_issue\nbefore_userinfo',
+  clients_text: '',
+  organizations_text: ''
+})
 
 const securityAuditActionOptions = [
   { label: '重写托管 Secrets', value: 'secrets_reseal' },
@@ -1214,14 +1463,21 @@ const securityAuditActionOptions = [
   { label: '创建企业身份源', value: 'identity_provider_create' },
   { label: '更新企业身份源', value: 'identity_provider_update' },
   { label: '删除企业身份源', value: 'identity_provider_delete' },
+  { label: '创建 Claim Mapper', value: 'claim_mapper_create' },
+  { label: '更新 Claim Mapper', value: 'claim_mapper_update' },
+  { label: '删除 Claim Mapper', value: 'claim_mapper_delete' },
   { label: '添加管理员', value: 'admin_principal_create' },
-  { label: '移除管理员', value: 'admin_principal_delete' }
+  { label: '移除管理员', value: 'admin_principal_delete' },
+  { label: '添加组织管理员', value: 'organization_admin_create' },
+  { label: '移除组织管理员', value: 'organization_admin_delete' }
 ]
 
 const securityAuditResourceOptions = [
   { label: 'OIDC Client', value: 'oidc_client' },
   { label: '企业身份源', value: 'identity_provider' },
-  { label: '管理员', value: 'admin_principal' }
+  { label: 'Claim Mapper', value: 'claim_mapper' },
+  { label: '管理员', value: 'admin_principal' },
+  { label: '组织管理员', value: 'organization_admin' }
 ]
 
 const route = useRoute()
@@ -1275,10 +1531,29 @@ const formatPermissions = (permissions?: string[]) => {
   return permissions.join(', ')
 }
 
+const formatClaimMappings = (mappings?: PluginClaimMapping[]) => {
+  if (!mappings || mappings.length === 0) return '-'
+  return mappings
+    .map(mapping => {
+      const source = mapping.value_from ? `from ${mapping.value_from}` : `= ${mapping.value ?? ''}`
+      const scopes = [
+        mapping.clients?.length ? `clients:${mapping.clients.join('|')}` : '',
+        mapping.organizations?.length ? `orgs:${mapping.organizations.join('|')}` : '',
+      ].filter(Boolean)
+      return `${mapping.claim} ${source}${scopes.length ? ` (${scopes.join(', ')})` : ''}`
+    })
+    .join('; ')
+}
+
 const formatHash = (hash?: string) => {
   if (!hash) return '-'
   if (hash.length <= 16) return hash
   return `${hash.slice(0, 12)}...${hash.slice(-8)}`
+}
+
+const formatGrantTypes = (grantTypes?: string[]) => {
+  if (!grantTypes || grantTypes.length === 0) return 'authorization_code'
+  return grantTypes.join(', ')
 }
 
 const serializeLineList = (values?: string[]) => {
@@ -1313,6 +1588,8 @@ const resetOIDCForm = () => {
   oidcForm.name = ''
   oidcForm.client_id = ''
   oidcForm.client_secret = ''
+  oidcForm.grant_types_text = 'authorization_code'
+  oidcForm.service_account_subject = ''
   oidcForm.redirect_uris_text = ''
   oidcForm.scopes_text = 'openid\nprofile\nemail'
   oidcForm.allowed_organizations_text = ''
@@ -1326,6 +1603,19 @@ const resetOIDCForm = () => {
   oidcForm.require_organization = false
   oidcForm.enabled = true
   oidcForm.client_secret_configured = false
+}
+
+const resetClaimMapperForm = () => {
+  claimMapperForm.mapper_id = ''
+  claimMapperForm.name = ''
+  claimMapperForm.description = ''
+  claimMapperForm.enabled = true
+  claimMapperForm.claim = ''
+  claimMapperForm.value = ''
+  claimMapperForm.value_from = ''
+  claimMapperForm.events_text = 'before_token_issue\nbefore_userinfo'
+  claimMapperForm.clients_text = ''
+  claimMapperForm.organizations_text = ''
 }
 
 const loadAdmins = async () => {
@@ -1826,6 +2116,7 @@ const openSecurityAuditResource = async (resource: {
   client_id?: string
   provider_id?: string
   organization_id?: string
+  mapper_id?: string
 }) => {
   if (resource.resource_type === 'oidc_client' && resource.client_id) {
     let targetClient = oidcClients.value.find(client => client.client_id === resource.client_id)
@@ -1850,6 +2141,31 @@ const openSecurityAuditResource = async (resource: {
         tab: 'identity-providers',
         provider_id: resource.provider_id,
         open: 'edit'
+      }
+    })
+    return
+  }
+  if (resource.resource_type === 'claim_mapper' && resource.mapper_id) {
+    let targetMapper = claimMappers.value.find(mapper => mapper.mapper_id === resource.mapper_id)
+    if (!targetMapper) {
+      await loadClaimMappers()
+      targetMapper = claimMappers.value.find(mapper => mapper.mapper_id === resource.mapper_id)
+    }
+    if (!targetMapper) {
+      ElMessage.warning('该 Claim Mapper 可能已删除，无法直接打开配置')
+      return
+    }
+    securityAuditDetailVisible.value = false
+    openClaimMapperDialog(targetMapper)
+    return
+  }
+  if (resource.resource_type === 'organization_admin' && resource.organization_id) {
+    securityAuditDetailVisible.value = false
+    await router.push({
+      name: 'Organizations',
+      query: {
+        organization_id: resource.organization_id,
+        tab: 'admins'
       }
     })
     return
@@ -1885,6 +2201,20 @@ const loadOIDCClients = async () => {
   }
 }
 
+const loadClaimMappers = async () => {
+  claimMapperLoading.value = true
+  try {
+    const response = await serverApi.getClaimMappers()
+    claimMappers.value = response.claim_mappers || []
+    claimMapperLoadError.value = ''
+  } catch (error: any) {
+    claimMappers.value = []
+    claimMapperLoadError.value = error?.response?.data?.error || '加载 Claim Mappers 失败'
+  } finally {
+    claimMapperLoading.value = false
+  }
+}
+
 const formatOIDCPolicy = (client: OIDCClient) => {
   if (!client.require_organization &&
     (!client.required_org_roles?.length) &&
@@ -1906,6 +2236,19 @@ const formatOIDCPolicy = (client: OIDCClient) => {
   return parts.join(' | ')
 }
 
+const formatAdminClaimMapperSource = (mapper: AdminClaimMapper) => {
+  if (mapper.value_from) return `from ${mapper.value_from}`
+  if (mapper.value) return `= ${mapper.value}`
+  return '-'
+}
+
+const formatAdminClaimMapperScope = (mapper: AdminClaimMapper) => {
+  const parts: string[] = []
+  if (mapper.clients?.length) parts.push(`clients:${mapper.clients.join(', ')}`)
+  if (mapper.organizations?.length) parts.push(`orgs:${mapper.organizations.join(', ')}`)
+  return parts.length > 0 ? parts.join(' | ') : '全部'
+}
+
 const formatSecurityAuditAction = (action: string) => {
   const labels: Record<string, string> = {
     secrets_reseal: '重写托管 Secrets',
@@ -1915,8 +2258,13 @@ const formatSecurityAuditAction = (action: string) => {
     identity_provider_create: '创建企业身份源',
     identity_provider_update: '更新企业身份源',
     identity_provider_delete: '删除企业身份源',
+    claim_mapper_create: '创建 Claim Mapper',
+    claim_mapper_update: '更新 Claim Mapper',
+    claim_mapper_delete: '删除 Claim Mapper',
     admin_principal_create: '添加管理员',
-    admin_principal_delete: '移除管理员'
+    admin_principal_delete: '移除管理员',
+    organization_admin_create: '添加组织管理员',
+    organization_admin_delete: '移除组织管理员'
   }
   return labels[action] || action || '-'
 }
@@ -1944,6 +2292,20 @@ const formatSecurityAuditDetails = (entry: SecurityAuditEntry) => {
     if (details.previous_slug) parts.push(`原 Slug ${details.previous_slug}`)
     if (details.name) parts.push(`名称 ${details.name}`)
     if (details.organization_id) parts.push(`组织 ${details.organization_id}`)
+  }
+  if (details.resource_type === 'claim_mapper') {
+    if (details.mapper_id) parts.push(`Mapper ${details.mapper_id}`)
+    if (details.name) parts.push(`名称 ${details.name}`)
+    if (details.claim) parts.push(`Claim ${details.claim}`)
+    if (details.value_from) parts.push(`来源 ${details.value_from}`)
+    if (details.client_count) parts.push(`Clients ${details.client_count}`)
+    if (details.organization_count) parts.push(`组织 ${details.organization_count}`)
+    if (details.event_count) parts.push(`事件 ${details.event_count}`)
+  }
+  if (details.resource_type === 'organization_admin') {
+    if (details.organization_id) parts.push(`组织 ${details.organization_id}`)
+    if (details.user_id) parts.push(`用户 ${details.user_id}`)
+    if (details.username) parts.push(`用户名 ${details.username}`)
   }
   if (details.oidc_clients) parts.push(`OIDC clients ${details.oidc_clients}`)
   if (details.identity_providers) parts.push(`身份源 ${details.identity_providers}`)
@@ -2009,6 +2371,8 @@ const openOIDCDialog = (client?: OIDCClient) => {
   oidcForm.name = client.name || ''
   oidcForm.client_id = client.client_id
   oidcForm.client_secret = ''
+  oidcForm.grant_types_text = serializeLineList(client.grant_types?.length ? client.grant_types : ['authorization_code'])
+  oidcForm.service_account_subject = client.service_account_subject || ''
   oidcForm.redirect_uris_text = serializeLineList(client.redirect_uris)
   oidcForm.scopes_text = serializeLineList(client.scopes)
   oidcForm.allowed_organizations_text = serializeLineList(client.allowed_organizations)
@@ -2043,6 +2407,8 @@ const saveOIDCClient = async () => {
     name: oidcForm.name.trim(),
     client_id: oidcForm.client_id.trim(),
     client_secret: oidcForm.client_secret.trim(),
+    grant_types: parseLineList(oidcForm.grant_types_text),
+    service_account_subject: oidcForm.service_account_subject.trim(),
     redirect_uris: parseLineList(oidcForm.redirect_uris_text),
     scopes: parseLineList(oidcForm.scopes_text),
     public: oidcForm.public,
@@ -2100,6 +2466,86 @@ const deleteOIDCClient = async (client: OIDCClient) => {
     await loadSecurityAudit()
   } finally {
     oidcActionLoadingId.value = ''
+  }
+}
+
+const openClaimMapperDialog = (mapper?: AdminClaimMapper) => {
+  resetClaimMapperForm()
+  if (!mapper) {
+    claimMapperDialogMode.value = 'create'
+    claimMapperDialogVisible.value = true
+    return
+  }
+  claimMapperDialogMode.value = 'edit'
+  claimMapperForm.mapper_id = mapper.mapper_id
+  claimMapperForm.name = mapper.name || ''
+  claimMapperForm.description = mapper.description || ''
+  claimMapperForm.enabled = mapper.enabled
+  claimMapperForm.claim = mapper.claim || ''
+  claimMapperForm.value = mapper.value || ''
+  claimMapperForm.value_from = mapper.value_from || ''
+  claimMapperForm.events_text = serializeLineList(mapper.events)
+  claimMapperForm.clients_text = serializeLineList(mapper.clients)
+  claimMapperForm.organizations_text = serializeLineList(mapper.organizations)
+  claimMapperDialogVisible.value = true
+}
+
+const saveClaimMapper = async () => {
+  const payload = {
+    name: claimMapperForm.name.trim(),
+    description: claimMapperForm.description.trim(),
+    enabled: claimMapperForm.enabled,
+    claim: claimMapperForm.claim.trim(),
+    value: claimMapperForm.value.trim(),
+    value_from: claimMapperForm.value_from.trim(),
+    events: parseLineList(claimMapperForm.events_text),
+    clients: parseLineList(claimMapperForm.clients_text),
+    organizations: parseLineList(claimMapperForm.organizations_text)
+  }
+  claimMapperDialogSubmitting.value = true
+  try {
+    if (claimMapperDialogMode.value === 'create') {
+      const response = await serverApi.createClaimMapper(payload)
+      ElMessage.success(response.claim_mapper?.name ? `已创建 ${response.claim_mapper.name}` : 'Claim Mapper 创建成功')
+    } else {
+      const response = await serverApi.updateClaimMapper(claimMapperForm.mapper_id, payload)
+      ElMessage.success(response.claim_mapper?.name ? `已更新 ${response.claim_mapper.name}` : 'Claim Mapper 更新成功')
+    }
+    claimMapperDialogVisible.value = false
+    await Promise.all([loadClaimMappers(), loadPlugins(), loadSecurityAudit()])
+  } catch (error: any) {
+    ElMessage.error(error?.response?.data?.error || '保存 Claim Mapper 失败')
+    await loadSecurityAudit()
+  } finally {
+    claimMapperDialogSubmitting.value = false
+  }
+}
+
+const deleteClaimMapper = async (mapper: AdminClaimMapper) => {
+  try {
+    await ElMessageBox.confirm(
+      `确定删除 Claim Mapper ${mapper.name || mapper.mapper_id} 吗？`,
+      '删除 Claim Mapper',
+      {
+        confirmButtonText: '删除',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    )
+  } catch {
+    return
+  }
+
+  claimMapperActionLoadingId.value = `delete:${mapper.mapper_id}`
+  try {
+    const response = await serverApi.deleteClaimMapper(mapper.mapper_id)
+    ElMessage.success(response.message || 'Claim Mapper 已删除')
+    await Promise.all([loadClaimMappers(), loadPlugins(), loadSecurityAudit()])
+  } catch (error: any) {
+    ElMessage.error(error?.response?.data?.error || '删除 Claim Mapper 失败')
+    await loadSecurityAudit()
+  } finally {
+    claimMapperActionLoadingId.value = ''
   }
 }
 
@@ -2397,6 +2843,7 @@ onMounted(() => {
   loadSecurityAudit()
   loadSecurityAuditExportJobs()
   loadOIDCClients()
+  loadClaimMappers()
   loadPlugins()
 })
 

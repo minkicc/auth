@@ -186,6 +186,47 @@ func httpActionConfigFromManifest(manifest Manifest, state *State) config.HTTPAc
 	return action
 }
 
+func auditSinkConfigFromManifest(manifest Manifest, state *State) HTTPAuditSinkConfig {
+	sink := HTTPAuditSinkConfig{
+		ID:            manifest.ID,
+		Name:          manifest.Name,
+		Enabled:       true,
+		URL:           manifest.AuditSink.URL,
+		Secret:        manifest.AuditSink.Secret,
+		TimeoutMS:     manifest.AuditSink.TimeoutMS,
+		FailOpen:      manifest.AuditSink.FailOpen,
+		Actions:       append([]string(nil), manifest.AuditSink.Actions...),
+		ResourceTypes: append([]string(nil), manifest.AuditSink.ResourceTypes...),
+		SuccessOnly:   manifest.AuditSink.SuccessOnly,
+		FailureOnly:   manifest.AuditSink.FailureOnly,
+	}
+	values := effectivePluginConfig(manifest, state)
+	if value := strings.TrimSpace(values["url"]); value != "" {
+		sink.URL = value
+	}
+	if value := strings.TrimSpace(values["secret"]); value != "" {
+		sink.Secret = value
+	}
+	secretEnv := strings.TrimSpace(manifest.AuditSink.SecretEnv)
+	if value := strings.TrimSpace(values["secret_env"]); value != "" {
+		secretEnv = value
+	}
+	if sink.Secret == "" && secretEnv != "" {
+		sink.Secret = strings.TrimSpace(os.Getenv(secretEnv))
+	}
+	if value := strings.TrimSpace(values["timeout_ms"]); value != "" {
+		if parsed, err := strconv.Atoi(value); err == nil {
+			sink.TimeoutMS = parsed
+		}
+	}
+	if value := strings.TrimSpace(values["fail_open"]); value != "" {
+		if parsed, err := strconv.ParseBool(value); err == nil {
+			sink.FailOpen = parsed
+		}
+	}
+	return sink
+}
+
 func sortedConfigKeys(values map[string]string) []string {
 	keys := make([]string, 0, len(values))
 	for key := range values {

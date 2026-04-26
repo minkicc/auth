@@ -187,3 +187,40 @@ func TestValidateClientConfigRejectsUnknownScopePolicy(t *testing.T) {
 		t.Fatalf("expected unsupported scope policy error, got %v", err)
 	}
 }
+
+func TestValidateClientConfigAllowsServiceAccountOnlyClient(t *testing.T) {
+	client := NormalizeClientConfig(config.OIDCClientConfig{
+		ClientID:     "service-api",
+		ClientSecret: "service-secret",
+		GrantTypes:   []string{"client_credentials"},
+		Scopes:       []string{"admin_api", "profile"},
+	})
+
+	if err := ValidateClientConfig(client); err != nil {
+		t.Fatalf("expected service account-only client to validate without redirect_uri, got %v", err)
+	}
+	if len(client.GrantTypes) != 1 || client.GrantTypes[0] != grantTypeClientCredentials {
+		t.Fatalf("unexpected grant types: %#v", client.GrantTypes)
+	}
+	if client.ServiceAccountSubject != "svc:service-api" {
+		t.Fatalf("expected default service account subject, got %q", client.ServiceAccountSubject)
+	}
+}
+
+func TestValidateClientConfigRejectsInvalidServiceAccountGrant(t *testing.T) {
+	if err := ValidateClientConfig(config.OIDCClientConfig{
+		ClientID:   "public-service",
+		Public:     true,
+		GrantTypes: []string{"client_credentials"},
+	}); err == nil || !strings.Contains(err.Error(), "public client") {
+		t.Fatalf("expected public client_credentials rejection, got %v", err)
+	}
+
+	if err := ValidateClientConfig(config.OIDCClientConfig{
+		ClientID:     "bad-grant",
+		ClientSecret: "secret",
+		GrantTypes:   []string{"password"},
+	}); err == nil || !strings.Contains(err.Error(), "unsupported grant_type") {
+		t.Fatalf("expected unsupported grant_type rejection, got %v", err)
+	}
+}

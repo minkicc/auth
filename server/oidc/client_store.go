@@ -13,6 +13,14 @@ import (
 	"minki.cc/mkauth/server/secureconfig"
 )
 
+const (
+	grantTypeAuthorizationCode = "authorization_code"
+	grantTypeClientCredentials = "client_credentials"
+
+	serviceAccountSubjectPrefix          = "svc:"
+	accessTokenSubjectTypeServiceAccount = "service_account"
+)
+
 // ClientRecord stores admin-managed OIDC relying party clients.
 type ClientRecord struct {
 	ClientID   string    `json:"client_id" gorm:"primaryKey;size:120"`
@@ -38,6 +46,11 @@ func NormalizeClientConfig(client config.OIDCClientConfig) config.OIDCClientConf
 	client.Name = strings.TrimSpace(client.Name)
 	client.ClientID = strings.TrimSpace(client.ClientID)
 	client.ClientSecret = strings.TrimSpace(client.ClientSecret)
+	client.GrantTypes = normalizeGrantTypes(client.GrantTypes)
+	client.ServiceAccountSubject = strings.TrimSpace(client.ServiceAccountSubject)
+	if clientSupportsGrant(client, grantTypeClientCredentials) && client.ServiceAccountSubject == "" && client.ClientID != "" {
+		client.ServiceAccountSubject = defaultServiceAccountSubject(client.ClientID)
+	}
 	client.RedirectURIs = normalizeUniqueStrings(client.RedirectURIs, false)
 	client.Scopes = normalizeUniqueStrings(client.Scopes, true)
 	client.OIDCOrganizationPolicy = normalizeOrganizationPolicy(client.OIDCOrganizationPolicy)
@@ -50,7 +63,17 @@ func ValidateClientConfig(client config.OIDCClientConfig) error {
 	if client.ClientID == "" {
 		return fmt.Errorf("client_id is required")
 	}
-	if len(client.RedirectURIs) == 0 {
+	for _, grantType := range client.GrantTypes {
+		switch grantType {
+		case grantTypeAuthorizationCode, grantTypeClientCredentials:
+		default:
+			return fmt.Errorf("client %s has unsupported grant_type %q", client.ClientID, grantType)
+		}
+	}
+	if !clientSupportsGrant(client, grantTypeAuthorizationCode) && !clientSupportsGrant(client, grantTypeClientCredentials) {
+		return fmt.Errorf("client %s must define at least one supported grant_type", client.ClientID)
+	}
+	if clientSupportsGrant(client, grantTypeAuthorizationCode) && len(client.RedirectURIs) == 0 {
 		return fmt.Errorf("client %s must define at least one redirect_uri", client.ClientID)
 	}
 	for _, redirectURI := range client.RedirectURIs {
@@ -61,6 +84,9 @@ func ValidateClientConfig(client config.OIDCClientConfig) error {
 	}
 	if !client.Public && client.ClientSecret == "" {
 		return fmt.Errorf("confidential client %s must define client_secret", client.ClientID)
+	}
+	if client.Public && clientSupportsGrant(client, grantTypeClientCredentials) {
+		return fmt.Errorf("public client %s cannot use client_credentials", client.ClientID)
 	}
 	allowedScopes := effectiveAllowedScopes(client)
 	allowedScopeSet := make(map[string]struct{}, len(allowedScopes))
@@ -132,6 +158,56 @@ func normalizeUniqueStrings(values []string, lower bool) []string {
 	}
 	sort.Strings(normalized)
 	return normalized
+}
+
+func normalizeGrantTypes(values []string) []string {
+	if len(values) == 0 {
+		return []string{grantTypeAuthorizationCode}
+	}
+	seen := make(map[string]struct{}, len(values))
+	normalized := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.ToLower(strings.TrimSpace(value))
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		normalized = append(normalized, value)
+	}
+	if len(normalized) == 0 {
+		return []string{grantTypeAuthorizationCode}
+	}
+	sort.Slice(normalized, func(i, j int) bool {
+		return grantTypeSortKey(normalized[i]) < grantTypeSortKey(normalized[j])
+	})
+	return normalized
+}
+
+func grantTypeSortKey(value string) string {
+	switch value {
+	case grantTypeAuthorizationCode:
+		return "0:" + value
+	case grantTypeClientCredentials:
+		return "1:" + value
+	default:
+		return "9:" + value
+	}
+}
+
+func clientSupportsGrant(client config.OIDCClientConfig, grantType string) bool {
+	for _, configured := range normalizeGrantTypes(client.GrantTypes) {
+		if configured == grantType {
+			return true
+		}
+	}
+	return false
+}
+
+func defaultServiceAccountSubject(clientID string) string {
+	return serviceAccountSubjectPrefix + strings.TrimSpace(clientID)
 }
 
 func normalizeUniqueFoldStrings(values []string) []string {

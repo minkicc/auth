@@ -127,6 +127,19 @@ type organizationRoleView struct {
 func (s *AdminServer) handleListOrganizations(c *gin.Context) {
 	page, pageSize := adminPagination(c, 20, 100)
 	query := s.db.Model(&iam.Organization{})
+	if adminAccessChecked(c) && !c.GetBool("admin_is_global") {
+		organizationIDs := contextOrganizationAdminIDs(c)
+		if len(organizationIDs) == 0 {
+			c.JSON(http.StatusOK, gin.H{
+				"organizations": []iam.Organization{},
+				"total":         int64(0),
+				"page":          page,
+				"page_size":     pageSize,
+			})
+			return
+		}
+		query = query.Where("organization_id IN ?", organizationIDs)
+	}
 	if status := strings.TrimSpace(c.Query("status")); status != "" {
 		query = query.Where("status = ?", status)
 	}
@@ -831,7 +844,37 @@ func (s *AdminServer) loadOrganization(c *gin.Context, idOrSlug string) (iam.Org
 		writeNotFoundOrError(c, err, "organization was not found")
 		return iam.Organization{}, false
 	}
+	if adminAccessChecked(c) && !c.GetBool("admin_is_global") {
+		userID, _ := c.Get("user_id")
+		userIDText, _ := userID.(string)
+		allowed, allowErr := s.accessController.CanAdministerOrganization(userIDText, org.OrganizationID)
+		if allowErr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to evaluate organization admin access"})
+			return iam.Organization{}, false
+		}
+		if !allowed {
+			c.JSON(http.StatusForbidden, gin.H{"error": "organization administrator access is required"})
+			return iam.Organization{}, false
+		}
+	}
 	return org, true
+}
+
+func adminAccessChecked(c *gin.Context) bool {
+	checked, ok := c.Get("admin_access_checked")
+	return ok && checked == true
+}
+
+func contextOrganizationAdminIDs(c *gin.Context) []string {
+	raw, ok := c.Get("organization_admin_ids")
+	if !ok || raw == nil {
+		return nil
+	}
+	ids, ok := raw.([]string)
+	if !ok {
+		return nil
+	}
+	return ids
 }
 
 func (s *AdminServer) loadAdminUser(userID string) (*auth.User, bool) {

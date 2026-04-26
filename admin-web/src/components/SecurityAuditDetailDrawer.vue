@@ -129,6 +129,7 @@ const emit = defineEmits<{
     client_id?: string
     provider_id?: string
     organization_id?: string
+    mapper_id?: string
   }): void
 }>()
 
@@ -152,6 +153,7 @@ const copyTargets = computed(() => {
   pushTarget('操作人', props.entry?.actor?.id)
   pushTarget('client_id', details.client_id)
   pushTarget('provider_id', details.provider_id)
+  pushTarget('mapper_id', details.mapper_id)
   pushTarget('organization_id', details.organization_id)
   pushTarget('slug', details.slug)
   return targets
@@ -193,6 +195,12 @@ const filterTargets = computed(() => {
       organization_id: details.organization_id
     })
   }
+  if (details.mapper_id) {
+    pushTarget('筛选同 Claim Mapper', {
+      resource_type: resourceType || 'claim_mapper',
+      query: details.mapper_id
+    })
+  }
   return targets
 })
 
@@ -206,6 +214,7 @@ const resourceTargets = computed(() => {
       client_id?: string
       provider_id?: string
       organization_id?: string
+      mapper_id?: string
     }
   }> = []
   if (resourceType === 'oidc_client' && details.client_id) {
@@ -223,6 +232,24 @@ const resourceTargets = computed(() => {
       resource: {
         resource_type: resourceType,
         provider_id: details.provider_id,
+        organization_id: details.organization_id
+      }
+    })
+  }
+  if (resourceType === 'claim_mapper' && details.mapper_id) {
+    targets.push({
+      label: '打开 Claim Mapper 配置',
+      resource: {
+        resource_type: resourceType,
+        mapper_id: details.mapper_id
+      }
+    })
+  }
+  if (resourceType === 'organization_admin' && details.organization_id) {
+    targets.push({
+      label: '打开组织管理员',
+      resource: {
+        resource_type: resourceType,
         organization_id: details.organization_id
       }
     })

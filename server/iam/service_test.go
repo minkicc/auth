@@ -30,6 +30,7 @@ func TestServiceAutoMigrateCreatesFoundationTables(t *testing.T) {
 		&OrganizationRole{},
 		&OrganizationRolePermission{},
 		&OrganizationRoleBinding{},
+		&ClaimMapperRule{},
 	} {
 		if !db.Migrator().HasTable(model) {
 			t.Fatalf("expected table for %T to exist", model)
@@ -94,5 +95,13 @@ func TestServiceGeneratesReadablePrefixedIDs(t *testing.T) {
 	}
 	if !strings.HasPrefix(bindingID, OrganizationRoleBindingIDPrefix) || len(bindingID) != len(OrganizationRoleBindingIDPrefix)+readableRandomIDLength {
 		t.Fatalf("unexpected organization role binding ID format: %q", bindingID)
+	}
+
+	mapperID, err := service.GenerateClaimMapperID()
+	if err != nil {
+		t.Fatalf("failed to generate claim mapper ID: %v", err)
+	}
+	if !strings.HasPrefix(mapperID, ClaimMapperIDPrefix) || len(mapperID) != len(ClaimMapperIDPrefix)+readableRandomIDLength {
+		t.Fatalf("unexpected claim mapper ID format: %q", mapperID)
 	}
 }

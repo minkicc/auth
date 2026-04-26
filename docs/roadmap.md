@@ -13,15 +13,15 @@ MKAuth has already moved beyond a simple authentication service and into an exte
 - organizations, domains, memberships, and groups
 - inbound SCIM Users and Groups
 - organization-aware claims and client-level organization access policy
-- installable plugin runtime and HTTP actions
-- admin-managed OIDC clients, secret encryption, reseal, and security audit operations
+- installable plugin runtime, HTTP actions, manifest-based claim mappers, admin-managed database claim mappers, and audit webhook sinks
+- admin-managed OIDC clients, service-account tokens, delegated organization admins, secret encryption, reseal, and security audit operations
 
 The project is not yet a full workforce IAM suite. The biggest remaining gaps are:
 
 - first-class RBAC and policy enforcement
-- configurable claim mapper platform
-- service accounts and `client_credentials`
-- broader delegated administration
+- richer claim mapper lifecycle features such as ordering, import/export, and reusable templates
+- richer service-account lifecycle management beyond token issuance/introspection/revocation
+- broader workforce-style delegated administration beyond organization-scoped admin access
 - MFA / WebAuthn / passkeys
 
 ## Positioning
@@ -74,15 +74,14 @@ Exit criteria:
 
 Goal: make actions and claims feel like a platform, not just hook points.
 
-- add `pre_register`
-- add `pre_authenticate`
-- add `post_logout`
-- introduce configurable claim mapper model
-- apply claim mappers to `id_token`, `access_token`, and `/userinfo`
+- add `pre_register`, `pre_authenticate`, and `post_logout` lifecycle hooks
+- apply lifecycle hooks consistently across account, email, phone, social, and enterprise browser-login flows
+- add database-managed claim mapper CRUD in the admin UI
+- add per-client and per-organization claim mapper targeting from admin-managed state
 
 Exit criteria:
 
-- claim behavior can be customized per organization or per client
+- claim behavior can be customized per organization or per client from admin-managed state
 - more of the auth lifecycle can be extended without modifying core code
 
 ### Week 4: 2026-05-18 to 2026-05-24
@@ -91,13 +90,17 @@ Goal: fill in the most important IAM-shaped platform gaps.
 
 - add `client_credentials`
 - add service account support
-- add `audit_sink` or webhook sink extension point
+- add confidential-client token introspection for resource services
+- add access-token revocation
+- expand audit sinks beyond admin security audit if needed
 - add first delegated organization admin model
 
 Exit criteria:
 
 - machine-to-machine access works for confidential clients
-- audit events can be sent to external systems
+- resource services can introspect their own access tokens without exposing token state to public clients
+- access tokens can be revoked before expiry and are rejected by MKAuth online validation paths
+- admin security audit events can be sent to external systems
 - organization-scoped admin duties do not require full global admin access
 
 ## Backlog
@@ -185,19 +188,19 @@ Acceptance criteria:
 - different scopes can require different organization authorization
 - authorization failures are deterministic and tested
 
-#### Issue: Introduce configurable claim mapper model
+#### Issue: Deepen configurable claim mapper model
 
 Goals:
 
-- add client-specific claim mapping
-- add organization-specific claim mapping
-- support static values and context field mapping
+- build on manifest-based `claim_mapper` plugins
+- add richer admin UI editing and validation
+- support admin-managed mapper records in addition to installed plugin manifests
 
 Acceptance criteria:
 
-- mappers apply to `id_token`
-- mappers apply to `access_token`
-- mappers apply to `/userinfo`
+- admins can configure mappers without editing YAML or rebuilding plugin ZIPs
+- mappers remain scoped by client and organization
+- existing manifest-based claim mappers continue to work
 
 #### Issue: Add more lifecycle hooks
 
@@ -217,6 +220,8 @@ Acceptance criteria:
 
 #### Issue: Add `client_credentials` and service accounts
 
+Status: done.
+
 Goals:
 
 - support machine-to-machine access
@@ -226,8 +231,13 @@ Acceptance criteria:
 
 - confidential client can obtain token through `client_credentials`
 - scope checks are enforced
+- service-account tokens use `svc:<client_id>` by default and are not accepted by `/oauth2/userinfo`
+- confidential clients can call `/oauth2/introspect` for their own tokens; public clients are rejected
+- clients can call `/oauth2/revoke` to revoke their own access tokens until the original expiry
 
 #### Issue: Add audit sink / webhook sink extension point
+
+Status: done.
 
 Goals:
 
@@ -235,10 +245,13 @@ Goals:
 
 Acceptance criteria:
 
-- events can be sent to webhook sink
+- admin security audit events can be sent to webhook sink
+- authentication lifecycle events can be explicitly opted into with `auth_lifecycle`
 - failures are visible in audit/log output
 
 #### Issue: Add delegated organization admin model
+
+Status: done.
 
 Goals:
 
@@ -249,6 +262,7 @@ Acceptance criteria:
 
 - org admins can manage org-local resources
 - org admins cannot access unrelated organizations
+- global-only admin endpoints remain protected from delegated org admins
 
 #### Issue: Research MFA / WebAuthn / passkeys
 

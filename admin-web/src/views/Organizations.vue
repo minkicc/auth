@@ -7,7 +7,7 @@
             <h2>组织管理</h2>
             <p>管理 B2B CIAM 的租户、企业域名、组织成员、组织组，以及 Enterprise OIDC / SAML 登录源。</p>
           </div>
-          <el-button type="primary" @click="openOrgDialog()">新建组织</el-button>
+          <el-button v-if="context.isGlobalAdmin" type="primary" @click="openOrgDialog()">新建组织</el-button>
         </div>
       </template>
 
@@ -159,6 +159,42 @@
               <template #default="{ row }">
                 <el-button link type="primary" @click="editMembership(row)">编辑</el-button>
                 <el-button link type="danger" @click="deleteMembership(row.user_id)">移除</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-tab-pane>
+
+        <el-tab-pane label="管理员" name="admins">
+          <div class="identity-provider-header">
+            <div>
+              <h3>组织管理员</h3>
+              <p>组织管理员只能管理被授权的组织资源，不能访问其它组织或全局后台配置。</p>
+            </div>
+          </div>
+          <div class="inline-form member-form">
+            <el-input v-model="orgAdminForm.user_ref" placeholder="用户 ID 或用户名" />
+            <el-button type="primary" :loading="detailSaving === 'org-admin'" @click="addOrganizationAdmin">添加组织管理员</el-button>
+          </div>
+          <el-table v-loading="detailLoading" :data="organizationAdmins" row-key="user_id" empty-text="暂无组织管理员">
+            <el-table-column label="用户" min-width="220">
+              <template #default="{ row }">
+                <strong>{{ row.nickname || row.username || row.user_id }}</strong>
+                <p class="muted">{{ row.user_id }}</p>
+              </template>
+            </el-table-column>
+            <el-table-column label="状态" width="120">
+              <template #default="{ row }">
+                <el-tag :type="row.status === 'active' ? 'success' : row.status === 'missing' ? 'danger' : 'info'" effect="plain">
+                  {{ row.status || '-' }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="添加时间" min-width="170">
+              <template #default="{ row }">{{ formatDate(row.created_at) }}</template>
+            </el-table-column>
+            <el-table-column label="操作" width="120" fixed="right">
+              <template #default="{ row }">
+                <el-button link type="danger" @click="deleteOrganizationAdmin(row.user_id)">移除</el-button>
               </template>
             </el-table-column>
           </el-table>
@@ -337,15 +373,15 @@
             <el-table-column label="操作" width="220" fixed="right">
               <template #default="{ row }">
                 <el-button link type="primary" @click="openIdentityProviderDialog(row)">编辑</el-button>
-                <el-button link type="primary" @click="openIdentityProviderAudit(row)">审计</el-button>
-                <el-button link type="warning" @click="openIdentityProviderFailureAudit(row)">失败记录</el-button>
+                <el-button v-if="context.isGlobalAdmin" link type="primary" @click="openIdentityProviderAudit(row)">审计</el-button>
+                <el-button v-if="context.isGlobalAdmin" link type="warning" @click="openIdentityProviderFailureAudit(row)">失败记录</el-button>
                 <el-button link type="danger" @click="deleteIdentityProvider(row)">删除</el-button>
               </template>
             </el-table-column>
           </el-table>
         </el-tab-pane>
 
-        <el-tab-pane label="安全审计" name="security-audit">
+        <el-tab-pane v-if="context.isGlobalAdmin" label="安全审计" name="security-audit">
           <div class="identity-provider-header">
             <div>
               <h3>组织安全审计</h3>
@@ -890,10 +926,12 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import SecurityAuditDetailDrawer from '@/components/SecurityAuditDetailDrawer.vue'
+import { context } from '@/context'
 import {
   serverApi,
   type Organization,
   type OrganizationDomain,
+  type OrganizationAdminPrincipal,
   type OrganizationGroup,
   type OrganizationIdentityProvider,
   type OrganizationMembership,
@@ -937,6 +975,7 @@ const detailLoading = ref(false)
 const detailSaving = ref('')
 const domains = ref<OrganizationDomain[]>([])
 const memberships = ref<OrganizationMembership[]>([])
+const organizationAdmins = ref<OrganizationAdminPrincipal[]>([])
 const groups = ref<OrganizationGroup[]>([])
 const roles = ref<OrganizationRole[]>([])
 const identityProviders = ref<OrganizationIdentityProvider[]>([])
@@ -963,6 +1002,7 @@ const organizationAuditFilters = reactive<OrganizationAuditFilterState>({
 })
 const domainForm = ref({ domain: '', verified: true })
 const memberForm = ref({ user_id: '', status: 'active', roles_text: '' })
+const orgAdminForm = ref({ user_ref: '' })
 
 const groupDialogVisible = ref(false)
 const editingGroup = ref<OrganizationGroup | null>(null)
@@ -978,7 +1018,9 @@ const identityProviderForm = ref(defaultIdentityProviderForm())
 const organizationAuditActionOptions = [
   { label: '创建企业身份源', value: 'identity_provider_create' },
   { label: '更新企业身份源', value: 'identity_provider_update' },
-  { label: '删除企业身份源', value: 'identity_provider_delete' }
+  { label: '删除企业身份源', value: 'identity_provider_delete' },
+  { label: '添加组织管理员', value: 'organization_admin_create' },
+  { label: '移除组织管理员', value: 'organization_admin_delete' }
 ]
 
 const route = useRoute()
@@ -1149,6 +1191,7 @@ const openManageDialog = async (org: Organization, initialTab = 'domains') => {
   groupDialogVisible.value = false
   roleDialogVisible.value = false
   identityProviderDialogVisible.value = false
+  orgAdminForm.value.user_ref = ''
   await loadOrganizationDetails()
 }
 
@@ -1156,15 +1199,17 @@ const loadOrganizationDetails = async () => {
   if (!activeOrg.value) return
   detailLoading.value = true
   try {
-    const [domainResponse, memberResponse, groupResponse, roleResponse, identityProviderResponse] = await Promise.all([
+    const [domainResponse, memberResponse, adminResponse, groupResponse, roleResponse, identityProviderResponse] = await Promise.all([
       serverApi.getOrganizationDomains(activeOrg.value.organization_id),
       serverApi.getOrganizationMemberships(activeOrg.value.organization_id),
+      serverApi.getOrganizationAdmins(activeOrg.value.organization_id),
       serverApi.getOrganizationGroups(activeOrg.value.organization_id),
       serverApi.getOrganizationRoles(activeOrg.value.organization_id),
       serverApi.getOrganizationIdentityProviders(activeOrg.value.organization_id)
     ])
     domains.value = domainResponse.domains || []
     memberships.value = memberResponse.memberships || []
+    organizationAdmins.value = adminResponse.admins || []
     groups.value = groupResponse.groups || []
     roles.value = roleResponse.roles || []
     identityProviders.value = identityProviderResponse.identity_providers || []
@@ -1248,7 +1293,7 @@ const syncOrganizationAuditRoute = async () => {
 }
 
 const loadOrganizationSecurityAudit = async () => {
-  if (!activeOrg.value) return
+  if (!activeOrg.value || !context.isGlobalAdmin) return
   organizationAuditLoading.value = true
   try {
     const response = await serverApi.getSecurityAudit(buildOrganizationSecurityAuditQuery({
@@ -1269,7 +1314,7 @@ const loadOrganizationSecurityAudit = async () => {
 }
 
 const loadOrganizationAuditExportJobs = async () => {
-  if (!activeOrg.value) return
+  if (!activeOrg.value || !context.isGlobalAdmin) return
   organizationAuditExportJobsLoading.value = true
   try {
     const response = await serverApi.listSecurityAuditExportJobs({
@@ -1292,18 +1337,21 @@ const clearTrackedOrganizationAuditExportJobIfNeeded = (jobId: string) => {
 }
 
 const handleOrganizationAuditFilterChange = async () => {
+  if (!context.isGlobalAdmin) return
   organizationAuditPage.value = 1
   await syncOrganizationAuditRoute()
   await loadOrganizationSecurityAudit()
 }
 
 const handleOrganizationAuditPageChange = async (page: number) => {
+  if (!context.isGlobalAdmin) return
   organizationAuditPage.value = page
   await syncOrganizationAuditRoute()
   await loadOrganizationSecurityAudit()
 }
 
 const handleOrganizationAuditSizeChange = async (size: number) => {
+  if (!context.isGlobalAdmin) return
   organizationAuditPageSize.value = size
   organizationAuditPage.value = 1
   await syncOrganizationAuditRoute()
@@ -1311,6 +1359,7 @@ const handleOrganizationAuditSizeChange = async (size: number) => {
 }
 
 const showOrganizationAuditFailures = async () => {
+  if (!context.isGlobalAdmin) return
   organizationAuditFilters.success = 'false'
   organizationAuditPage.value = 1
   await syncOrganizationAuditRoute()
@@ -1318,6 +1367,7 @@ const showOrganizationAuditFailures = async () => {
 }
 
 const resetOrganizationAuditFilters = async () => {
+  if (!context.isGlobalAdmin) return
   organizationAuditFilters.action = ''
   organizationAuditFilters.provider_id = ''
   organizationAuditFilters.query = ''
@@ -1577,6 +1627,7 @@ const openOrganizationAuditDetail = (entry: SecurityAuditEntry) => {
 }
 
 const applyOrganizationAuditJumpFilter = async (filter: Partial<SecurityAuditQuery>) => {
+  if (!context.isGlobalAdmin) return
   organizationAuditFilters.action = ''
   organizationAuditFilters.provider_id = filter.provider_id || ''
   organizationAuditFilters.query = ''
@@ -1603,6 +1654,11 @@ const openOrganizationAuditResource = async (resource: {
     organizationAuditDetailVisible.value = false
     activeTab.value = 'identity-providers'
     openIdentityProviderDialog(targetProvider)
+    return
+  }
+  if (resource.resource_type === 'organization_admin') {
+    organizationAuditDetailVisible.value = false
+    activeTab.value = 'admins'
     return
   }
   ElMessage.info('当前审计记录暂不支持直接打开对应资源')
@@ -1689,6 +1745,42 @@ const deleteMembership = async (userId: string) => {
     await loadOrganizationDetails()
   } catch (error: any) {
     ElMessage.error(error?.response?.data?.error || '移除成员失败')
+  }
+}
+
+const addOrganizationAdmin = async () => {
+  if (!activeOrg.value) return
+  const userRef = orgAdminForm.value.user_ref.trim()
+  if (!userRef) {
+    ElMessage.warning('请输入用户 ID 或用户名')
+    return
+  }
+  detailSaving.value = 'org-admin'
+  try {
+    await serverApi.createOrganizationAdmin(activeOrg.value.organization_id, { user_ref: userRef })
+    ElMessage.success('组织管理员已添加')
+    orgAdminForm.value.user_ref = ''
+    await loadOrganizationDetails()
+  } catch (error: any) {
+    ElMessage.error(error?.response?.data?.error || '添加组织管理员失败')
+  } finally {
+    detailSaving.value = ''
+  }
+}
+
+const deleteOrganizationAdmin = async (userId: string) => {
+  if (!activeOrg.value) return
+  try {
+    await ElMessageBox.confirm(`确定移除组织管理员 ${userId} 吗？`, '移除组织管理员', { type: 'warning' })
+  } catch {
+    return
+  }
+  try {
+    await serverApi.deleteOrganizationAdmin(activeOrg.value.organization_id, userId)
+    ElMessage.success('组织管理员已移除')
+    await loadOrganizationDetails()
+  } catch (error: any) {
+    ElMessage.error(error?.response?.data?.error || '移除组织管理员失败')
   }
 }
 
@@ -1996,6 +2088,7 @@ const deleteIdentityProvider = async (provider: OrganizationIdentityProvider) =>
 }
 
 const openIdentityProviderAudit = async (provider: OrganizationIdentityProvider) => {
+  if (!context.isGlobalAdmin) return
   const alreadyOnAuditTab = activeTab.value === 'security-audit'
   organizationAuditFilters.action = ''
   organizationAuditFilters.provider_id = provider.identity_provider_id
@@ -2010,6 +2103,7 @@ const openIdentityProviderAudit = async (provider: OrganizationIdentityProvider)
 }
 
 const openIdentityProviderFailureAudit = async (provider: OrganizationIdentityProvider) => {
+  if (!context.isGlobalAdmin) return
   const alreadyOnAuditTab = activeTab.value === 'security-audit'
   organizationAuditFilters.action = ''
   organizationAuditFilters.provider_id = provider.identity_provider_id
@@ -2125,7 +2219,9 @@ const formatSecurityAuditAction = (action: string) => {
   const labels: Record<string, string> = {
     identity_provider_create: '创建企业身份源',
     identity_provider_update: '更新企业身份源',
-    identity_provider_delete: '删除企业身份源'
+    identity_provider_delete: '删除企业身份源',
+    organization_admin_create: '添加组织管理员',
+    organization_admin_delete: '移除组织管理员'
   }
   return labels[action] || action || '-'
 }
@@ -2140,6 +2236,8 @@ const formatOrganizationSecurityAuditDetails = (entry: SecurityAuditEntry) => {
   if (details.previous_slug) parts.push(`原 Slug ${details.previous_slug}`)
   if (details.name) parts.push(`名称 ${details.name}`)
   if (details.organization_id) parts.push(`组织 ${details.organization_id}`)
+  if (details.user_id) parts.push(`用户 ${details.user_id}`)
+  if (details.username) parts.push(`用户名 ${details.username}`)
   if (details.enabled) parts.push(`启用 ${details.enabled === 'true' ? '是' : '否'}`)
   if (details.priority) parts.push(`优先级 ${details.priority}`)
   if (details.is_default) parts.push(`默认 ${details.is_default === 'true' ? '是' : '否'}`)
@@ -2186,14 +2284,16 @@ const formatOrganizationAuditExportJobResult = (job: SecurityAuditExportJob) => 
 
 watch(activeTab, async (tab) => {
   if (hydratingOrganizationRoute) return
-  if (tab === 'security-audit' && activeOrg.value) {
+  if (tab === 'security-audit' && activeOrg.value && context.isGlobalAdmin) {
     await syncOrganizationAuditRoute()
     await Promise.all([loadOrganizationSecurityAudit(), loadOrganizationAuditExportJobs()])
   }
 })
 
 const normalizeOrganizationTab = (raw: string) => {
-  const allowed = new Set(['domains', 'members', 'groups', 'roles', 'identity-providers', 'security-audit'])
+  const allowedTabs = ['domains', 'members', 'admins', 'groups', 'roles', 'identity-providers']
+  if (context.isGlobalAdmin) allowedTabs.push('security-audit')
+  const allowed = new Set(allowedTabs)
   return allowed.has(raw) ? raw : 'domains'
 }
 
@@ -2245,7 +2345,7 @@ const handleOrganizationRouteDeepLink = async () => {
       await openManageDialog(organization, tab)
     }
 
-    if (tab === 'security-audit') {
+    if (tab === 'security-audit' && context.isGlobalAdmin) {
       applyOrganizationAuditRouteState()
       await Promise.all([loadOrganizationSecurityAudit(), loadOrganizationAuditExportJobs()])
     }

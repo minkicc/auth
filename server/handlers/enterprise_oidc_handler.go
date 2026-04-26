@@ -114,14 +114,32 @@ func (h *AuthHandler) EnterpriseLDAPLogin(c *gin.Context) {
 		return
 	}
 
-	user, err := h.enterpriseLDAP.Authenticate(c.Request.Context(), c.Param("slug"), req.Username, req.Password)
+	if err := h.runHook(c, iam.HookPreAuthenticate, nil, "enterprise_ldap", nil, map[string]string{
+		"identifier":    req.Username,
+		"provider_slug": c.Param("slug"),
+	}); err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		return
+	}
+
+	result, err := h.enterpriseLDAP.AuthenticateWithResult(c.Request.Context(), c.Param("slug"), req.Username, req.Password)
 	if err != nil {
 		h.logger.Printf("Enterprise LDAP login failed: %v", err)
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "enterprise ldap authentication failed"})
 		return
 	}
+	user := result.User
+	if result.Created {
+		if err := h.runHook(c, iam.HookPostRegister, user, "enterprise_ldap", nil, map[string]string{
+			"identifier":    req.Username,
+			"provider_slug": c.Param("slug"),
+		}); err != nil {
+			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+			return
+		}
+	}
 
-	h.completeBrowserLogin(c, user, "")
+	h.completeBrowserLoginWithProvider(c, user, "", "enterprise_ldap")
 }
 
 func (h *AuthHandler) EnterpriseOIDCLogin(c *gin.Context) {
@@ -190,15 +208,31 @@ func (h *AuthHandler) EnterpriseOIDCCallback(c *gin.Context) {
 		return
 	}
 
-	user, err := h.enterpriseOIDC.Authenticate(c.Request.Context(), stateData.ProviderSlug, code, stateData.Nonce)
+	if err := h.runHook(c, iam.HookPreAuthenticate, nil, "enterprise_oidc", nil, map[string]string{
+		"provider_slug": stateData.ProviderSlug,
+	}); err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		return
+	}
+
+	result, err := h.enterpriseOIDC.AuthenticateWithResult(c.Request.Context(), stateData.ProviderSlug, code, stateData.Nonce)
 	if err != nil {
 		h.logger.Printf("Enterprise OIDC callback failed: %v", err)
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "enterprise oidc authentication failed"})
 		return
 	}
+	user := result.User
+	if result.Created {
+		if err := h.runHook(c, iam.HookPostRegister, user, "enterprise_oidc", nil, map[string]string{
+			"provider_slug": stateData.ProviderSlug,
+		}); err != nil {
+			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+			return
+		}
+	}
 
 	if stateData.ReturnURI != "" {
-		if _, err := h.createBrowserSession(c, user); err != nil {
+		if _, err := h.createBrowserSessionWithProvider(c, user, "enterprise_oidc"); err != nil {
 			if appErr, ok := err.(*auth.AppError); ok {
 				c.JSON(appErr.GetHTTPStatus(), gin.H{"error": appErr.Error()})
 				return
@@ -210,7 +244,7 @@ func (h *AuthHandler) EnterpriseOIDCCallback(c *gin.Context) {
 		return
 	}
 
-	h.completeBrowserLogin(c, user, "")
+	h.completeBrowserLoginWithProvider(c, user, "", "enterprise_oidc")
 }
 
 func (h *AuthHandler) safeEnterpriseOIDCReturnURI(raw string) string {

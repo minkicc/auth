@@ -4,7 +4,7 @@
  */
 
 import { serverApi } from '@/api'
-import { isAuthenticated } from '@/utils'
+import { getStoredUserInfo, isAuthenticated } from '@/utils'
 import { createRouter, createWebHistory, RouteRecordRaw } from 'vue-router'
 
 
@@ -24,13 +24,13 @@ const routes: Array<RouteRecordRaw> = [
         path: '',
         name: 'Dashboard',
         component: () => import('@/views/Dashboard.vue'),
-        meta: { title: '仪表盘' }
+        meta: { title: '仪表盘', globalAdmin: true }
       },
       {
         path: 'users',
         name: 'Users',
         component: () => import('@/views/Users.vue'),
-        meta: { title: '用户管理' }
+        meta: { title: '用户管理', globalAdmin: true }
       },
       {
         path: 'organizations',
@@ -42,19 +42,19 @@ const routes: Array<RouteRecordRaw> = [
         path: 'activity',
         name: 'Activity',
         component: () => import('@/views/Activity.vue'),
-        meta: { title: '活跃情况' }
+        meta: { title: '活跃情况', globalAdmin: true }
       },
       {
         path: 'sessions',
         name: 'Sessions',
         component: () => import('@/views/Sessions.vue'),
-        meta: { title: '我的会话' }
+        meta: { title: '我的会话', globalAdmin: true }
       },
       {
         path: 'settings',
         name: 'Settings',
         component: () => import('@/views/Settings.vue'),
-        meta: { title: '系统设置' }
+        meta: { title: '系统设置', globalAdmin: true }
       }
     ]
   },
@@ -94,6 +94,11 @@ router.beforeEach(async (to) => {
 
   try {
     await serverApi.verifySession()
+    const storedUser = getStoredUserInfo()
+    const needsGlobalAdmin = to.matched.some(record => record.meta.globalAdmin === true)
+    if (needsGlobalAdmin && !storedUser?.global_admin) {
+      return '/organizations'
+    }
     return true
   } catch {
     return '/login'

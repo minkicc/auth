@@ -8,29 +8,30 @@ import (
 )
 
 type InstallPreview struct {
-	ID                    string        `json:"id"`
-	Name                  string        `json:"name"`
-	Version               string        `json:"version,omitempty"`
-	Type                  string        `json:"type"`
-	Entry                 string        `json:"entry,omitempty"`
-	Description           string        `json:"description,omitempty"`
-	Events                []string      `json:"events,omitempty"`
-	Permissions           []string      `json:"permissions,omitempty"`
-	ConfigSchema          []ConfigField `json:"config_schema,omitempty"`
-	PackageSHA256         string        `json:"package_sha256"`
-	SignatureVerified     bool          `json:"signature_verified"`
-	SignerKeyID           string        `json:"signer_key_id,omitempty"`
-	Exists                bool          `json:"exists"`
-	Existing              *Summary      `json:"existing,omitempty"`
-	RequiresReplace       bool          `json:"requires_replace,omitempty"`
-	WillBackup            bool          `json:"will_backup,omitempty"`
-	EnabledAfterInstall   bool          `json:"enabled_after_install"`
-	PreservedConfigKeys   []string      `json:"preserved_config_keys,omitempty"`
-	DroppedConfigKeys     []string      `json:"dropped_config_keys,omitempty"`
-	Warnings              []string      `json:"warnings,omitempty"`
-	RequestedReplace      bool          `json:"requested_replace"`
-	EffectiveReplace      bool          `json:"effective_replace"`
-	ExistingPackageSHA256 string        `json:"existing_package_sha256,omitempty"`
+	ID                    string         `json:"id"`
+	Name                  string         `json:"name"`
+	Version               string         `json:"version,omitempty"`
+	Type                  string         `json:"type"`
+	Entry                 string         `json:"entry,omitempty"`
+	Description           string         `json:"description,omitempty"`
+	Events                []string       `json:"events,omitempty"`
+	Permissions           []string       `json:"permissions,omitempty"`
+	ConfigSchema          []ConfigField  `json:"config_schema,omitempty"`
+	ClaimMappings         []ClaimMapping `json:"claim_mappings,omitempty"`
+	PackageSHA256         string         `json:"package_sha256"`
+	SignatureVerified     bool           `json:"signature_verified"`
+	SignerKeyID           string         `json:"signer_key_id,omitempty"`
+	Exists                bool           `json:"exists"`
+	Existing              *Summary       `json:"existing,omitempty"`
+	RequiresReplace       bool           `json:"requires_replace,omitempty"`
+	WillBackup            bool           `json:"will_backup,omitempty"`
+	EnabledAfterInstall   bool           `json:"enabled_after_install"`
+	PreservedConfigKeys   []string       `json:"preserved_config_keys,omitempty"`
+	DroppedConfigKeys     []string       `json:"dropped_config_keys,omitempty"`
+	Warnings              []string       `json:"warnings,omitempty"`
+	RequestedReplace      bool           `json:"requested_replace"`
+	EffectiveReplace      bool           `json:"effective_replace"`
+	ExistingPackageSHA256 string         `json:"existing_package_sha256,omitempty"`
 }
 
 func (r *Runtime) PreviewZip(filename string, content []byte, replace bool) (InstallPreview, error) {
@@ -85,6 +86,7 @@ func (r *Runtime) previewArchiveLocked(_ string, content []byte, replace bool) (
 		Events:              append([]string(nil), manifest.Events...),
 		Permissions:         append([]string(nil), manifest.Permissions...),
 		ConfigSchema:        append([]ConfigField(nil), manifest.ConfigSchema...),
+		ClaimMappings:       append([]ClaimMapping(nil), manifest.ClaimMappings...),
 		PackageSHA256:       sha256Hex(content),
 		SignatureVerified:   plugin.Verification.Verified,
 		SignerKeyID:         plugin.Verification.KeyID,

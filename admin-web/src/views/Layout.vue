@@ -23,7 +23,7 @@
             <template #dropdown>
               <el-dropdown-menu>
                 <el-dropdown-item command="profile">{{ $t('common.backToProfile') }}</el-dropdown-item>
-                <el-dropdown-item command="sessions">{{ $t('common.mySessions') }}</el-dropdown-item>
+                <el-dropdown-item v-if="context.isGlobalAdmin" command="sessions">{{ $t('common.mySessions') }}</el-dropdown-item>
                 <el-dropdown-item command="logout">{{ $t('common.logout') }}</el-dropdown-item>
               </el-dropdown-menu>
             </template>
@@ -42,11 +42,11 @@
             text-color="#909399"
             active-text-color="#409EFF"
           >
-            <el-menu-item index="/">
+            <el-menu-item v-if="context.isGlobalAdmin" index="/">
               <el-icon><House /></el-icon>
               <span>{{ $t('layout.menu.dashboard') }}</span>
             </el-menu-item>
-            <el-menu-item index="/users">
+            <el-menu-item v-if="context.isGlobalAdmin" index="/users">
               <el-icon><User /></el-icon>
               <span>{{ $t('layout.menu.users') }}</span>
             </el-menu-item>
@@ -54,11 +54,11 @@
               <el-icon><OfficeBuilding /></el-icon>
               <span>{{ $t('layout.menu.organizations') }}</span>
             </el-menu-item>
-            <el-menu-item index="/activity">
+            <el-menu-item v-if="context.isGlobalAdmin" index="/activity">
               <el-icon><DataLine /></el-icon>
               <span>{{ $t('layout.menu.activity') }}</span>
             </el-menu-item>
-            <el-menu-item index="/settings">
+            <el-menu-item v-if="context.isGlobalAdmin" index="/settings">
               <el-icon><Setting /></el-icon>
               <span>{{ $t('layout.menu.settings') }}</span>
             </el-menu-item>

@@ -40,6 +40,15 @@ class Context {
     return getStoredUserInfo()?.sources || []
   }
 
+  get isGlobalAdmin(): boolean {
+    const stored = getStoredUserInfo()
+    return stored?.global_admin ?? (stored?.roles || []).includes('admin')
+  }
+
+  get organizationAdminIds(): string[] {
+    return getStoredUserInfo()?.organization_admin_ids || []
+  }
+
   get profileUrl(): string {
     return getStoredUserInfo()?.profile_url || ''
   }

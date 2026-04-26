@@ -11,23 +11,25 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"minki.cc/mkauth/server/auth"
+	"minki.cc/mkauth/server/iam"
 )
 
-// handleGoogleUser Process Google user, find or create user
-func (h *AuthHandler) handleGoogleUser(googleUserInfo *auth.GoogleUserInfo) (*auth.User, error) {
+// handleGoogleUser processes a Google user and reports whether a new MKAuth user was created.
+func (h *AuthHandler) handleGoogleUser(googleUserInfo *auth.GoogleUserInfo) (*auth.User, bool, error) {
 	if h.googleOAuth == nil {
-		return nil, fmt.Errorf("google OAuth is not enabled")
+		return nil, false, fmt.Errorf("google OAuth is not enabled")
 	}
 
 	// Find existing user
 	user, err := h.googleOAuth.GetUserByGoogleID(googleUserInfo.ID, googleUserInfo.Email, googleUserInfo.EmailVerified)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
+	created := user == nil
 	if user == nil {
 		user, err = h.googleOAuth.CreateUserFromGoogle(googleUserInfo)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create Google user: %w", err)
+			return nil, false, fmt.Errorf("failed to create Google user: %w", err)
 		}
 	} else {
 		// Update user information
@@ -37,7 +39,7 @@ func (h *AuthHandler) handleGoogleUser(googleUserInfo *auth.GoogleUserInfo) (*au
 		// }
 	}
 
-	return user, nil
+	return user, created, nil
 }
 
 func (h *AuthHandler) GoogleCredential(c *gin.Context) {
@@ -58,15 +60,34 @@ func (h *AuthHandler) GoogleCredential(c *gin.Context) {
 		return
 	}
 
+	if err := h.runHook(c, iam.HookPreAuthenticate, nil, "google", nil, map[string]string{
+		"identifier":     googleUser.Email,
+		"google_subject": googleUser.ID,
+		"email_verified": fmt.Sprintf("%t", googleUser.EmailVerified),
+	}); err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		return
+	}
+
 	// 创建或查找用户
-	user, err := h.handleGoogleUser(googleUser)
+	user, created, err := h.handleGoogleUser(googleUser)
 	if err != nil {
 		h.logger.Printf("Failed to process Google user: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to process user information"})
 		return
 	}
+	if created {
+		if err := h.runHook(c, iam.HookPostRegister, user, "google", nil, map[string]string{
+			"identifier":     googleUser.Email,
+			"google_subject": googleUser.ID,
+			"email_verified": fmt.Sprintf("%t", googleUser.EmailVerified),
+		}); err != nil {
+			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+			return
+		}
+	}
 
-	h.completeBrowserLogin(c, user, "")
+	h.completeBrowserLoginWithProvider(c, user, "", "google")
 }
 
 func (h *AuthHandler) GetGoogleClientID(c *gin.Context) {

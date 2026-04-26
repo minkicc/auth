@@ -1,0 +1,38 @@
+id: audit-webhook-sink
+name: Audit Webhook Sink
+version: 0.1.0
+type: audit_sink
+description: Example audit sink that forwards admin security audit events, and can opt into auth lifecycle events.
+permissions:
+  - audit:security
+  - network:audit_sink
+config_schema:
+  - key: url
+    label: Webhook URL
+    type: url
+    required: true
+    description: HTTPS endpoint that receives MKAuth security audit events.
+  - key: secret
+    label: Webhook Bearer Token
+    type: secret
+    sensitive: true
+    description: Optional bearer token used to authenticate webhook calls.
+  - key: timeout_ms
+    label: Timeout (ms)
+    type: integer
+    default: "3000"
+  - key: fail_open
+    label: Fail Open
+    type: boolean
+    default: "true"
+audit_sink:
+  url: "https://audit.example.com/mkauth/events"
+  secret_env: "MKAUTH_AUDIT_WEBHOOK_TOKEN"
+  timeout_ms: 3000
+  fail_open: true
+  resource_types:
+    - oidc_client
+    - identity_provider
+    - claim_mapper
+    # Add auth_lifecycle to receive authentication lifecycle events.
+    # - auth_lifecycle

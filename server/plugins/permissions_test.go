@@ -101,6 +101,38 @@ http_action:
 	}
 }
 
+func TestValidateManifestPermissionsAllowsAuditSink(t *testing.T) {
+	manifest := loadPermissionTestManifest(t, `id: audit-webhook
+name: Audit Webhook
+type: audit_sink
+permissions:
+  - audit:security
+  - network:audit_sink
+audit_sink:
+  url: "https://audit.example.com/mkauth"
+`)
+
+	if err := ValidateManifestPermissions(manifest, config.PluginsConfig{}); err != nil {
+		t.Fatalf("expected valid audit sink permissions to pass: %v", err)
+	}
+}
+
+func TestValidateManifestPermissionsRejectsMissingAuditSinkPermission(t *testing.T) {
+	manifest := loadPermissionTestManifest(t, `id: audit-webhook
+name: Audit Webhook
+type: audit_sink
+permissions:
+  - network:audit_sink
+audit_sink:
+  url: "https://audit.example.com/mkauth"
+`)
+
+	err := ValidateManifestPermissions(manifest, config.PluginsConfig{})
+	if err == nil || !strings.Contains(err.Error(), PermissionAuditSecurity) {
+		t.Fatalf("expected missing audit security permission error, got %v", err)
+	}
+}
+
 func loadPermissionTestManifest(t *testing.T, raw string) Manifest {
 	t.Helper()
 	manifest, err := LoadManifestContent([]byte(raw), "test-manifest.yaml")

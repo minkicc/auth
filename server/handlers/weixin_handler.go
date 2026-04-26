@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"minki.cc/mkauth/server/auth"
 	"minki.cc/mkauth/server/common"
+	"minki.cc/mkauth/server/iam"
 )
 
 // WeixinLoginURL Get WeChat login URL
@@ -128,8 +129,15 @@ func (h *AuthHandler) WeixinCallback(c *gin.Context) {
 		return
 	}
 
+	if err := h.runHook(c, iam.HookPreAuthenticate, nil, "weixin", nil, map[string]string{
+		"login_method": "oauth_code",
+	}); err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		return
+	}
+
 	// Use WeChat login service to directly handle login or registration
-	user, err := h.weixinLogin.RegisterOrLoginWithWeixin(code)
+	user, created, err := h.weixinLogin.RegisterOrLoginWithWeixin(code)
 	if err != nil {
 		h.logger.Printf("WeChat login processing failed: %v", err)
 		if appErr, ok := err.(*auth.AppError); ok {
@@ -139,6 +147,12 @@ func (h *AuthHandler) WeixinCallback(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "WeChat login processing failed"})
 		return
 	}
+	if created {
+		if err := h.runHook(c, iam.HookPostRegister, user, "weixin", nil, nil); err != nil {
+			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+			return
+		}
+	}
 
-	h.completeBrowserLogin(c, user, "")
+	h.completeBrowserLoginWithProvider(c, user, "", "weixin")
 }

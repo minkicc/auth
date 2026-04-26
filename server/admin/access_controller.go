@@ -11,6 +11,7 @@ import (
 
 	"minki.cc/mkauth/server/auth"
 	"minki.cc/mkauth/server/config"
+	"minki.cc/mkauth/server/iam"
 )
 
 const (
@@ -50,6 +51,16 @@ type AdminPrincipalView struct {
 	UpdatedAt time.Time `json:"updated_at,omitempty"`
 }
 
+type OrganizationAdminPrincipalView struct {
+	OrganizationID string    `json:"organization_id"`
+	UserID         string    `json:"user_id"`
+	Username       string    `json:"username,omitempty"`
+	Nickname       string    `json:"nickname,omitempty"`
+	Status         string    `json:"status,omitempty"`
+	CreatedAt      time.Time `json:"created_at,omitempty"`
+	UpdatedAt      time.Time `json:"updated_at,omitempty"`
+}
+
 func NewAccessController(cfg *config.AdminConfig, db *gorm.DB) *AccessController {
 	return &AccessController{
 		config: cfg,
@@ -61,7 +72,7 @@ func (c *AccessController) ensureTable() error {
 	if c == nil || c.db == nil {
 		return fmt.Errorf("admin access controller requires database")
 	}
-	return c.db.AutoMigrate(&AdminPrincipalRecord{})
+	return c.db.AutoMigrate(&AdminPrincipalRecord{}, &iam.OrganizationAdminPrincipal{})
 }
 
 func (c *AccessController) configuredUserIDs() []string {
@@ -111,6 +122,49 @@ func (c *AccessController) IsAdminUser(userID string) (bool, []string, error) {
 	}
 
 	return len(sources) > 0, sources, nil
+}
+
+func (c *AccessController) OrganizationAdminOrganizationIDs(userID string) ([]string, error) {
+	if c == nil || c.db == nil {
+		return nil, fmt.Errorf("admin access controller requires database")
+	}
+	if err := c.ensureTable(); err != nil {
+		return nil, err
+	}
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return nil, nil
+	}
+	var records []iam.OrganizationAdminPrincipal
+	if err := c.db.Where("user_id = ?", userID).Order("created_at ASC").Find(&records).Error; err != nil {
+		return nil, err
+	}
+	organizationIDs := make([]string, 0, len(records))
+	for _, record := range records {
+		organizationIDs = append(organizationIDs, record.OrganizationID)
+	}
+	return dedupeStrings(organizationIDs), nil
+}
+
+func (c *AccessController) CanAdministerOrganization(userID, organizationID string) (bool, error) {
+	if c == nil || c.db == nil {
+		return false, fmt.Errorf("admin access controller requires database")
+	}
+	if err := c.ensureTable(); err != nil {
+		return false, err
+	}
+	userID = strings.TrimSpace(userID)
+	organizationID = strings.TrimSpace(organizationID)
+	if userID == "" || organizationID == "" {
+		return false, nil
+	}
+	var count int64
+	if err := c.db.Model(&iam.OrganizationAdminPrincipal{}).
+		Where("organization_id = ? AND user_id = ?", organizationID, userID).
+		Count(&count).Error; err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }
 
 func (c *AccessController) ListAdminPrincipals() ([]AdminPrincipalView, error) {
@@ -176,6 +230,53 @@ func (c *AccessController) ListAdminPrincipals() ([]AdminPrincipalView, error) {
 	return views, nil
 }
 
+func (c *AccessController) ListOrganizationAdminPrincipals(organizationID string) ([]OrganizationAdminPrincipalView, error) {
+	if c == nil || c.db == nil {
+		return nil, fmt.Errorf("admin access controller requires database")
+	}
+	if err := c.ensureTable(); err != nil {
+		return nil, err
+	}
+	organizationID = strings.TrimSpace(organizationID)
+	if organizationID == "" {
+		return nil, fmt.Errorf("organization_id is required")
+	}
+	var records []iam.OrganizationAdminPrincipal
+	if err := c.db.Where("organization_id = ?", organizationID).Order("created_at ASC").Find(&records).Error; err != nil {
+		return nil, err
+	}
+	views := make([]OrganizationAdminPrincipalView, 0, len(records))
+	for _, record := range records {
+		view := OrganizationAdminPrincipalView{
+			OrganizationID: record.OrganizationID,
+			UserID:         record.UserID,
+			CreatedAt:      record.CreatedAt,
+			UpdatedAt:      record.UpdatedAt,
+		}
+		if err := c.populateOrganizationAdminPrincipalIdentity(&view, record.UserID); err != nil {
+			return nil, err
+		}
+		views = append(views, view)
+	}
+	sort.SliceStable(views, func(i, j int) bool {
+		left := adminPrincipalSortKey(AdminPrincipalView{
+			UserID:   views[i].UserID,
+			Username: views[i].Username,
+			Nickname: views[i].Nickname,
+		})
+		right := adminPrincipalSortKey(AdminPrincipalView{
+			UserID:   views[j].UserID,
+			Username: views[j].Username,
+			Nickname: views[j].Nickname,
+		})
+		if left == right {
+			return views[i].UserID < views[j].UserID
+		}
+		return left < right
+	})
+	return views, nil
+}
+
 func (c *AccessController) AddDatabaseAdmin(userRef string) (AdminPrincipalView, error) {
 	if c == nil || c.db == nil {
 		return AdminPrincipalView{}, fmt.Errorf("admin access controller requires database")
@@ -212,6 +313,40 @@ func (c *AccessController) AddDatabaseAdmin(userRef string) (AdminPrincipalView,
 	return view, nil
 }
 
+func (c *AccessController) AddOrganizationAdmin(organizationID, userRef string) (OrganizationAdminPrincipalView, error) {
+	if c == nil || c.db == nil {
+		return OrganizationAdminPrincipalView{}, fmt.Errorf("admin access controller requires database")
+	}
+	if err := c.ensureTable(); err != nil {
+		return OrganizationAdminPrincipalView{}, err
+	}
+	organizationID = strings.TrimSpace(organizationID)
+	if organizationID == "" {
+		return OrganizationAdminPrincipalView{}, fmt.Errorf("organization_id is required")
+	}
+
+	user, username, err := c.resolveUserReference(userRef)
+	if err != nil {
+		return OrganizationAdminPrincipalView{}, err
+	}
+	record := iam.OrganizationAdminPrincipal{
+		OrganizationID: organizationID,
+		UserID:         user.UserID,
+	}
+	if err := c.db.FirstOrCreate(&record, iam.OrganizationAdminPrincipal{OrganizationID: organizationID, UserID: user.UserID}).Error; err != nil {
+		return OrganizationAdminPrincipalView{}, err
+	}
+	return OrganizationAdminPrincipalView{
+		OrganizationID: organizationID,
+		UserID:         user.UserID,
+		Username:       username,
+		Nickname:       user.Nickname,
+		Status:         string(user.Status),
+		CreatedAt:      record.CreatedAt,
+		UpdatedAt:      record.UpdatedAt,
+	}, nil
+}
+
 func (c *AccessController) DeleteDatabaseAdmin(userID string) error {
 	if c == nil || c.db == nil {
 		return fmt.Errorf("admin access controller requires database")
@@ -229,6 +364,28 @@ func (c *AccessController) DeleteDatabaseAdmin(userID string) error {
 	}
 
 	result := c.db.Where("user_id = ?", trimmed).Delete(&AdminPrincipalRecord{})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return ErrAdminPrincipalNotFound
+	}
+	return nil
+}
+
+func (c *AccessController) DeleteOrganizationAdmin(organizationID, userID string) error {
+	if c == nil || c.db == nil {
+		return fmt.Errorf("admin access controller requires database")
+	}
+	if err := c.ensureTable(); err != nil {
+		return err
+	}
+	organizationID = strings.TrimSpace(organizationID)
+	userID = strings.TrimSpace(userID)
+	if organizationID == "" || userID == "" {
+		return ErrAdminPrincipalNotFound
+	}
+	result := c.db.Where("organization_id = ? AND user_id = ?", organizationID, userID).Delete(&iam.OrganizationAdminPrincipal{})
 	if result.Error != nil {
 		return result.Error
 	}
@@ -294,6 +451,30 @@ func (c *AccessController) populateAdminPrincipalIdentity(view *AdminPrincipalVi
 
 	view.Sources = dedupeStrings(view.Sources)
 	view.Editable = !containsString(view.Sources, adminPrincipalSourceConfig)
+	return nil
+}
+
+func (c *AccessController) populateOrganizationAdminPrincipalIdentity(view *OrganizationAdminPrincipalView, userID string) error {
+	if c == nil || c.db == nil || view == nil {
+		return nil
+	}
+
+	var user auth.User
+	err := c.db.Where("user_id = ?", userID).First(&user).Error
+	switch {
+	case err == nil:
+		view.Nickname = user.Nickname
+		view.Status = string(user.Status)
+		username, lookupErr := c.lookupUsername(user.UserID)
+		if lookupErr != nil {
+			return lookupErr
+		}
+		view.Username = username
+	case errors.Is(err, gorm.ErrRecordNotFound):
+		view.Status = "missing"
+	default:
+		return err
+	}
 	return nil
 }
 

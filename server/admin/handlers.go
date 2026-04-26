@@ -61,12 +61,17 @@ func (s *AdminServer) handleLogin(c *gin.Context) {
 		return
 	}
 
-	isAdmin, sources, err := s.accessController.IsAdminUser(user.UserID)
+	isGlobalAdmin, sources, err := s.accessController.IsAdminUser(user.UserID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to evaluate admin access"})
 		return
 	}
-	if !isAdmin {
+	organizationAdminIDs, err := s.accessController.OrganizationAdminOrganizationIDs(user.UserID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to evaluate organization admin access"})
+		return
+	}
+	if !isGlobalAdmin && len(organizationAdminIDs) == 0 {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Current user is not an administrator"})
 		return
 	}
@@ -78,7 +83,7 @@ func (s *AdminServer) handleLogin(c *gin.Context) {
 	}
 
 	session := sessions.Default(c)
-	roles := []string{"admin"}
+	roles := adminSessionRoles(isGlobalAdmin, len(organizationAdminIDs) > 0)
 	rolesJSON, err := json.Marshal(roles)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
@@ -103,12 +108,14 @@ func (s *AdminServer) handleLogin(c *gin.Context) {
 	s.logger.Printf("Admin bootstrap succeeded for user %s, IP: %s", user.UserID, c.ClientIP())
 
 	c.JSON(http.StatusOK, gin.H{
-		"user_id":     user.UserID,
-		"username":    username,
-		"nickname":    user.Nickname,
-		"roles":       roles,
-		"sources":     sources,
-		"profile_url": strings.TrimRight(s.publicBaseURL, "/") + "/profile",
+		"user_id":                user.UserID,
+		"username":               username,
+		"nickname":               user.Nickname,
+		"roles":                  roles,
+		"sources":                sources,
+		"global_admin":           isGlobalAdmin,
+		"organization_admin_ids": organizationAdminIDs,
+		"profile_url":            strings.TrimRight(s.publicBaseURL, "/") + "/profile",
 	})
 }
 
@@ -129,15 +136,30 @@ func (s *AdminServer) handleVerifySession(c *gin.Context) {
 	nickname, _ := c.Get("nickname")
 	roles, _ := c.Get("roles")
 	sources, _ := c.Get("admin_sources")
+	isGlobalAdmin := c.GetBool("admin_is_global")
+	organizationAdminIDs, _ := c.Get("organization_admin_ids")
 
 	c.JSON(http.StatusOK, gin.H{
-		"user_id":     userID,
-		"username":    username,
-		"nickname":    nickname,
-		"roles":       roles,
-		"sources":     sources,
-		"profile_url": strings.TrimRight(s.publicBaseURL, "/") + "/profile",
+		"user_id":                userID,
+		"username":               username,
+		"nickname":               nickname,
+		"roles":                  roles,
+		"sources":                sources,
+		"global_admin":           isGlobalAdmin,
+		"organization_admin_ids": organizationAdminIDs,
+		"profile_url":            strings.TrimRight(s.publicBaseURL, "/") + "/profile",
 	})
+}
+
+func adminSessionRoles(globalAdmin bool, organizationAdmin bool) []string {
+	roles := make([]string, 0, 2)
+	if globalAdmin {
+		roles = append(roles, "admin")
+	}
+	if organizationAdmin {
+		roles = append(roles, "organization_admin")
+	}
+	return roles
 }
 
 // Get user statistics
