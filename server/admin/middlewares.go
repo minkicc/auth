@@ -131,19 +131,36 @@ func (s *AdminServer) authMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		c.Set("user_id", userID)
+		userIDText, ok := userID.(string)
+		if !ok || strings.TrimSpace(userIDText) == "" {
+			session.Clear()
+			_ = session.Save()
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Session is corrupted"})
+			c.Abort()
+			return
+		}
+		isAdmin, sources, err := s.accessController.IsAdminUser(userIDText)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to evaluate admin access"})
+			c.Abort()
+			return
+		}
+		if !isAdmin {
+			session.Clear()
+			_ = session.Save()
+			c.JSON(http.StatusForbidden, gin.H{"error": "Administrator access has been revoked"})
+			c.Abort()
+			return
+		}
+
+		c.Set("user_id", userIDText)
 		if username := session.Get(sessionUsernameKey); username != nil {
 			c.Set("username", username)
 		}
 		if nickname := session.Get(sessionNicknameKey); nickname != nil {
 			c.Set("nickname", nickname)
 		}
-		if sourcesJSON := session.Get(sessionSourceKey); sourcesJSON != nil {
-			var sources []string
-			if err := json.Unmarshal([]byte(sourcesJSON.(string)), &sources); err == nil {
-				c.Set("admin_sources", sources)
-			}
-		}
+		c.Set("admin_sources", sources)
 		c.Set("roles", roles)
 
 		c.Next()

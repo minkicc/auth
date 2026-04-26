@@ -29,7 +29,7 @@ func TestCurrentUserAdminAccessEndpointReflectsConfiguredAdminUserID(t *testing.
 
 	env.handler.SetAdminAccess(
 		admin.NewAccessController(&config.AdminConfig{UserIDs: []string{userID}}, env.db),
-		"http://127.0.0.1:81",
+		"/admin",
 	)
 
 	sessionCookie := requireCookie(t, registerResp, auth.OIDCSessionCookieName)
@@ -42,7 +42,7 @@ func TestCurrentUserAdminAccessEndpointReflectsConfiguredAdminUserID(t *testing.
 	if decoded["enabled"] != true || decoded["is_admin"] != true {
 		t.Fatalf("expected admin access to be enabled and granted, got %#v", decoded)
 	}
-	if decoded["entry_url"] != "http://127.0.0.1:81" {
+	if decoded["entry_url"] != "/admin" {
 		t.Fatalf("expected admin entry_url to be returned, got %#v", decoded)
 	}
 }

@@ -244,12 +244,7 @@ export default {
     organizationRoles: 'Organization Roles',
     organizationGroups: 'Organization Groups',
     organizationPermissions: 'Permission Keys',
-    adminAccess: 'Admin Console',
-    adminAccessHint: 'This account already has administrator access, so you can jump straight into the admin console without signing in again there.',
-    adminDashboard: 'Open Dashboard',
-    adminUsers: 'User Management',
-    adminOrganizations: 'Organization Management',
-    adminSettings: 'System Settings',
+    adminPage: 'Admin Console',
     noAvatar: 'No avatar yet',
     backToLogin: 'Back to Login'
   },

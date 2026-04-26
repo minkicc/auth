@@ -80,7 +80,7 @@ docker compose -f docker-compose.release.yml up -d
 Default endpoints:
 - OIDC demo SPA: `http://127.0.0.1:3000`
 - User entry: `http://127.0.0.1:8080`
-- Admin console: `http://127.0.0.1:8081`
+- Admin console: `http://127.0.0.1:8080/admin`
 - MySQL: `127.0.0.1:3306`
 - Redis: `127.0.0.1:6379`
 - MinIO API: `http://127.0.0.1:9002`
@@ -114,7 +114,7 @@ auth_admin:
 
 Then restart the service.
 
-There is no separate admin username/password anymore. The admin console now reuses the current browser's MKAuth login session. After the configured admin user signs in on the main site, the user profile page shows direct buttons into the admin console. Additional day-to-day admins can then be added or removed from the admin Settings page and are stored in the database. Config-defined `auth_admin.user_ids` remain operations-managed and read-only from the UI.
+There is no separate admin username/password anymore. The admin console now reuses the current browser's MKAuth login session. The UI is served under the same origin at `/admin`, and admin APIs live under `/admin-api`. After the configured admin user signs in on the main site, the user profile page shows a direct entry into the admin console. Additional day-to-day admins can then be added or removed from the admin Settings page and are stored in the database. Config-defined `auth_admin.user_ids` remain operations-managed and read-only from the UI.
 
 ## CI/CD: Automatic Docker Images
 

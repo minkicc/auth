@@ -4,7 +4,7 @@
  */
 
 <template>
-  <div class="login-container">
+  <div class="login-container" data-admin-entry="same-origin-v2">
     <el-card class="login-card">
       <template #header>
         <div class="login-header">

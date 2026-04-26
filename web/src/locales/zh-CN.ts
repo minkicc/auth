@@ -244,12 +244,7 @@ export default {
     organizationRoles: '组织角色',
     organizationGroups: '组织组',
     organizationPermissions: '权限键',
-    adminAccess: '管理后台入口',
-    adminAccessHint: '当前账号已经具备后台管理员权限，可以直接进入对应的管理页面，不需要再次输入后台登录信息。',
-    adminDashboard: '打开仪表盘',
-    adminUsers: '用户管理',
-    adminOrganizations: '组织管理',
-    adminSettings: '系统设置',
+    adminPage: '管理页面',
     noAvatar: '暂无头像',
     backToLogin: '返回登录页'
   },

@@ -50,10 +50,23 @@ oidc:
         - "openid"
         - "profile"
         - "email"
+    - client_id: "one_api"
+      public: true
+      require_pkce: true
+      redirect_uris:
+        - "http://localhost:3000/oauth/oidc"
+        - "http://127.0.0.1:3000/oauth/oidc"
+      scopes:
+        - "openid"
+        - "profile"
+        - "email"
 
 auth:
   enabled_providers:
     - "account"
 
 auth_admin:
-  enabled: false
+  enabled: true
+  secret_key: "quickstart-admin-session-secret"
+  user_ids:
+    - "usr_zhe2y6pf5a7wj14a"

@@ -210,3 +210,86 @@ func TestAdminBootstrapUsesBrowserSessionAndAdminUserID(t *testing.T) {
 		t.Fatalf("unexpected verify body: %#v", verifyBody)
 	}
 }
+
+func TestAdminSessionIsRejectedAfterAdminAccessRevoked(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("failed to open sqlite: %v", err)
+	}
+	if err := db.AutoMigrate(&auth.User{}, &auth.AccountUser{}); err != nil {
+		t.Fatalf("failed to migrate auth tables: %v", err)
+	}
+	if err := db.Create(&auth.User{
+		UserID:   "usr_revoked_admin",
+		Password: "hash",
+		Status:   auth.UserStatusActive,
+		Nickname: "Revoked",
+	}).Error; err != nil {
+		t.Fatalf("failed to create user: %v", err)
+	}
+	if err := db.Create(&auth.AccountUser{
+		Username: "revoked-admin",
+		UserID:   "usr_revoked_admin",
+	}).Error; err != nil {
+		t.Fatalf("failed to create account user: %v", err)
+	}
+
+	controller := NewAccessController(&config.AdminConfig{
+		SecretKey: "test-secret",
+		SessionTTL: 30,
+	}, db)
+	if _, err := controller.AddDatabaseAdmin("usr_revoked_admin"); err != nil {
+		t.Fatalf("failed to add database admin: %v", err)
+	}
+
+	server := &AdminServer{
+		db:               db,
+		config:           &config.AdminConfig{SecretKey: "test-secret", SessionTTL: 30},
+		logger:           log.New(io.Discard, "", 0),
+		accessController: controller,
+	}
+
+	router := gin.New()
+	store := cookie.NewStore([]byte("test-secret"))
+	router.Use(sessions.Sessions("kcauth_admin_session", store))
+	router.GET("/seed", func(c *gin.Context) {
+		session := sessions.Default(c)
+		rolesJSON, _ := json.Marshal([]string{"admin"})
+		sourcesJSON, _ := json.Marshal([]string{adminPrincipalSourceDatabase})
+		session.Set(sessionUserIDKey, "usr_revoked_admin")
+		session.Set(sessionUsernameKey, "revoked-admin")
+		session.Set(sessionNicknameKey, "Revoked")
+		session.Set(sessionRoleKey, string(rolesJSON))
+		session.Set(sessionSourceKey, string(sourcesJSON))
+		if err := session.Save(); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.Status(http.StatusOK)
+	})
+	router.GET("/verify", server.authMiddleware(), server.handleVerifySession)
+
+	seedReq := httptest.NewRequest(http.MethodGet, "/seed", nil)
+	seedResp := httptest.NewRecorder()
+	router.ServeHTTP(seedResp, seedReq)
+	if seedResp.Code != http.StatusOK {
+		t.Fatalf("failed to seed admin session: %d %s", seedResp.Code, seedResp.Body.String())
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/verify", nil)
+	for _, cookie := range seedResp.Result().Cookies() {
+		req.AddCookie(cookie)
+	}
+
+	if err := controller.DeleteDatabaseAdmin("usr_revoked_admin"); err != nil {
+		t.Fatalf("failed to revoke database admin: %v", err)
+	}
+
+	verifyResp := httptest.NewRecorder()
+	router.ServeHTTP(verifyResp, req)
+	if verifyResp.Code != http.StatusForbidden {
+		t.Fatalf("expected revoked admin session to be rejected with 403, got %d: %s", verifyResp.Code, verifyResp.Body.String())
+	}
+}

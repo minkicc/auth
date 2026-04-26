@@ -18,14 +18,21 @@
 
     <div v-else-if="user" class="profile-card">
       <div class="profile-header">
-        <div class="avatar-shell">
-          <img v-if="user.avatar" :src="user.avatar" :alt="user.nickname || user.user_id" class="avatar-image" />
-          <div v-else class="avatar-fallback">{{ initials }}</div>
+        <div class="profile-header-main">
+          <div class="avatar-shell">
+            <img v-if="user.avatar" :src="user.avatar" :alt="user.nickname || user.user_id" class="avatar-image" />
+            <div v-else class="avatar-fallback">{{ initials }}</div>
+          </div>
+          <div class="profile-copy">
+            <p class="eyebrow">MKAuth</p>
+            <h1>{{ $t('profile.title') }}</h1>
+            <p>{{ $t('profile.subtitle') }}</p>
+          </div>
         </div>
-        <div class="profile-copy">
-          <p class="eyebrow">MKAuth</p>
-          <h1>{{ $t('profile.title') }}</h1>
-          <p>{{ $t('profile.subtitle') }}</p>
+        <div v-if="canOpenAdmin" class="profile-header-actions">
+          <button class="secondary-btn admin-entry-btn" @click="openAdminPath('')">
+            {{ $t('profile.adminPage') }}
+          </button>
         </div>
       </div>
 
@@ -112,19 +119,6 @@
         </div>
       </div>
 
-      <div v-if="adminAccess?.enabled && adminAccess.is_admin && adminAccess.entry_url" class="profile-section">
-        <div class="section-header">
-          <h2>{{ $t('profile.adminAccess') }}</h2>
-        </div>
-        <p class="section-copy">{{ $t('profile.adminAccessHint') }}</p>
-        <div class="profile-actions admin-actions">
-          <button class="secondary-btn" @click="openAdminPath('')">{{ $t('profile.adminDashboard') }}</button>
-          <button class="secondary-btn" @click="openAdminPath('/users')">{{ $t('profile.adminUsers') }}</button>
-          <button class="secondary-btn" @click="openAdminPath('/organizations')">{{ $t('profile.adminOrganizations') }}</button>
-          <button class="secondary-btn" @click="openAdminPath('/settings')">{{ $t('profile.adminSettings') }}</button>
-        </div>
-      </div>
-
       <div class="profile-actions">
         <button class="secondary-btn" @click="refreshProfile">{{ $t('common.refresh') }}</button>
         <button class="primary-btn" @click="handleLogout">{{ $t('common.logout') }}</button>
@@ -171,6 +165,7 @@ const organizationAuthorizationError = ref('')
 const organizationSelectionOptions = ref<Array<{ organization_id: string; slug?: string; name?: string; display_name?: string }>>([])
 const selectedOrganizationHint = ref('')
 const adminAccess = ref<ProfileAdminAccess | null>(null)
+const canOpenAdmin = computed(() => Boolean(adminAccess.value?.enabled && adminAccess.value?.is_admin && adminAccess.value?.entry_url))
 
 const initials = computed(() => {
   const base = user.value?.nickname || user.value?.user_id || 'U'
@@ -307,8 +302,23 @@ onMounted(async () => {
 .profile-header {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 20px;
   margin-bottom: 28px;
+}
+
+.profile-header-main {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  min-width: 0;
+}
+
+.profile-header-actions {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  flex-shrink: 0;
 }
 
 .avatar-shell {
@@ -482,14 +492,12 @@ onMounted(async () => {
   gap: 12px;
 }
 
-.admin-actions {
-  justify-content: flex-start;
-  flex-wrap: wrap;
-  margin-top: 12px;
-}
-
 .compact-btn {
   padding: 10px 14px;
+}
+
+.admin-entry-btn {
+  min-width: 132px;
 }
 
 .primary-btn,
@@ -541,6 +549,17 @@ onMounted(async () => {
   .profile-header {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .profile-header-main {
+    width: 100%;
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .profile-header-actions {
+    width: 100%;
+    justify-content: flex-start;
   }
 
   .profile-grid {

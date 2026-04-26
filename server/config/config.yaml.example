@@ -267,7 +267,7 @@ auth_admin:
   secret_key: "YOUR_ADMIN_SECRET_KEY"
   # Optional public entry URL for the admin console. If empty, MKAuth derives it
   # from oidc.issuer plus the admin port when possible.
-  entry_url: "https://auth.example.com:81"
+  entry_url: "https://auth.example.com/admin"
   security_audit_export_job_retention_days: 7
   security_audit_export_job_auto_cleanup: true
   # Operator-managed admin users. These must be platform user IDs from the users table.

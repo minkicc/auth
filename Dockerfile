@@ -56,5 +56,5 @@ COPY --from=builder /usr/share/zoneinfo/Asia/Shanghai /usr/share/zoneinfo/Asia/S
 COPY --from=web-builder /app/web/dist /app/web/
 COPY --from=web-builder /app/admin-web/dist /app/admin-web/
 
-EXPOSE 80 81
+EXPOSE 80
 ENTRYPOINT [ "/app/mkauth" ]
