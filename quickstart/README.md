@@ -182,6 +182,16 @@ docker compose restart mkauth-server
 
 后台不再使用单独的管理员用户名密码。管理员用户先在主站登录，然后可以从主站个人资料页右上角直接进入后台。管理页面走同域 `/admin`，后台 API 走 `/admin-api`。后续新增或删除日常管理员，可在后台 `Settings` 页里管理，数据库管理员与配置文件管理员会分开显示。
 
+如果你不想公开注册，可以先在配置里放一个一次性 bootstrap 邀请码：
+
+```yaml
+registration:
+  mode: "invite_only"
+  bootstrap_invitation_code: "CHANGE_ME_FIRST_USER_CODE"
+```
+
+用这个邀请码注册出来的是普通用户，不会自动成为管理员。拿到它的 `user_id` 后再写入 `auth_admin.user_ids`，这个启动流程就闭环了。进入后台后，可在 `Settings -> Invitation Codes` 继续生成内测邀请码。
+
 ## 如果要启用更多登录方式
 
 编辑 `quickstart/config.yaml` 中的：

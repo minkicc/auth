@@ -42,6 +42,14 @@
         <span v-if="formErrors.confirmPassword" class="error-text">{{ formErrors.confirmPassword }}</span>
       </div>
 
+      <div class="form-item">
+        <input
+          v-model="formData.invitationCode"
+          type="text"
+          :placeholder="$t('common.invitationCode')"
+        >
+      </div>
+
       <button type="submit" :disabled="isLoading" class="submit-btn">
         {{ isLoading ? $t('common.registering') : $t('auth.accountRegister') }}
       </button>
@@ -57,11 +65,15 @@ import { useI18n } from 'vue-i18n'
 const emit = defineEmits<{
   (e: 'register-error', message: string): void
 }>()
+const props = defineProps<{
+  invitationCode?: string
+}>()
 
 interface FormData {
   username: string
   password: string
   confirmPassword: string
+  invitationCode: string
 }
 
 interface FormErrors {
@@ -75,7 +87,8 @@ const isLoading = ref(false)
 const formData = reactive<FormData>({
   username: '',
   password: '',
-  confirmPassword: ''
+  confirmPassword: '',
+  invitationCode: props.invitationCode || ''
 })
 const formErrors = reactive<FormErrors>({})
 
@@ -117,7 +130,7 @@ const handleRegister = async () => {
     isLoading.value = true
     
     // 调用注册函数
-    await serverApi.registerAccount(formData.username, formData.password)
+    await serverApi.registerAccount(formData.username, formData.password, formData.invitationCode)
 
   } catch (error: unknown) {
     // 注册失败，通知父组件

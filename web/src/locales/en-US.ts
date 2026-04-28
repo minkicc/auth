@@ -33,6 +33,7 @@ export default {
     nickname: 'Nickname',
     username: 'Username',
     code: 'Verification Code',
+    invitationCode: 'Invitation Code (optional)',
     user: 'User',
   },
   auth: {

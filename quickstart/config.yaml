@@ -11,6 +11,16 @@ redis:
   password: ""
   db: 0
 
+registration:
+  # open / invite_only / disabled
+  mode: "open"
+  # When mode is invite_only, public self-service registration providers need
+  # an invitation code by default. Set this list to override the default.
+  require_invitation_for: []
+  # Optional one-time bootstrap code for creating the first ordinary user.
+  # After that user is created, put its user_id under auth_admin.user_ids.
+  bootstrap_invitation_code: ""
+
 secrets:
   # Optional. For local quickstart you can keep this empty.
   encryption_key_env: ""

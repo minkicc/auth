@@ -89,6 +89,122 @@
       </el-table>
     </el-card>
 
+    <el-card class="settings-card invitation-card">
+      <template #header>
+        <div class="card-header">
+          <div>
+            <h2>Invitation Codes</h2>
+            <p class="subhead">用于内测、私有团队或禁止公开注册的场景。邀请码只允许创建用户，不会自动授予管理员。</p>
+          </div>
+          <div class="toolbar-actions">
+            <el-button :loading="invitationLoading" @click="loadInvitations">刷新</el-button>
+          </div>
+        </div>
+      </template>
+
+      <el-alert
+        v-if="invitationLoadError"
+        class="plugin-alert"
+        :title="invitationLoadError"
+        type="warning"
+        :closable="false"
+        show-icon
+      />
+
+      <div class="invitation-form-grid">
+        <el-input v-model="invitationCreateForm.name" placeholder="名称，例如：内测第一批" />
+        <el-select v-model="invitationCreateForm.scope" placeholder="范围">
+          <el-option label="全局" value="global" />
+          <el-option label="组织" value="organization" />
+          <el-option label="OIDC Client" value="client" />
+        </el-select>
+        <el-input
+          v-if="invitationCreateForm.scope === 'organization'"
+          v-model="invitationCreateForm.organization_id"
+          placeholder="organization_id"
+        />
+        <el-input
+          v-if="invitationCreateForm.scope === 'client'"
+          v-model="invitationCreateForm.client_id"
+          placeholder="client_id"
+        />
+        <el-input-number v-model="invitationCreateForm.max_uses" :min="1" :max="100000" controls-position="right" />
+        <el-input v-model="invitationCreateForm.expires_at" placeholder="过期时间，可空，例如 2026-05-01" />
+        <el-input v-model="invitationCreateForm.allowed_email" placeholder="限定邮箱，可空" />
+        <el-input v-model="invitationCreateForm.allowed_domain" placeholder="限定邮箱域名，可空，如 example.com" />
+        <el-input v-model="invitationCreateForm.default_roles_text" placeholder="默认组织角色，逗号或换行分隔" />
+        <el-input v-model="invitationCreateForm.code" placeholder="自定义邀请码，可空自动生成" />
+        <el-button
+          type="primary"
+          :loading="invitationActionLoadingId === 'create'"
+          @click="createInvitation"
+        >
+          生成邀请码
+        </el-button>
+      </div>
+
+      <el-alert
+        class="plugin-alert"
+        title="邀请码明文只会在生成成功时显示一次；后端只保存哈希。首个用户也不会自动成为管理员，创建后仍需把 user_id 写入 auth_admin.user_ids。"
+        type="info"
+        :closable="false"
+        show-icon
+      />
+
+      <el-table
+        v-loading="invitationLoading"
+        :data="invitations"
+        row-key="invitation_id"
+        empty-text="暂无邀请码"
+      >
+        <el-table-column prop="name" label="名称" min-width="160" />
+        <el-table-column label="范围" min-width="180">
+          <template #default="{ row }">
+            <div class="stacked-copy">
+              <strong>{{ formatInvitationScope(row) }}</strong>
+              <span>{{ row.organization_id || row.client_id || '全局注册' }}</span>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column label="使用量" width="120">
+          <template #default="{ row }">
+            {{ row.used_count }} / {{ row.max_uses || '不限' }}
+          </template>
+        </el-table-column>
+        <el-table-column label="限定" min-width="180">
+          <template #default="{ row }">
+            {{ row.allowed_email || row.allowed_domain || '-' }}
+          </template>
+        </el-table-column>
+        <el-table-column label="状态" width="110">
+          <template #default="{ row }">
+            <el-tag :type="row.status === 'active' ? 'success' : 'info'" effect="plain">
+              {{ row.status === 'active' ? '可用' : '停用' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="过期时间" min-width="170">
+          <template #default="{ row }">
+            {{ formatOptionalTime(row.expires_at) }}
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="120" align="right">
+          <template #default="{ row }">
+            <el-button
+              v-if="row.status === 'active'"
+              text
+              type="danger"
+              :loading="invitationActionLoadingId === `disable:${row.invitation_id}`"
+              @click="disableInvitation(row)"
+            >
+              停用
+            </el-button>
+            <span v-else class="muted-copy">已停用</span>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-card>
+
     <el-card class="settings-card security-card">
       <template #header>
         <div class="card-header">
@@ -1292,7 +1408,7 @@ import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import { ElMessageBox } from 'element-plus/es/components/message-box/index'
-import { serverApi, type AdminClaimMapper, type AdminPrincipal, type CatalogPluginInfo, type OIDCClient, type OIDCOrganizationPolicy, type PluginAuditEntry, type PluginBackupInfo, type PluginClaimMapping, type PluginConfigField, type PluginInfo, type PluginInstallPreview, type SecurityAuditEntry, type SecurityAuditExportJob, type SecurityAuditQuery, type SecuritySecretsStatus } from '@/api'
+import { serverApi, type AdminClaimMapper, type AdminInvitation, type AdminInvitationCreatePayload, type AdminPrincipal, type CatalogPluginInfo, type OIDCClient, type OIDCOrganizationPolicy, type PluginAuditEntry, type PluginBackupInfo, type PluginClaimMapping, type PluginConfigField, type PluginInfo, type PluginInstallPreview, type SecurityAuditEntry, type SecurityAuditExportJob, type SecurityAuditQuery, type SecuritySecretsStatus } from '@/api'
 import SecurityAuditDetailDrawer from '@/components/SecurityAuditDetailDrawer.vue'
 
 type OIDCDialogMode = 'create' | 'edit'
@@ -1335,6 +1451,19 @@ interface SecurityAuditFilterState {
 
 interface AdminCreateFormState {
   user_ref: string
+}
+
+interface InvitationCreateFormState {
+  name: string
+  code: string
+  scope: string
+  organization_id: string
+  client_id: string
+  max_uses: number
+  expires_at: string
+  allowed_email: string
+  allowed_domain: string
+  default_roles_text: string
 }
 
 interface ClaimMapperFormState {
@@ -1384,6 +1513,22 @@ const adminLoadError = ref('')
 const admins = ref<AdminPrincipal[]>([])
 const adminCreateForm = reactive<AdminCreateFormState>({
   user_ref: ''
+})
+const invitationLoading = ref(false)
+const invitationActionLoadingId = ref('')
+const invitationLoadError = ref('')
+const invitations = ref<AdminInvitation[]>([])
+const invitationCreateForm = reactive<InvitationCreateFormState>({
+  name: '',
+  code: '',
+  scope: 'global',
+  organization_id: '',
+  client_id: '',
+  max_uses: 1,
+  expires_at: '',
+  allowed_email: '',
+  allowed_domain: '',
+  default_roles_text: ''
 })
 const oidcDialogVisible = ref(false)
 const oidcDialogMode = ref<OIDCDialogMode>('create')
@@ -1469,7 +1614,9 @@ const securityAuditActionOptions = [
   { label: '添加管理员', value: 'admin_principal_create' },
   { label: '移除管理员', value: 'admin_principal_delete' },
   { label: '添加组织管理员', value: 'organization_admin_create' },
-  { label: '移除组织管理员', value: 'organization_admin_delete' }
+  { label: '移除组织管理员', value: 'organization_admin_delete' },
+  { label: '创建邀请码', value: 'invitation_create' },
+  { label: '停用邀请码', value: 'invitation_disable' }
 ]
 
 const securityAuditResourceOptions = [
@@ -1477,7 +1624,8 @@ const securityAuditResourceOptions = [
   { label: '企业身份源', value: 'identity_provider' },
   { label: 'Claim Mapper', value: 'claim_mapper' },
   { label: '管理员', value: 'admin_principal' },
-  { label: '组织管理员', value: 'organization_admin' }
+  { label: '组织管理员', value: 'organization_admin' },
+  { label: '邀请码', value: 'invitation' }
 ]
 
 const route = useRoute()
@@ -1675,6 +1823,109 @@ const deleteAdmin = async (adminUser: AdminPrincipal) => {
   } finally {
     adminActionLoadingId.value = ''
   }
+}
+
+const resetInvitationForm = () => {
+  invitationCreateForm.name = ''
+  invitationCreateForm.code = ''
+  invitationCreateForm.scope = 'global'
+  invitationCreateForm.organization_id = ''
+  invitationCreateForm.client_id = ''
+  invitationCreateForm.max_uses = 1
+  invitationCreateForm.expires_at = ''
+  invitationCreateForm.allowed_email = ''
+  invitationCreateForm.allowed_domain = ''
+  invitationCreateForm.default_roles_text = ''
+}
+
+const loadInvitations = async () => {
+  invitationLoading.value = true
+  try {
+    const response = await serverApi.listInvitations()
+    invitations.value = response.invitations || []
+    invitationLoadError.value = ''
+  } catch (error: any) {
+    invitations.value = []
+    invitationLoadError.value = error?.response?.data?.error || '加载邀请码失败'
+  } finally {
+    invitationLoading.value = false
+  }
+}
+
+const createInvitation = async () => {
+  const name = invitationCreateForm.name.trim()
+  if (!name) {
+    ElMessage.warning('请输入邀请码名称')
+    return
+  }
+  const payload: AdminInvitationCreatePayload = {
+    name,
+    code: invitationCreateForm.code.trim() || undefined,
+    scope: invitationCreateForm.scope || 'global',
+    organization_id: invitationCreateForm.organization_id.trim() || undefined,
+    client_id: invitationCreateForm.client_id.trim() || undefined,
+    max_uses: invitationCreateForm.max_uses || 1,
+    expires_at: invitationCreateForm.expires_at.trim() || undefined,
+    allowed_email: invitationCreateForm.allowed_email.trim() || undefined,
+    allowed_domain: invitationCreateForm.allowed_domain.trim() || undefined,
+    default_roles: parseLineList(invitationCreateForm.default_roles_text),
+  }
+  invitationActionLoadingId.value = 'create'
+  try {
+    const response = await serverApi.createInvitation(payload)
+    resetInvitationForm()
+    await loadInvitations()
+    await ElMessageBox.alert(
+      `邀请码：${response.code}\n\n请现在保存给使用者，后端不会再次回显明文。`,
+      '邀请码已生成',
+      {
+        confirmButtonText: '我已保存'
+      }
+    )
+  } catch (error: any) {
+    ElMessage.error(error?.response?.data?.error || '生成邀请码失败')
+  } finally {
+    invitationActionLoadingId.value = ''
+  }
+}
+
+const disableInvitation = async (invitation: AdminInvitation) => {
+  try {
+    await ElMessageBox.confirm(
+      `确定停用邀请码 ${invitation.name} 吗？`,
+      '停用邀请码',
+      {
+        confirmButtonText: '停用',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    )
+  } catch {
+    return
+  }
+  invitationActionLoadingId.value = `disable:${invitation.invitation_id}`
+  try {
+    const response = await serverApi.disableInvitation(invitation.invitation_id)
+    ElMessage.success(response.message || '邀请码已停用')
+    await loadInvitations()
+  } catch (error: any) {
+    ElMessage.error(error?.response?.data?.error || '停用邀请码失败')
+  } finally {
+    invitationActionLoadingId.value = ''
+  }
+}
+
+const formatInvitationScope = (invitation: AdminInvitation) => {
+  if (invitation.scope === 'organization') return '组织'
+  if (invitation.scope === 'client') return 'OIDC Client'
+  return '全局'
+}
+
+const formatOptionalTime = (value?: string) => {
+  if (!value) return '-'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleString()
 }
 
 const formatAdminSources = (sources: string[]) => {
@@ -2264,7 +2515,9 @@ const formatSecurityAuditAction = (action: string) => {
     admin_principal_create: '添加管理员',
     admin_principal_delete: '移除管理员',
     organization_admin_create: '添加组织管理员',
-    organization_admin_delete: '移除组织管理员'
+    organization_admin_delete: '移除组织管理员',
+    invitation_create: '创建邀请码',
+    invitation_disable: '停用邀请码'
   }
   return labels[action] || action || '-'
 }
@@ -2292,6 +2545,14 @@ const formatSecurityAuditDetails = (entry: SecurityAuditEntry) => {
     if (details.previous_slug) parts.push(`原 Slug ${details.previous_slug}`)
     if (details.name) parts.push(`名称 ${details.name}`)
     if (details.organization_id) parts.push(`组织 ${details.organization_id}`)
+  }
+  if (details.resource_type === 'invitation') {
+    if (details.invitation_id) parts.push(`邀请码 ${details.invitation_id}`)
+    if (details.name) parts.push(`名称 ${details.name}`)
+    if (details.scope) parts.push(`范围 ${details.scope}`)
+    if (details.organization_id) parts.push(`组织 ${details.organization_id}`)
+    if (details.client_id) parts.push(`Client ${details.client_id}`)
+    if (details.reason) parts.push(`原因 ${details.reason}`)
   }
   if (details.resource_type === 'claim_mapper') {
     if (details.mapper_id) parts.push(`Mapper ${details.mapper_id}`)
@@ -2839,6 +3100,7 @@ watch(
 onMounted(() => {
   applySettingsAuditRouteState()
   loadAdmins()
+  loadInvitations()
   loadSecurityStatus()
   loadSecurityAudit()
   loadSecurityAuditExportJobs()
@@ -2862,6 +3124,14 @@ onUnmounted(() => {
     display: flex;
     gap: 12px;
     margin-bottom: 18px;
+  }
+
+  .invitation-form-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+    margin-bottom: 18px;
+    align-items: center;
   }
 
   .stacked-copy {

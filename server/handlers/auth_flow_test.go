@@ -476,6 +476,109 @@ func TestAccountRegisterCreatesBrowserSessionAndLogoutRequiresSameOrigin(t *test
 	}
 }
 
+func TestInviteOnlyAccountRegisterRequiresInvitation(t *testing.T) {
+	env := newAuthTestEnv(t)
+	defer env.Close()
+
+	env.handler.config.Registration.Mode = config.RegistrationModeInviteOnly
+
+	resp := performJSONRequest(t, env.router, http.MethodPost, "/api/account/register", map[string]string{
+		"username": "invite_required",
+		"password": "demo12345",
+	}, nil, nil)
+	if resp.Code != http.StatusForbidden {
+		t.Fatalf("expected invite-only registration to return 403, got %d with body %s", resp.Code, resp.Body.String())
+	}
+
+	var count int64
+	if err := env.db.Model(&auth.User{}).Where("nickname = ?", "invite_required").Count(&count).Error; err != nil {
+		t.Fatalf("failed to count users: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("expected no user to be created without invitation, got %d", count)
+	}
+}
+
+func TestBootstrapInvitationCreatesOrdinaryFirstUserOnlyOnce(t *testing.T) {
+	env := newAuthTestEnv(t)
+	defer env.Close()
+
+	env.handler.config.Registration.Mode = config.RegistrationModeInviteOnly
+	env.handler.config.Registration.BootstrapInvitationCode = "first-user-only"
+
+	resp := performJSONRequest(t, env.router, http.MethodPost, "/api/account/register", map[string]string{
+		"username":        "first_user",
+		"password":        "demo12345",
+		"invitation_code": "first-user-only",
+	}, nil, nil)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected bootstrap invitation registration status 200, got %d with body %s", resp.Code, resp.Body.String())
+	}
+
+	body := decodeBodyMap(t, resp)
+	userID, ok := body["user_id"].(string)
+	if !ok || userID == "" {
+		t.Fatalf("expected user_id in bootstrap registration response, got %#v", body["user_id"])
+	}
+
+	var use iam.InvitationCodeUse
+	if err := env.db.First(&use, "invitation_id = ?", "inv_bootstrap_first_user").Error; err != nil {
+		t.Fatalf("expected bootstrap invitation use to be recorded: %v", err)
+	}
+	if use.UserID != userID {
+		t.Fatalf("expected bootstrap invitation use to be linked to user %s, got %s", userID, use.UserID)
+	}
+
+	secondResp := performJSONRequest(t, env.router, http.MethodPost, "/api/account/register", map[string]string{
+		"username":        "second_user",
+		"password":        "demo12345",
+		"invitation_code": "first-user-only",
+	}, nil, nil)
+	if secondResp.Code != http.StatusForbidden {
+		t.Fatalf("expected bootstrap invitation reuse to return 403, got %d with body %s", secondResp.Code, secondResp.Body.String())
+	}
+}
+
+func TestAdminInvitationCodeCanRegisterAccountOnce(t *testing.T) {
+	env := newAuthTestEnv(t)
+	defer env.Close()
+
+	env.handler.config.Registration.Mode = config.RegistrationModeInviteOnly
+	invitation, code, err := iam.NewService(env.db).CreateInvitation(iam.InvitationCreateInput{
+		Name:    "Private beta",
+		MaxUses: 1,
+	})
+	if err != nil {
+		t.Fatalf("failed to create invitation: %v", err)
+	}
+
+	resp := performJSONRequest(t, env.router, http.MethodPost, "/api/account/register", map[string]string{
+		"username":        "invited_user",
+		"password":        "demo12345",
+		"invitation_code": code,
+	}, nil, nil)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected invited registration status 200, got %d with body %s", resp.Code, resp.Body.String())
+	}
+
+	var stored iam.InvitationCode
+	if err := env.db.First(&stored, "invitation_id = ?", invitation.InvitationID).Error; err != nil {
+		t.Fatalf("failed to load invitation: %v", err)
+	}
+	if stored.UsedCount != 1 {
+		t.Fatalf("expected invitation used count to be 1, got %d", stored.UsedCount)
+	}
+
+	secondResp := performJSONRequest(t, env.router, http.MethodPost, "/api/account/register", map[string]string{
+		"username":        "invited_user2",
+		"password":        "demo12345",
+		"invitation_code": code,
+	}, nil, nil)
+	if secondResp.Code != http.StatusForbidden {
+		t.Fatalf("expected exhausted invitation to return 403, got %d with body %s", secondResp.Code, secondResp.Body.String())
+	}
+}
+
 func TestAccountLifecycleHooksRun(t *testing.T) {
 	env := newAuthTestEnv(t)
 	defer env.Close()

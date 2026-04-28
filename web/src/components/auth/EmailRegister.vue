@@ -81,6 +81,14 @@
         <span v-if="formErrors.confirmPassword" class="error-text">{{ formErrors.confirmPassword }}</span>
       </div>
 
+      <div class="form-item">
+        <input
+          v-model="formData.invitationCode"
+          type="text"
+          :placeholder="$t('common.invitationCode')"
+        >
+      </div>
+
       <button type="submit" :disabled="isLoading" class="submit-btn">
         {{ isLoading ? $t('common.registering') : $t('auth.emailRegister') }}
       </button>
@@ -99,6 +107,9 @@ const emit = defineEmits<{
   (e: 'register-success'): void
   (e: 'register-error', message: string): void
 }>()
+const props = defineProps<{
+  invitationCode?: string
+}>()
 
 const { t } = useI18n()
 
@@ -116,6 +127,7 @@ interface FormData {
   email: string
   password: string
   confirmPassword: string
+  invitationCode: string
 }
 
 interface FormErrors {
@@ -130,7 +142,8 @@ const formData = reactive<FormData>({
   nickname: '',
   email: '',
   password: '',
-  confirmPassword: ''
+  confirmPassword: '',
+  invitationCode: props.invitationCode || ''
 })
 const formErrors = reactive<FormErrors>({})
 
@@ -241,7 +254,9 @@ const handleEmailRegister = async () => {
       email: formData.email,
       password: formData.password,
       title: t('email.registrationTitle'),
-      content: verificationEmailTpl
+      content: verificationEmailTpl,
+      client_id: serverApi.clientId,
+      invitation_code: formData.invitationCode
     })
     
     // 切换到邮件已发送状态

@@ -7,6 +7,11 @@ redis:
   password: ""
   db: 0
 
+registration:
+  mode: "open"
+  require_invitation_for: []
+  bootstrap_invitation_code: ""
+
 storage:
   provider: "minio"
   endpoint: "minio:9000"

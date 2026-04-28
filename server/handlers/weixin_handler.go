@@ -17,6 +17,12 @@ import (
 	"minki.cc/mkauth/server/iam"
 )
 
+type weixinOAuthState struct {
+	State          string `json:"state"`
+	ClientID       string `json:"client_id,omitempty"`
+	InvitationCode string `json:"invitation_code,omitempty"`
+}
+
 // WeixinLoginURL Get WeChat login URL
 func (h *AuthHandler) WeixinLoginURL(c *gin.Context) {
 	if h.weixinLogin == nil {
@@ -30,9 +36,14 @@ func (h *AuthHandler) WeixinLoginURL(c *gin.Context) {
 	// Generate an unpredictable state session identifier for callback validation
 	clientID := uuid.New().String()
 	stateKey := fmt.Sprintf("%s%s", common.RedisKeyWeixinState, clientID)
+	stateData := weixinOAuthState{
+		State:          state,
+		ClientID:       c.Query("client_id"),
+		InvitationCode: c.Query("invitation_code"),
+	}
 
 	// Store state in Redis with a reasonable expiration time (e.g., 15 minutes)
-	if err := h.redisStore.Set(stateKey, state, time.Minute*15); err != nil {
+	if err := h.redisStore.Set(stateKey, stateData, time.Minute*15); err != nil {
 		h.logger.Printf("Failed to save OAuth state to Redis: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
 		return
@@ -63,9 +74,14 @@ func (h *AuthHandler) WeixinLoginHandler(c *gin.Context) {
 	// Generate an unpredictable state session identifier for callback validation
 	clientID := uuid.New().String()
 	stateKey := fmt.Sprintf("%s%s", common.RedisKeyWeixinState, clientID)
+	stateData := weixinOAuthState{
+		State:          state,
+		ClientID:       c.Query("client_id"),
+		InvitationCode: c.Query("invitation_code"),
+	}
 
 	// Store state in Redis with a reasonable expiration time (e.g., 15 minutes)
-	if err := h.redisStore.Set(stateKey, state, time.Minute*15); err != nil {
+	if err := h.redisStore.Set(stateKey, stateData, time.Minute*15); err != nil {
 		h.logger.Printf("Failed to save OAuth state to Redis: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
 		return
@@ -102,15 +118,15 @@ func (h *AuthHandler) WeixinCallback(c *gin.Context) {
 
 	// Get expected state from Redis
 	stateKey := fmt.Sprintf("%s%s", common.RedisKeyWeixinState, clientID)
-	var expectedState string
-	if err := h.redisStore.Get(stateKey, &expectedState); err != nil {
+	var stateData weixinOAuthState
+	if err := h.redisStore.Get(stateKey, &stateData); err != nil {
 		h.logger.Printf("Failed to get OAuth state from Redis: %v", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Session expired, please login again"})
 		return
 	}
 
 	// Verify state value
-	if expectedState != actualState {
+	if stateData.State != actualState {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid state parameter"})
 		return
 	}
@@ -136,8 +152,13 @@ func (h *AuthHandler) WeixinCallback(c *gin.Context) {
 		return
 	}
 
-	// Use WeChat login service to directly handle login or registration
-	user, created, err := h.weixinLogin.RegisterOrLoginWithWeixin(code)
+	loginResp, err := h.weixinLogin.HandleCallback(code)
+	if err != nil {
+		h.logger.Printf("WeChat login processing failed: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "WeChat login processing failed"})
+		return
+	}
+	weixinUserInfo, err := h.weixinLogin.GetUserInfo(loginResp.AccessToken, loginResp.OpenID)
 	if err != nil {
 		h.logger.Printf("WeChat login processing failed: %v", err)
 		if appErr, ok := err.(*auth.AppError); ok {
@@ -147,8 +168,50 @@ func (h *AuthHandler) WeixinCallback(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "WeChat login processing failed"})
 		return
 	}
+	user, err := h.weixinLogin.GetUserByWeixinID(weixinUserInfo.UnionID)
+	if err != nil {
+		h.logger.Printf("WeChat user lookup failed: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "WeChat login processing failed"})
+		return
+	}
+	created := user == nil
+	if user == nil {
+		if h.rejectRegistrationIfDisabled(c, "weixin") {
+			return
+		}
+		redemption, ok := h.beginRegistrationInvitation(c, "weixin", weixinUserInfo.UnionID, "", stateData.ClientID, stateData.InvitationCode)
+		if !ok {
+			return
+		}
+		user, err = h.weixinLogin.CreateUserFromWeixin(weixinUserInfo)
+		if err != nil {
+			h.cancelRegistrationInvitation(redemption)
+			h.logger.Printf("WeChat user creation failed: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "WeChat login processing failed"})
+			return
+		}
+		if !h.completeRegistrationInvitation(c, redemption, user.UserID) {
+			return
+		}
+	} else {
+		if err := auth.EnsureUserCanAuthenticate(user); err != nil {
+			if appErr, ok := err.(*auth.AppError); ok {
+				c.JSON(appErr.GetHTTPStatus(), gin.H{"error": appErr.Error()})
+				return
+			}
+			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+			return
+		}
+		if h.accountAuth != nil && h.accountAuth.DB() != nil {
+			if err := h.accountAuth.DB().Model(&auth.User{}).Where("user_id = ?", user.UserID).Update("last_login", time.Now()).Error; err != nil {
+				h.logger.Printf("Failed to update WeChat user's last login time: %v", err)
+			}
+		}
+	}
 	if created {
-		if err := h.runHook(c, iam.HookPostRegister, user, "weixin", nil, nil); err != nil {
+		if err := h.runHook(c, iam.HookPostRegister, user, "weixin", nil, map[string]string{
+			"weixin_subject": weixinUserInfo.UnionID,
+		}); err != nil {
 			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
 			return
 		}

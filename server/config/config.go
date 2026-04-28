@@ -17,17 +17,70 @@ import (
 // Config Main configuration structure
 type Config struct {
 	// Server         ServerConfig        `json:"server" yaml:"server"`
-	Auth           AuthConfig       `json:"auth" yaml:"auth"`
-	Database       DatabaseConfig   `json:"db" yaml:"db"`
-	Redis          RedisConfig      `json:"redis" yaml:"redis"`
-	OIDC           OIDCConfig       `json:"oidc" yaml:"oidc"`
-	IAM            IAMConfig        `json:"iam" yaml:"iam"`
-	Secrets        SecretsConfig    `json:"secrets" yaml:"secrets"`
-	Plugins        PluginsConfig    `json:"plugins" yaml:"plugins"`
-	Admin          AdminConfig      `json:"auth_admin" yaml:"auth_admin"`
-	Storage        storage.Config   `json:"storage" yaml:"storage"`
-	TrustedClients []TrustedClient  `json:"auth_trusted_clients" yaml:"auth_trusted_clients"` // 受信任的第三方客户端配置
-	StorageUrl     StorageUrlConfig `json:"storage_public_url" yaml:"storage_public_url"`     // 存储URL配置
+	Auth           AuthConfig         `json:"auth" yaml:"auth"`
+	Registration   RegistrationConfig `json:"registration" yaml:"registration"`
+	Database       DatabaseConfig     `json:"db" yaml:"db"`
+	Redis          RedisConfig        `json:"redis" yaml:"redis"`
+	OIDC           OIDCConfig         `json:"oidc" yaml:"oidc"`
+	IAM            IAMConfig          `json:"iam" yaml:"iam"`
+	Secrets        SecretsConfig      `json:"secrets" yaml:"secrets"`
+	Plugins        PluginsConfig      `json:"plugins" yaml:"plugins"`
+	Admin          AdminConfig        `json:"auth_admin" yaml:"auth_admin"`
+	Storage        storage.Config     `json:"storage" yaml:"storage"`
+	TrustedClients []TrustedClient    `json:"auth_trusted_clients" yaml:"auth_trusted_clients"` // 受信任的第三方客户端配置
+	StorageUrl     StorageUrlConfig   `json:"storage_public_url" yaml:"storage_public_url"`     // 存储URL配置
+}
+
+const (
+	RegistrationModeOpen       = "open"
+	RegistrationModeInviteOnly = "invite_only"
+	RegistrationModeDisabled   = "disabled"
+)
+
+type RegistrationConfig struct {
+	Mode                    string   `json:"mode" yaml:"mode"`
+	RequireInvitationFor    []string `json:"require_invitation_for" yaml:"require_invitation_for"`
+	BootstrapInvitationCode string   `json:"bootstrap_invitation_code" yaml:"bootstrap_invitation_code"`
+}
+
+func (c RegistrationConfig) ModeOrDefault() string {
+	mode := strings.TrimSpace(strings.ToLower(c.Mode))
+	switch mode {
+	case "", RegistrationModeOpen:
+		return RegistrationModeOpen
+	case RegistrationModeInviteOnly, RegistrationModeDisabled:
+		return mode
+	default:
+		return RegistrationModeOpen
+	}
+}
+
+func (c RegistrationConfig) RequiresInvitation(provider string) bool {
+	if c.ModeOrDefault() != RegistrationModeInviteOnly {
+		return false
+	}
+	provider = strings.TrimSpace(strings.ToLower(provider))
+	if provider == "" {
+		return true
+	}
+	if len(c.RequireInvitationFor) == 0 {
+		return defaultInvitationRequiredProvider(provider)
+	}
+	for _, item := range c.RequireInvitationFor {
+		if strings.TrimSpace(strings.ToLower(item)) == provider {
+			return true
+		}
+	}
+	return false
+}
+
+func defaultInvitationRequiredProvider(provider string) bool {
+	switch provider {
+	case "account", "email", "phone", "google", "weixin", "weixin_mini":
+		return true
+	default:
+		return false
+	}
 }
 
 type SecretsConfig struct {

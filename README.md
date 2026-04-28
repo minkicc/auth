@@ -118,6 +118,16 @@ Then restart the service.
 
 There is no separate admin username/password anymore. The admin console now reuses the current browser's MKAuth login session. The UI is served under the same origin at `/admin`, and admin APIs live under `/admin-api`. After the configured admin user signs in on the main site, the user profile page shows a direct entry into the admin console. Additional day-to-day admins can then be added or removed from the admin Settings page and are stored in the database. Config-defined `auth_admin.user_ids` remain operations-managed and read-only from the UI.
 
+If the system has no users yet and you do not want public registration, configure a one-time bootstrap invitation code first:
+
+```yaml
+registration:
+  mode: "invite_only"
+  bootstrap_invitation_code: "CHANGE_ME_FIRST_USER_CODE"
+```
+
+The user created with that code is still a normal user. It is not promoted automatically. Copy its `user_id` into `auth_admin.user_ids`, restart the service, then use the admin Settings page to create regular invitation codes for private beta or internal-team onboarding. Invitation plaintext is only returned once at creation time; the database stores only a hash.
+
 ## CI/CD: Automatic Docker Images
 
 The repository includes a GitHub Actions workflow at `.github/workflows/docker-publish.yml` so GitHub can build and publish Docker images for you.

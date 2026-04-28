@@ -27,8 +27,10 @@ const (
 // Register Regular username/password registration
 func (h *AuthHandler) Register(c *gin.Context) {
 	var req struct {
-		Username string `json:"username" binding:"required"`
-		Password string `json:"password" binding:"required"`
+		Username       string `json:"username" binding:"required"`
+		Password       string `json:"password" binding:"required"`
+		ClientID       string `json:"client_id"`
+		InvitationCode string `json:"invitation_code"`
 		// Email    string `json:"email"`
 		// Nickname string `json:"nickname"`
 	}
@@ -49,6 +51,28 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	}
 	req.Username = normalizedUsername
 
+	if h.rejectRegistrationIfDisabled(c, "account") {
+		return
+	}
+	if err := h.accountAuth.CheckDuplicateUsername(req.Username); err != nil {
+		var appErr *auth.AppError
+		if errors.As(err, &appErr) {
+			c.JSON(appErr.GetHTTPStatus(), gin.H{"error": appErr.Error()})
+			return
+		}
+		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		return
+	}
+	if err := h.accountAuth.ValidatePassword(req.Password); err != nil {
+		var appErr *auth.AppError
+		if errors.As(err, &appErr) {
+			c.JSON(appErr.GetHTTPStatus(), gin.H{"error": appErr.Error()})
+			return
+		}
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
 	if err := h.runHook(c, iam.HookPreRegister, nil, "account", nil, map[string]string{
 		"identifier": req.Username,
 	}); err != nil {
@@ -56,14 +80,22 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		return
 	}
 
+	redemption, ok := h.beginRegistrationInvitation(c, "account", req.Username, "", req.ClientID, req.InvitationCode)
+	if !ok {
+		return
+	}
 	user, err := h.accountAuth.Register(req.Username, req.Password, req.Username)
 	if err != nil {
+		h.cancelRegistrationInvitation(redemption)
 		var appErr *auth.AppError
 		if errors.As(err, &appErr) {
 			c.JSON(appErr.GetHTTPStatus(), gin.H{"error": appErr.Error()})
 			return
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if !h.completeRegistrationInvitation(c, redemption, user.UserID) {
 		return
 	}
 

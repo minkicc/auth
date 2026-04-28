@@ -118,6 +118,16 @@ auth_admin:
 
 现在后台不再单独维护管理员用户名和密码，而是直接复用当前浏览器里的 MKAuth 主站登录会话。管理页面默认走同域路径 `/admin`，后台 API 走 `/admin-api`；登录后，管理员用户会在主站个人信息页右上角看到进入后台的按钮。配置里的 `auth_admin.user_ids` 属于运维维护的只读管理员；日常需要新增或删除的管理员，可以直接在后台 `Settings` 页里管理，这部分数据会存进数据库。
 
+如果系统还没有任何用户，但又不希望公开注册，可以先配置一次性 bootstrap 邀请码：
+
+```yaml
+registration:
+  mode: "invite_only"
+  bootstrap_invitation_code: "CHANGE_ME_FIRST_USER_CODE"
+```
+
+用这个邀请码注册出来的是普通用户，不会自动成为管理员。拿到该用户的 `user_id` 后，把它加入 `auth_admin.user_ids`，重启服务，再进入后台。后台 `Settings -> Invitation Codes` 可以继续生成日常内测邀请码；邀请码明文只在创建时返回一次，数据库里只保存哈希。
+
 ## CI/CD：GitHub 自动打包 Docker 镜像
 
 仓库已经内置了 `.github/workflows/docker-publish.yml`，可以直接用 GitHub Actions 自动构建并发布 Docker 镜像。

@@ -20,6 +20,9 @@ import { serverApi } from '@/api/serverApi';
 const emit = defineEmits<{
   (e: 'login-error', message: string): void
 }>()
+const props = defineProps<{
+  invitationCode?: string
+}>()
 
 const { t } = useI18n()
 const isLoading = ref(false)
@@ -28,7 +31,7 @@ const handleWechatLogin = async () => {
     isLoading.value = true
 
     // 获取微信登录的URL
-    const url = await serverApi.getWechatAuthUrl()
+    const url = await serverApi.getWechatAuthUrl(props.invitationCode || '')
 
     // 获取url中的state
     const cleanUrl = url.split('#')[0]
@@ -99,4 +102,4 @@ const handleWechatLogin = async () => {
   outline: none;
   cursor: pointer;
 }
-</style> 
+</style>

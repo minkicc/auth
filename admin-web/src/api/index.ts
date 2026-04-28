@@ -108,6 +108,49 @@ export interface OrganizationAdminPrincipalListResponse {
   total: number
 }
 
+export interface AdminInvitation {
+  invitation_id: string
+  name: string
+  status: string
+  scope: string
+  organization_id?: string
+  client_id?: string
+  max_uses: number
+  used_count: number
+  expires_at?: string
+  allowed_email?: string
+  allowed_domain?: string
+  default_roles_json?: string
+  default_groups_json?: string
+  created_by?: string
+  created_at?: string
+  updated_at?: string
+}
+
+export interface AdminInvitationListResponse {
+  invitations: AdminInvitation[]
+  total: number
+}
+
+export interface AdminInvitationCreatePayload {
+  name: string
+  code?: string
+  scope?: string
+  organization_id?: string
+  client_id?: string
+  max_uses?: number
+  expires_at?: string
+  allowed_email?: string
+  allowed_domain?: string
+  default_roles?: string[]
+  default_groups?: string[]
+}
+
+export interface AdminInvitationCreateResponse {
+  invitation: AdminInvitation
+  code: string
+}
+
 // ===================== 其他接口定义 =====================
 export interface StatsData {
   total_users: number
@@ -632,6 +675,18 @@ class ServerApi {
 
   deleteAdmin(userId: string): Promise<{ message: string }> {
     return api.delete(`/admins/${encodeURIComponent(userId)}`).then(res => res.data)
+  }
+
+  listInvitations(): Promise<AdminInvitationListResponse> {
+    return api.get('/invitations').then(res => res.data)
+  }
+
+  createInvitation(payload: AdminInvitationCreatePayload): Promise<AdminInvitationCreateResponse> {
+    return api.post('/invitations', payload).then(res => res.data)
+  }
+
+  disableInvitation(invitationId: string): Promise<{ message: string }> {
+    return api.delete(`/invitations/${encodeURIComponent(invitationId)}`).then(res => res.data)
   }
 
   // 获取统计数据

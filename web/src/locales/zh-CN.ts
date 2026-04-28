@@ -33,6 +33,7 @@ export default {
     nickname: '昵称',
     username: '用户名',
     code: '验证码',
+    invitationCode: '邀请码（可选）',
     user: '用户',
   },
   auth: {

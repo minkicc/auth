@@ -64,6 +64,10 @@ type MiniProgramSessionResponse struct {
 // MiniProgramLogin 微信小程序登录
 // jsCode: 前端 wx.login() 获取的 code
 func (w *WeixinMiniLogin) MiniProgramLogin(jsCode string) (*User, *MiniProgramSessionResponse, bool, error) {
+	return w.MiniProgramLoginWithBeforeCreate(jsCode, nil)
+}
+
+func (w *WeixinMiniLogin) MiniProgramLoginWithBeforeCreate(jsCode string, beforeCreate func(unionID string) error) (*User, *MiniProgramSessionResponse, bool, error) {
 	if jsCode == "" {
 		return nil, nil, false, errors.New("jsCode is required")
 	}
@@ -97,6 +101,11 @@ func (w *WeixinMiniLogin) MiniProgramLogin(jsCode string) (*User, *MiniProgramSe
 	}
 	created := user == nil
 	if user == nil {
+		if beforeCreate != nil {
+			if err := beforeCreate(unionID); err != nil {
+				return nil, resp, false, err
+			}
+		}
 		// 这里只能用 openid/unionid 注册，昵称头像等需前端补充
 		userInfo := &WeixinUserInfo{
 			OpenID:  resp.OpenID,

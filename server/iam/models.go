@@ -197,3 +197,49 @@ type ClaimMapperRule struct {
 	CreatedAt         time.Time `json:"created_at"`
 	UpdatedAt         time.Time `json:"updated_at"`
 }
+
+type InvitationCodeStatus string
+
+const (
+	InvitationCodeStatusActive   InvitationCodeStatus = "active"
+	InvitationCodeStatusDisabled InvitationCodeStatus = "disabled"
+)
+
+type InvitationCodeScope string
+
+const (
+	InvitationCodeScopeGlobal       InvitationCodeScope = "global"
+	InvitationCodeScopeOrganization InvitationCodeScope = "organization"
+	InvitationCodeScopeClient       InvitationCodeScope = "client"
+)
+
+type InvitationCode struct {
+	InvitationID      string               `json:"invitation_id" gorm:"primaryKey;size:32"`
+	Name              string               `json:"name" gorm:"size:120;not null"`
+	CodeHash          string               `json:"-" gorm:"uniqueIndex;size:96;not null"`
+	Status            InvitationCodeStatus `json:"status" gorm:"size:20;not null;default:'active'"`
+	Scope             InvitationCodeScope  `json:"scope" gorm:"size:24;not null;default:'global'"`
+	OrganizationID    string               `json:"organization_id,omitempty" gorm:"index;size:32"`
+	ClientID          string               `json:"client_id,omitempty" gorm:"index;size:128"`
+	MaxUses           int                  `json:"max_uses" gorm:"not null;default:1"`
+	UsedCount         int                  `json:"used_count" gorm:"not null;default:0"`
+	ExpiresAt         *time.Time           `json:"expires_at,omitempty"`
+	AllowedEmail      string               `json:"allowed_email,omitempty" gorm:"size:255;index"`
+	AllowedDomain     string               `json:"allowed_domain,omitempty" gorm:"size:255;index"`
+	DefaultRolesJSON  string               `json:"default_roles_json,omitempty" gorm:"type:text"`
+	DefaultGroupsJSON string               `json:"default_groups_json,omitempty" gorm:"type:text"`
+	CreatedBy         string               `json:"created_by,omitempty" gorm:"size:32"`
+	CreatedAt         time.Time            `json:"created_at"`
+	UpdatedAt         time.Time            `json:"updated_at"`
+}
+
+type InvitationCodeUse struct {
+	UseID        string    `json:"use_id" gorm:"primaryKey;size:32"`
+	InvitationID string    `json:"invitation_id" gorm:"index;not null;size:32"`
+	UserID       string    `json:"user_id,omitempty" gorm:"index;size:32"`
+	Provider     string    `json:"provider,omitempty" gorm:"size:32"`
+	Identifier   string    `json:"identifier,omitempty" gorm:"size:255"`
+	Email        string    `json:"email,omitempty" gorm:"size:255;index"`
+	IP           string    `json:"ip,omitempty" gorm:"size:80"`
+	UsedAt       time.Time `json:"used_at"`
+}

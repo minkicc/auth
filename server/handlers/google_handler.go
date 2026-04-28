@@ -6,6 +6,7 @@
 package handlers
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -14,8 +15,10 @@ import (
 	"minki.cc/mkauth/server/iam"
 )
 
+var errRegistrationResponseSent = errors.New("registration response has been sent")
+
 // handleGoogleUser processes a Google user and reports whether a new MKAuth user was created.
-func (h *AuthHandler) handleGoogleUser(googleUserInfo *auth.GoogleUserInfo) (*auth.User, bool, error) {
+func (h *AuthHandler) handleGoogleUser(c *gin.Context, googleUserInfo *auth.GoogleUserInfo, clientID, invitationCode string) (*auth.User, bool, error) {
 	if h.googleOAuth == nil {
 		return nil, false, fmt.Errorf("google OAuth is not enabled")
 	}
@@ -27,9 +30,20 @@ func (h *AuthHandler) handleGoogleUser(googleUserInfo *auth.GoogleUserInfo) (*au
 	}
 	created := user == nil
 	if user == nil {
+		if h.rejectRegistrationIfDisabled(c, "google") {
+			return nil, false, errRegistrationResponseSent
+		}
+		redemption, ok := h.beginRegistrationInvitation(c, "google", googleUserInfo.Email, googleUserInfo.Email, clientID, invitationCode)
+		if !ok {
+			return nil, false, errRegistrationResponseSent
+		}
 		user, err = h.googleOAuth.CreateUserFromGoogle(googleUserInfo)
 		if err != nil {
+			h.cancelRegistrationInvitation(redemption)
 			return nil, false, fmt.Errorf("failed to create Google user: %w", err)
+		}
+		if !h.completeRegistrationInvitation(c, redemption, user.UserID) {
+			return nil, false, errRegistrationResponseSent
 		}
 	} else {
 		// Update user information
@@ -45,7 +59,9 @@ func (h *AuthHandler) handleGoogleUser(googleUserInfo *auth.GoogleUserInfo) (*au
 func (h *AuthHandler) GoogleCredential(c *gin.Context) {
 	// 解析请求体
 	var req struct {
-		Credential string `json:"credential" binding:"required"`
+		Credential     string `json:"credential" binding:"required"`
+		ClientID       string `json:"client_id"`
+		InvitationCode string `json:"invitation_code"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -70,8 +86,11 @@ func (h *AuthHandler) GoogleCredential(c *gin.Context) {
 	}
 
 	// 创建或查找用户
-	user, created, err := h.handleGoogleUser(googleUser)
+	user, created, err := h.handleGoogleUser(c, googleUser, req.ClientID, req.InvitationCode)
 	if err != nil {
+		if errors.Is(err, errRegistrationResponseSent) {
+			return
+		}
 		h.logger.Printf("Failed to process Google user: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to process user information"})
 		return

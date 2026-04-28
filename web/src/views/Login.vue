@@ -105,16 +105,19 @@
       <!-- 注册组件 -->
       <AccountRegister
         v-if="(registerType === 'account' || (!hasEmailLogin && !hasPhoneLogin)) && hasAccountLogin"
+        :invitation-code="invitationCode"
         @register-success="handleRegisterSuccess"
         @register-error="handleLoginError"
       />
       <EmailRegister
         v-if="(registerType === 'email' || (!hasAccountLogin && !hasPhoneLogin)) && hasEmailLogin"
+        :invitation-code="invitationCode"
         @register-success="handleRegisterSuccess"
         @register-error="handleLoginError"
       />
       <PhoneRegister
         v-if="(registerType === 'phone' || (!hasAccountLogin && !hasEmailLogin)) && hasPhoneLogin"
+        :invitation-code="invitationCode"
         @register-success="handleRegisterSuccess"
         @register-error="handleLoginError"
       />
@@ -131,11 +134,13 @@
       <div class="social-buttons">
         <GoogleLogin 
           v-if="hasGoogleLogin" 
+          :invitation-code="invitationCode"
           @login-error="handleLoginError"
           @login-success="handleLoginSuccess"
         />
         <WeixinLogin 
           v-if="hasWeixinLogin" 
+          :invitation-code="invitationCode"
           @login-error="handleLoginError"
         />
         <div v-if="hasEnterpriseOIDCLogin" class="enterprise-sso-panel">
@@ -223,11 +228,13 @@
   <div v-if="hasSocialLogin && !shouldShowLoginForm" class="social-buttons2">
     <GoogleLogin 
       v-if="hasGoogleLogin" 
+      :invitation-code="invitationCode"
       @login-error="handleLoginError"
       @login-success="handleLoginSuccess"
     />
     <WeixinLogin 
       v-if="hasWeixinLogin" 
+      :invitation-code="invitationCode"
       @login-error="handleLoginError"
     />
     <div v-if="hasEnterpriseOIDCLogin" class="enterprise-sso-panel">
@@ -356,6 +363,10 @@ const hasPhoneLogin = hasProvider('phone')
 const hasGoogleLogin = hasProvider('google')
 const hasWeixinLogin = hasProvider('weixin')
 const hasEnterpriseOIDCLogin = hasProvider('enterprise_oidc')
+const invitationCode = computed(() => {
+  const raw = route.query.invitation_code || route.query.invite_code
+  return Array.isArray(raw) ? (raw[0] || '') : (raw || '')
+})
 
 
 // 计算属性
@@ -386,7 +397,7 @@ const hasMultipleRegisterMethods = computed(() => {
 const handleWechatLogin = async () => {
   try {
     // 获取微信登录的URL
-    const url = await serverApi.getWechatAuthUrl()
+    const url = await serverApi.getWechatAuthUrl(invitationCode.value)
 
     // 获取url中的state
     const cleanUrl = url.split('#')[0]
