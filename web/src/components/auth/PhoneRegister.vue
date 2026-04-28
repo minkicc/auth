@@ -66,6 +66,14 @@
         <span v-if="formErrors.confirmPassword" class="error-text">{{ formErrors.confirmPassword }}</span>
       </div>
 
+      <div class="form-item">
+        <input
+          v-model="formData.invitationCode"
+          type="text"
+          :placeholder="$t('common.invitationCode')"
+        >
+      </div>
+
       <button type="submit" :disabled="isLoading" class="submit-btn">
         {{ isLoading ? $t('common.registering') : $t('auth.register') }}
       </button>
@@ -81,6 +89,9 @@ import { useI18n } from 'vue-i18n'
 const emit = defineEmits<{
   (e: 'register-error', message: string): void
 }>()
+const props = defineProps<{
+  invitationCode?: string
+}>()
 
 const { t } = useI18n()
 
@@ -91,6 +102,7 @@ const formData = reactive({
   nickname: '',
   password: '',
   confirmPassword: '',
+  invitationCode: props.invitationCode || '',
   agreement: false
 })
 
@@ -229,6 +241,7 @@ async function sendVerificationCode() {
         formData.phone,
         formData.password,
         formData.nickname,
+        formData.invitationCode,
       )
       hasRequestedCode.value = true
     }

@@ -6,6 +6,7 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -34,9 +35,24 @@ func (h *AuthHandler) WeixinMiniLogin(c *gin.Context) {
 		return
 	}
 
+	var redemption *iam.InvitationRedemption
 	// 调用微信小程序登录服务
-	user, _, created, err := h.weixinMiniLogin.MiniProgramLogin(code)
+	user, _, created, err := h.weixinMiniLogin.MiniProgramLoginWithBeforeCreate(code, func(unionID string) error {
+		if h.rejectRegistrationIfDisabled(c, "weixin_mini") {
+			return errRegistrationResponseSent
+		}
+		nextRedemption, ok := h.beginRegistrationInvitation(c, "weixin_mini", unionID, "", c.Query("client_id"), c.Query("invitation_code"))
+		if !ok {
+			return errRegistrationResponseSent
+		}
+		redemption = nextRedemption
+		return nil
+	})
 	if err != nil {
+		if errors.Is(err, errRegistrationResponseSent) {
+			return
+		}
+		h.cancelRegistrationInvitation(redemption)
 		h.logger.Printf("WeChat mini program login failed: %v", err)
 		if appErr, ok := err.(*auth.AppError); ok {
 			c.JSON(appErr.GetHTTPStatus(), gin.H{"error": appErr.Error()})
@@ -46,6 +62,9 @@ func (h *AuthHandler) WeixinMiniLogin(c *gin.Context) {
 		return
 	}
 	if created {
+		if !h.completeRegistrationInvitation(c, redemption, user.UserID) {
+			return
+		}
 		if err := h.runHook(c, iam.HookPostRegister, user, "weixin_mini", nil, nil); err != nil {
 			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
 			return

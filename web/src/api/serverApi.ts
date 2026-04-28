@@ -476,8 +476,14 @@ class ServerApi {
     }
 
     // 账号注册
-    async registerAccount(username: string, password: string): Promise<AuthResponse> {
-        const response = await axios.post('/account/register', { username, password, client_id: this.clientId, redirect_uri: this.redirectUri })
+    async registerAccount(username: string, password: string, invitationCode = ''): Promise<AuthResponse> {
+        const response = await axios.post('/account/register', {
+            username,
+            password,
+            client_id: this.clientId,
+            redirect_uri: this.redirectUri,
+            invitation_code: invitationCode.trim() || undefined,
+        })
         this.updateUserInfo(response.data)
         return response.data
     }
@@ -546,15 +552,25 @@ class ServerApi {
         return response.data.client_id
     }
 
-    async handleGoogleCallback(credential: string): Promise<AuthResponse> {
-        const response = await axios.post('/google/callback', { credential, client_id: this.clientId, redirect_uri: this.redirectUri })
+    async handleGoogleCallback(credential: string, invitationCode = ''): Promise<AuthResponse> {
+        const response = await axios.post('/google/callback', {
+            credential,
+            client_id: this.clientId,
+            redirect_uri: this.redirectUri,
+            invitation_code: invitationCode.trim() || undefined,
+        })
         this.updateUserInfo(response.data)
         return response.data
     }
 
     // 微信相关
-    async getWechatAuthUrl(): Promise<string> {
-        const response = await axios.get('/weixin/url')
+    async getWechatAuthUrl(invitationCode = ''): Promise<string> {
+        const response = await axios.get('/weixin/url', {
+            params: {
+                client_id: this.clientId || undefined,
+                invitation_code: invitationCode.trim() || undefined,
+            }
+        })
         return response.data.url
     }
 
@@ -608,8 +624,14 @@ class ServerApi {
         return authResponse
     }
 
-    async startPhoneRegistration(phone: string, password: string, nickname: string) {
-        const response = await axios.post('/phone/preregister', { phone, password, nickname })
+    async startPhoneRegistration(phone: string, password: string, nickname: string, invitationCode = '') {
+        const response = await axios.post('/phone/preregister', {
+            phone,
+            password,
+            nickname,
+            client_id: this.clientId,
+            invitation_code: invitationCode.trim() || undefined,
+        })
         return response.data
     }
 

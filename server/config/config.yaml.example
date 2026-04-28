@@ -15,6 +15,20 @@ redis:
   password: "YOUR_REDIS_PASSWORD"
   db: 0
 
+registration:
+  # open: public self-service registration is allowed.
+  # invite_only: registration requires an invitation code for configured providers.
+  # disabled: existing users can sign in, but self-service registration is blocked.
+  mode: "open"
+  # Empty means the built-in public self-service providers are protected in
+  # invite_only mode: account, email, phone, google, weixin, weixin_mini.
+  # Enterprise OIDC/SAML/LDAP are not gated by invite codes by default.
+  require_invitation_for: []
+  # Optional one-time code for creating the first ordinary user before any
+  # admin exists. It does not grant admin privileges. After registering with
+  # this code, put the created user_id into auth_admin.user_ids and restart.
+  bootstrap_invitation_code: ""
+
 secrets:
   # Optional but recommended. When configured, admin-managed OIDC clients and
   # enterprise identity provider secrets are encrypted before being stored in DB.

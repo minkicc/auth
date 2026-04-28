@@ -28,6 +28,8 @@ const (
 	securityAuditActionAdminPrincipalDelete    = "admin_principal_delete"
 	securityAuditActionOrganizationAdminCreate = "organization_admin_create"
 	securityAuditActionOrganizationAdminDelete = "organization_admin_delete"
+	securityAuditActionInvitationCreate        = "invitation_create"
+	securityAuditActionInvitationDisable       = "invitation_disable"
 	securityAuditExportMaxRows                 = 5000
 )
 

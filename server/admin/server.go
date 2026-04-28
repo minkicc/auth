@@ -213,6 +213,9 @@ func (s *AdminServer) registerRoutes(r *gin.Engine, webFilePath string) {
 		globalAdmin.GET("/admins", s.handleListAdmins)
 		globalAdmin.POST("/admins", s.handleCreateAdmin)
 		globalAdmin.DELETE("/admins/:user_id", s.handleDeleteAdmin)
+		globalAdmin.GET("/invitations", s.handleListInvitations)
+		globalAdmin.POST("/invitations", s.handleCreateInvitation)
+		globalAdmin.DELETE("/invitations/:id", s.handleDisableInvitation)
 
 		// User statistics
 		globalAdmin.GET("/stats", s.handleGetStats)

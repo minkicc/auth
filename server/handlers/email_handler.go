@@ -74,11 +74,13 @@ func (h *AuthHandler) EmailLogin(c *gin.Context) {
 // EmailRegister Email pre-registration
 func (h *AuthHandler) EmailRegister(c *gin.Context) {
 	var req struct {
-		Email    string `json:"email" binding:"required"`
-		Password string `json:"password" binding:"required"`
-		Nickname string `json:"nickname"`
-		Title    string `json:"title" binding:"required"`
-		Content  string `json:"content" binding:"required"`
+		Email          string `json:"email" binding:"required"`
+		Password       string `json:"password" binding:"required"`
+		Nickname       string `json:"nickname"`
+		Title          string `json:"title" binding:"required"`
+		Content        string `json:"content" binding:"required"`
+		ClientID       string `json:"client_id"`
+		InvitationCode string `json:"invitation_code"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -97,10 +99,31 @@ func (h *AuthHandler) EmailRegister(c *gin.Context) {
 	}
 	req.Email = normalizedEmail
 
+	if h.rejectRegistrationIfDisabled(c, "email") {
+		return
+	}
 	clientIP := c.ClientIP()
 	attemptKey := emailAttemptKey("register", req.Email)
 	if err := h.accountAuth.CheckRequestRateLimit(attemptKey, clientIP); err != nil {
 		c.JSON(http.StatusTooManyRequests, gin.H{"error": err.Error()})
+		return
+	}
+	if err := h.emailAuth.CheckDuplicateEmail(req.Email); err != nil {
+		var appErr *auth.AppError
+		if errors.As(err, &appErr) {
+			c.JSON(appErr.GetHTTPStatus(), gin.H{"error": appErr.Error()})
+			return
+		}
+		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		return
+	}
+	if err := h.emailAuth.ValidatePassword(req.Password); err != nil {
+		var appErr *auth.AppError
+		if errors.As(err, &appErr) {
+			c.JSON(appErr.GetHTTPStatus(), gin.H{"error": appErr.Error()})
+			return
+		}
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -111,10 +134,18 @@ func (h *AuthHandler) EmailRegister(c *gin.Context) {
 		return
 	}
 
+	redemption, ok := h.beginRegistrationInvitation(c, "email", req.Email, req.Email, req.ClientID, req.InvitationCode)
+	if !ok {
+		return
+	}
 	// Pre-register email user, only send verification email, don't create user
-	_, err = h.emailAuth.EmailPreregister(req.Email, req.Password, req.Nickname, req.Title, req.Content)
+	token, err := h.emailAuth.EmailPreregister(req.Email, req.Password, req.Nickname, req.Title, req.Content)
 	if err != nil {
+		h.cancelRegistrationInvitation(redemption)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if !h.storePendingRegistrationInvitation(c, pendingEmailInvitationKey(token), redemption) {
 		return
 	}
 	_ = h.accountAuth.RecordRateLimitedRequest(attemptKey, clientIP)
@@ -132,12 +163,20 @@ func (h *AuthHandler) EmailVerify(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Missing verification token"})
 		return
 	}
+	redemption, ok := h.loadPendingRegistrationInvitation(c, "email", pendingEmailInvitationKey(token))
+	if !ok {
+		return
+	}
 	// Verify email and complete registration
 	user, err := h.emailAuth.VerifyEmail(token)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	if !h.completeRegistrationInvitation(c, redemption, user.UserID) {
+		return
+	}
+	h.deletePendingRegistrationInvitation(pendingEmailInvitationKey(token))
 
 	metadata := map[string]string{
 		"verification": "email",

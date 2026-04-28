@@ -16,9 +16,11 @@ import (
 
 // PhoneRegisterRequest Phone registration request
 type PhoneRegisterRequest struct {
-	Phone    string `json:"phone" binding:"required"`
-	Password string `json:"password" binding:"required"`
-	Nickname string `json:"nickname"`
+	Phone          string `json:"phone" binding:"required"`
+	Password       string `json:"password" binding:"required"`
+	Nickname       string `json:"nickname"`
+	ClientID       string `json:"client_id"`
+	InvitationCode string `json:"invitation_code"`
 }
 
 // PhoneLoginRequest Phone password login request
@@ -239,9 +241,11 @@ func (h *AuthHandler) PhoneInitiatePasswordReset(c *gin.Context) {
 // PhonePreregister Phone pre-registration - send verification code
 func (h *AuthHandler) PhonePreregister(c *gin.Context) {
 	var req struct {
-		Phone    string `json:"phone" binding:"required"`
-		Password string `json:"password" binding:"required"`
-		Nickname string `json:"nickname"`
+		Phone          string `json:"phone" binding:"required"`
+		Password       string `json:"password" binding:"required"`
+		Nickname       string `json:"nickname"`
+		ClientID       string `json:"client_id"`
+		InvitationCode string `json:"invitation_code"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -260,10 +264,26 @@ func (h *AuthHandler) PhonePreregister(c *gin.Context) {
 	}
 	req.Phone = normalizedPhone
 
+	if h.rejectRegistrationIfDisabled(c, "phone") {
+		return
+	}
 	clientIP := c.ClientIP()
 	attemptKey := phoneAttemptKey("preregister", req.Phone)
 	if err := h.accountAuth.CheckRequestRateLimit(attemptKey, clientIP); err != nil {
 		c.JSON(http.StatusTooManyRequests, gin.H{"error": err.Error()})
+		return
+	}
+	if err := h.phoneAuth.CheckDuplicatePhone(req.Phone); err != nil {
+		var appErr *auth.AppError
+		if errors.As(err, &appErr) {
+			c.JSON(appErr.GetHTTPStatus(), gin.H{"error": appErr.Error()})
+			return
+		}
+		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		return
+	}
+	if len(req.Password) < 8 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Password must be at least 8 characters"})
 		return
 	}
 
@@ -274,10 +294,18 @@ func (h *AuthHandler) PhonePreregister(c *gin.Context) {
 		return
 	}
 
+	redemption, ok := h.beginRegistrationInvitation(c, "phone", req.Phone, "", req.ClientID, req.InvitationCode)
+	if !ok {
+		return
+	}
 	// Pre-register phone user, send verification code
 	_, err = h.phoneAuth.PhonePreregister(req.Phone, req.Password, req.Nickname)
 	if err != nil {
+		h.cancelRegistrationInvitation(redemption)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if !h.storePendingRegistrationInvitation(c, pendingPhoneInvitationKey(req.Phone), redemption) {
 		return
 	}
 	_ = h.accountAuth.RecordRateLimitedRequest(attemptKey, clientIP)
@@ -360,6 +388,10 @@ func (h *AuthHandler) VerifyPhoneAndRegister(c *gin.Context) {
 		return
 	}
 
+	redemption, ok := h.loadPendingRegistrationInvitation(c, "phone", pendingPhoneInvitationKey(req.Phone))
+	if !ok {
+		return
+	}
 	// Verify phone number and complete registration
 	user, err := h.phoneAuth.VerifyPhoneAndRegister(req.Phone, req.Code)
 	if err != nil {
@@ -368,6 +400,10 @@ func (h *AuthHandler) VerifyPhoneAndRegister(c *gin.Context) {
 		return
 	}
 	_ = h.accountAuth.RecordLoginAttempt(attemptKey, clientIP, true)
+	if !h.completeRegistrationInvitation(c, redemption, user.UserID) {
+		return
+	}
+	h.deletePendingRegistrationInvitation(pendingPhoneInvitationKey(req.Phone))
 
 	if err := h.runHook(c, iam.HookPostRegister, user, "phone", nil, map[string]string{
 		"identifier":   req.Phone,

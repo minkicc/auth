@@ -20,6 +20,7 @@ const (
 	RedisKeyVerificationToken   = "auth_verification_token:"
 	RedisKeyEmailPreregister    = "auth_email_prereg:"
 	RedisKeyPhonePreregister    = "auth_phone_prereg:"
+	RedisKeyInvitationPending   = "auth_invitation_pending:"
 	RedisKeyOIDCAuthCode        = "auth_oidc_code:"
 	RedisKeyOIDCBrowserSession  = "auth_oidc_browser_session:"
 	RedisKeyOIDCRevokedToken    = "auth_oidc_revoked_token:"

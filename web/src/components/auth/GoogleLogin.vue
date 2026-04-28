@@ -47,6 +47,9 @@ interface GoogleResponse {
 const emit = defineEmits<{
   (e: 'login-error', message: string): void
 }>()
+const props = defineProps<{
+  invitationCode?: string
+}>()
 
 const { t } = useI18n()
 
@@ -84,7 +87,7 @@ const initGoogleAuth = async (): Promise<void> => {
 // 处理 Google 登录回调
 const handleGoogleCallback = async (credential: string) => {
   try {
-    const data = await serverApi.handleGoogleCallback(credential)
+    const data = await serverApi.handleGoogleCallback(credential, props.invitationCode || '')
     if (!data) {
       router.push('/login')
       return
@@ -177,4 +180,4 @@ onMounted(async () => {
     transform-origin: center;
   }
 }
-</style> 
+</style>
