@@ -7,10 +7,10 @@
   <!-- 登录表单容器 -->
   <div v-if="shouldShowLoginForm" class="login-container">
     <div class="brand-header">
-      <img src="/minki-logo.svg" alt="minki-auth logo" class="brand-logo" />
+      <img :src="authBrand.iconUrl" :alt="`${authBrand.name} logo`" class="brand-logo" />
       <div class="brand-copy">
-        <p class="brand-kicker">Minki Technology</p>
-        <h1 class="brand-title">minki-auth</h1>
+        <p class="brand-kicker">{{ authBrand.kicker }}</p>
+        <h1 class="brand-title">{{ authBrand.homeTitle }}</h1>
       </div>
     </div>
 
@@ -333,6 +333,7 @@ import EmailRegister from '@/components/auth/EmailRegister.vue'
 import PhoneRegister from '@/components/auth/PhoneRegister.vue'
 import { getApiErrorMessage, serverApi } from '@/api/serverApi'
 import type { AuthProvider, EnterpriseOIDCDiscoveryResponse, EnterpriseOIDCProvider } from '@/api/serverApi'
+import { authBrand } from '@/branding'
 
 
 const { t } = useI18n()

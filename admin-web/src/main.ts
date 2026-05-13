@@ -59,6 +59,7 @@ import 'element-plus/es/components/tag/style/css'
 import App from './App.vue'
 import router from './router'
 import i18n from './lang'
+import { applyDocumentBrand, loadBrandingConfig } from './branding'
 
 // 创建应用实例
 const app = createApp(App)
@@ -112,4 +113,7 @@ app.use(router)
 app.use(i18n)
 
 // 挂载应用
-app.mount('#app')
+loadBrandingConfig().finally(() => {
+  applyDocumentBrand()
+  app.mount('#app')
+})

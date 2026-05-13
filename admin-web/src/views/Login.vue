@@ -8,9 +8,9 @@
     <el-card class="login-card">
       <template #header>
         <div class="login-header">
-          <img src="/minki-logo.svg" alt="minki-auth logo" class="brand-logo" />
+          <img :src="adminBrand.iconUrl" :alt="`${adminBrand.name} logo`" class="brand-logo" />
           <div class="brand-copy">
-            <h2>minki-auth admin</h2>
+            <h2>{{ adminBrand.homeTitle }}</h2>
             <p>{{ $t('auth.welcome') }}</p>
           </div>
         </div>
@@ -49,6 +49,7 @@ import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { serverApi } from '@/api'
 import { isAuthenticated } from '@/utils'
+import { adminBrand } from '@/branding'
 
 const router = useRouter()
 const bootstrapping = ref(false)

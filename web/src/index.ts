@@ -11,6 +11,7 @@ import axios from 'axios'
 import i18n, { getPreferredLanguage, setLanguage } from './locales'
 import { context } from './context'
 import { serverApi } from './api/serverApi'
+import { applyDocumentBrand, loadBrandingConfig } from './branding'
 
 // 设置 axios 默认值
 axios.defaults.baseURL = import.meta.env.VITE_API_URL
@@ -59,6 +60,7 @@ const initAuth = async () => {
 }
 
 // 挂载应用前初始化认证
-initAuth().finally(() => {
+Promise.all([loadBrandingConfig(), initAuth()]).finally(() => {
+  applyDocumentBrand()
   app.mount('#app')
 }) 

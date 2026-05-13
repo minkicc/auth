@@ -9,10 +9,10 @@
       <!-- 顶部导航 -->
       <el-header height="60px" class="header">
         <div class="logo">
-          <img src="/minki-logo.svg" alt="minki-auth logo" class="brand-logo" />
+          <img :src="adminBrand.iconUrl" :alt="`${adminBrand.name} logo`" class="brand-logo" />
           <div class="brand-copy">
-            <h1>minki-auth</h1>
-            <span>admin</span>
+            <h1>{{ adminBrand.name }}</h1>
+            <span>{{ adminBrand.section }}</span>
           </div>
         </div>
         <div class="user-info">
@@ -92,6 +92,7 @@ import { ElMessage } from 'element-plus/es/components/message/index'
 import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import LanguageSwitcher from '@/components/LanguageSwitcher.vue'
 import { serverApi } from '@/api'
+import { adminBrand } from '@/branding'
 
 
 const route = useRoute()
