@@ -128,3 +128,48 @@ func TestGoogleOAuthAutoMigrateCreatesEmailUsersTable(t *testing.T) {
 		t.Fatalf("expected google auto-migrate to create users table")
 	}
 }
+
+func TestCreateUserFromGoogleDoesNotRequireAvatarProcessing(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file:google-avatar-fallback?mode=memory&cache=shared"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("failed to open sqlite database: %v", err)
+	}
+
+	googleOAuth, err := NewGoogleOAuth(GoogleOAuthConfig{
+		ClientID:     "test-google-client-id",
+		ClientSecret: "test-google-client-secret",
+		RedirectURL:  "https://auth.example.com/api/google/callback",
+		DB:           db,
+	})
+	if err != nil {
+		t.Fatalf("failed to create google oauth: %v", err)
+	}
+	if err := googleOAuth.AutoMigrate(); err != nil {
+		t.Fatalf("auto migrate failed: %v", err)
+	}
+
+	user, err := googleOAuth.CreateUserFromGoogle(&GoogleUserInfo{
+		ID:            "google-subject-avatar-fallback",
+		Email:         "avatar-fallback@example.com",
+		EmailVerified: true,
+		Name:          "Avatar Fallback",
+		Picture:       "https://example.com/avatar.webp",
+	})
+	if err != nil {
+		t.Fatalf("expected google user creation to ignore unavailable avatar processing, got %v", err)
+	}
+	if user.UserID == "" {
+		t.Fatalf("expected generated user id")
+	}
+	if user.Avatar != "" {
+		t.Fatalf("expected empty avatar when avatar processing is unavailable, got %q", user.Avatar)
+	}
+
+	var googleUser GoogleUser
+	if err := db.First(&googleUser, "user_id = ?", user.UserID).Error; err != nil {
+		t.Fatalf("expected google identity record: %v", err)
+	}
+	if googleUser.GoogleID != "google-subject-avatar-fallback" {
+		t.Fatalf("unexpected google subject: %s", googleUser.GoogleID)
+	}
+}

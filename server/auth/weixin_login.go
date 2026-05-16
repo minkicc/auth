@@ -261,11 +261,7 @@ func (w *WeixinLogin) CreateUserFromWeixin(weixinInfo *WeixinUserInfo) (*User, e
 		return nil, fmt.Errorf("failed to generate random ID: %v", err)
 	}
 
-	// Download and upload avatar
-	avatarURL, err := w.avatarService.DownloadAndUploadAvatar(userID, weixinInfo.HeadImgURL)
-	if err != nil {
-		return nil, fmt.Errorf("failed to process avatar: %w", err)
-	}
+	avatarURL := w.downloadAndUploadAvatarIfAvailable(userID, weixinInfo.HeadImgURL)
 
 	// Use transaction to ensure data consistency
 	tx := w.db.Begin()
@@ -331,30 +327,45 @@ func (w *WeixinLogin) CreateUserFromWeixin(weixinInfo *WeixinUserInfo) (*User, e
 
 // UpdateWeixinUserInfo Update WeChat user information
 func (w *WeixinLogin) UpdateWeixinUserInfo(userID string, weixinInfo *WeixinUserInfo) error {
-	// Download and upload avatar
-	avatarURL, err := w.avatarService.DownloadAndUploadAvatar(userID, weixinInfo.HeadImgURL)
-	if err != nil {
-		return fmt.Errorf("failed to process avatar: %w", err)
-	}
+	avatarURL := w.downloadAndUploadAvatarIfAvailable(userID, weixinInfo.HeadImgURL)
 
 	// Update WeChat user table information
-	result := w.db.Model(&WeixinUser{}).Where("user_id = ?", userID).Updates(map[string]interface{}{
-		"nickname":     weixinInfo.Nickname,
-		"sex":          weixinInfo.Sex,
-		"province":     weixinInfo.Province,
-		"city":         weixinInfo.City,
-		"country":      weixinInfo.Country,
-		"head_img_url": avatarURL,
-	})
+	weixinUpdates := map[string]interface{}{
+		"nickname": weixinInfo.Nickname,
+		"sex":      weixinInfo.Sex,
+		"province": weixinInfo.Province,
+		"city":     weixinInfo.City,
+		"country":  weixinInfo.Country,
+	}
+	if avatarURL != "" {
+		weixinUpdates["head_img_url"] = avatarURL
+	}
+	result := w.db.Model(&WeixinUser{}).Where("user_id = ?", userID).Updates(weixinUpdates)
 
 	if result.Error != nil {
 		return result.Error
 	}
 
-	// 更新用户数据
-	return w.db.Model(&User{}).Where("user_id = ?", userID).Updates(map[string]interface{}{
+	userUpdates := map[string]interface{}{
 		"nickname":   weixinInfo.Nickname,
-		"avatar":     avatarURL,
 		"last_login": time.Now(),
-	}).Error
+	}
+	if avatarURL != "" {
+		userUpdates["avatar"] = avatarURL
+	}
+
+	// 更新用户数据
+	return w.db.Model(&User{}).Where("user_id = ?", userID).Updates(userUpdates).Error
+}
+
+func (w *WeixinLogin) downloadAndUploadAvatarIfAvailable(userID, avatarSourceURL string) string {
+	if w == nil || w.avatarService == nil || strings.TrimSpace(avatarSourceURL) == "" {
+		return ""
+	}
+	avatarURL, err := w.avatarService.DownloadAndUploadAvatar(userID, avatarSourceURL)
+	if err != nil {
+		log.Printf("failed to process WeChat avatar for user %s: %v", userID, err)
+		return ""
+	}
+	return avatarURL
 }
