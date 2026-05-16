@@ -18,6 +18,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -336,11 +337,7 @@ func (g *GoogleOAuth) CreateUserFromGoogle(googleInfo *GoogleUserInfo) (*User, e
 		return nil, fmt.Errorf("failed to generate random ID: %v", err)
 	}
 
-	// Download and upload avatar
-	avatarURL, err := g.avatarService.DownloadAndUploadAvatar(userID, googleInfo.Picture)
-	if err != nil {
-		return nil, fmt.Errorf("failed to process avatar: %w", err)
-	}
+	avatarURL := g.downloadAndUploadAvatarIfAvailable(userID, googleInfo.Picture)
 
 	// Use transaction to ensure data consistency
 	tx := g.db.Begin()
@@ -427,11 +424,7 @@ func (g *GoogleOAuth) UpdateGoogleUserInfo(userID string, googleInfo *GoogleUser
 		return fmt.Errorf("database not initialized")
 	}
 
-	// Download and upload avatar
-	avatarURL, err := g.avatarService.DownloadAndUploadAvatar(userID, googleInfo.Picture)
-	if err != nil {
-		return fmt.Errorf("failed to process avatar: %w", err)
-	}
+	avatarURL := g.downloadAndUploadAvatarIfAvailable(userID, googleInfo.Picture)
 
 	// Update Google user table information
 	var googleUser GoogleUser
@@ -442,7 +435,9 @@ func (g *GoogleOAuth) UpdateGoogleUserInfo(userID string, googleInfo *GoogleUser
 	googleUser.Name = googleInfo.Name
 	googleUser.Email = googleInfo.Email
 	googleUser.VerifiedEmail = googleInfo.EmailVerified
-	googleUser.Picture = avatarURL
+	if avatarURL != "" {
+		googleUser.Picture = avatarURL
+	}
 	googleUser.UpdatedAt = time.Now()
 
 	if err := g.db.Save(&googleUser).Error; err != nil {
@@ -466,10 +461,24 @@ func (g *GoogleOAuth) UpdateGoogleUserInfo(userID string, googleInfo *GoogleUser
 	}
 
 	user.Nickname = nickname
-	user.Avatar = avatarURL
+	if avatarURL != "" {
+		user.Avatar = avatarURL
+	}
 	user.UpdatedAt = time.Now()
 
 	return g.db.Save(&user).Error
+}
+
+func (g *GoogleOAuth) downloadAndUploadAvatarIfAvailable(userID, pictureURL string) string {
+	if g == nil || g.avatarService == nil || strings.TrimSpace(pictureURL) == "" {
+		return ""
+	}
+	avatarURL, err := g.avatarService.DownloadAndUploadAvatar(userID, pictureURL)
+	if err != nil {
+		log.Printf("failed to process Google avatar for user %s: %v", userID, err)
+		return ""
+	}
+	return avatarURL
 }
 
 // GetClientID 获取 Google OAuth 客户端 ID
