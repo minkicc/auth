@@ -55,6 +55,8 @@ COPY --from=builder /usr/share/zoneinfo/UTC /usr/share/zoneinfo/UTC
 # 从web-builder阶段复制构建好的前端资源
 COPY --from=web-builder /app/web/dist /app/web/
 COPY --from=web-builder /app/admin-web/dist /app/admin-web/
+COPY docker-entrypoint.sh /app/docker-entrypoint.sh
+RUN chmod +x /app/docker-entrypoint.sh
 
 EXPOSE 80
-ENTRYPOINT [ "/app/auth" ]
+ENTRYPOINT [ "/app/docker-entrypoint.sh" ]
