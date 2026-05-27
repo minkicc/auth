@@ -18,6 +18,11 @@ func emailAttemptKey(scope, email string) string {
 	return "email:" + scope + ":" + email
 }
 
+const (
+	defaultEmailLoginCodeTitle   = "MKAuth 登录验证码 / Login Verification Code"
+	defaultEmailLoginCodeContent = "<h2>MKAuth 登录验证码</h2><p>您的登录验证码是：</p><p style=\"font-size:24px;font-weight:700;letter-spacing:4px\">{{.Code}}</p><p>验证码将在5分钟后过期。如果不是您本人操作，请忽略此邮件。</p><hr><h2>MKAuth Login Verification Code</h2><p>Your login verification code is:</p><p style=\"font-size:24px;font-weight:700;letter-spacing:4px\">{{.Code}}</p><p>This code expires in 5 minutes. If you did not request it, please ignore this email.</p>"
+)
+
 // EmailLogin Email login
 func (h *AuthHandler) EmailLogin(c *gin.Context) {
 	var req struct {
@@ -71,11 +76,108 @@ func (h *AuthHandler) EmailLogin(c *gin.Context) {
 	h.completeBrowserLoginWithProvider(c, user, "", "email")
 }
 
+// SendEmailLoginCode sends a passwordless email login verification code.
+func (h *AuthHandler) SendEmailLoginCode(c *gin.Context) {
+	var req struct {
+		Email string `json:"email" binding:"required"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request parameters"})
+		return
+	}
+
+	normalizedEmail, err := auth.NormalizeEmailAddress(req.Email)
+	if err != nil {
+		if appErr, ok := err.(*auth.AppError); ok {
+			c.JSON(appErr.GetHTTPStatus(), gin.H{"error": appErr.Error()})
+			return
+		}
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request parameters"})
+		return
+	}
+	req.Email = normalizedEmail
+
+	clientIP := c.ClientIP()
+	attemptKey := emailAttemptKey("send_login_code", req.Email)
+	if err := h.accountAuth.CheckRequestRateLimit(attemptKey, clientIP); err != nil {
+		c.JSON(http.StatusTooManyRequests, gin.H{"error": err.Error()})
+		return
+	}
+
+	_, err = h.emailAuth.SendLoginCode(req.Email, defaultEmailLoginCodeTitle, defaultEmailLoginCodeContent)
+	_ = h.accountAuth.RecordRateLimitedRequest(attemptKey, clientIP)
+	if err != nil {
+		var appErr *auth.AppError
+		if !errors.As(err, &appErr) || appErr.Code != auth.ErrCodeUserNotFound {
+			if h.logger != nil {
+				h.logger.Printf("Failed to send email login code to %s: %v", req.Email, err)
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to send login verification code"})
+			return
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message":    "If the email address exists, a login verification code has been sent",
+		"expires_in": verifyCodeTTL,
+	})
+}
+
+// EmailCodeLogin logs in with an email verification code.
+func (h *AuthHandler) EmailCodeLogin(c *gin.Context) {
+	var req struct {
+		Email string `json:"email" binding:"required"`
+		Code  string `json:"code" binding:"required"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request parameters"})
+		return
+	}
+
+	normalizedEmail, err := auth.NormalizeEmailAddress(req.Email)
+	if err != nil {
+		if appErr, ok := err.(*auth.AppError); ok {
+			c.JSON(appErr.GetHTTPStatus(), gin.H{"error": appErr.Error()})
+			return
+		}
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request parameters"})
+		return
+	}
+	req.Email = normalizedEmail
+
+	clientIP := c.ClientIP()
+	attemptKey := emailAttemptKey("code_login", req.Email)
+	if err := h.accountAuth.CheckLoginAttempts(attemptKey, clientIP); err != nil {
+		c.JSON(http.StatusTooManyRequests, gin.H{"error": err.Error()})
+		return
+	}
+
+	if err := h.runHook(c, iam.HookPreAuthenticate, nil, "email", nil, map[string]string{
+		"identifier":   req.Email,
+		"login_method": "code",
+	}); err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		return
+	}
+
+	user, err := h.emailAuth.EmailCodeLogin(req.Email, req.Code)
+	if err != nil {
+		_ = h.accountAuth.RecordLoginAttempt(attemptKey, clientIP, false)
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid email address or verification code"})
+		return
+	}
+	_ = h.accountAuth.RecordLoginAttempt(attemptKey, clientIP, true)
+
+	h.completeBrowserLoginWithProvider(c, user, "Login successful", "email")
+}
+
 // EmailRegister Email pre-registration
 func (h *AuthHandler) EmailRegister(c *gin.Context) {
 	var req struct {
 		Email          string `json:"email" binding:"required"`
-		Password       string `json:"password" binding:"required"`
+		Password       string `json:"password"`
 		Nickname       string `json:"nickname"`
 		Title          string `json:"title" binding:"required"`
 		Content        string `json:"content" binding:"required"`
@@ -117,14 +219,16 @@ func (h *AuthHandler) EmailRegister(c *gin.Context) {
 		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
 		return
 	}
-	if err := h.emailAuth.ValidatePassword(req.Password); err != nil {
-		var appErr *auth.AppError
-		if errors.As(err, &appErr) {
-			c.JSON(appErr.GetHTTPStatus(), gin.H{"error": appErr.Error()})
+	if req.Password != "" {
+		if err := h.emailAuth.ValidatePassword(req.Password); err != nil {
+			var appErr *auth.AppError
+			if errors.As(err, &appErr) {
+				c.JSON(appErr.GetHTTPStatus(), gin.H{"error": appErr.Error()})
+				return
+			}
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
 	}
 
 	if err := h.runHook(c, iam.HookPreRegister, nil, "email", nil, map[string]string{

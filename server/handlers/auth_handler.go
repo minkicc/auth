@@ -127,6 +127,8 @@ func (h *AuthHandler) RegisterRoutes(authGroup *gin.RouterGroup, cfg *config.Con
 	// Email login related routes
 	if h.emailAuth != nil {
 		authGroup.POST("/email/login", rejectCrossOriginSessionCreation, h.EmailLogin)
+		authGroup.POST("/email/send-login-code", h.SendEmailLoginCode)
+		authGroup.POST("/email/code-login", rejectCrossOriginSessionCreation, h.EmailCodeLogin)
 		authGroup.POST("/email/register", h.EmailRegister)
 		authGroup.GET("/email/verify", h.EmailVerify)
 		authGroup.POST("/email/resend-verification", h.ResendEmailVerification)

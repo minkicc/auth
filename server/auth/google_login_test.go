@@ -173,3 +173,96 @@ func TestCreateUserFromGoogleDoesNotRequireAvatarProcessing(t *testing.T) {
 		t.Fatalf("unexpected google subject: %s", googleUser.GoogleID)
 	}
 }
+
+func TestCreateUserFromGoogleCreatesVerifiedEmailLink(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file:google-email-link?mode=memory&cache=shared"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("failed to open sqlite database: %v", err)
+	}
+
+	googleOAuth, err := NewGoogleOAuth(GoogleOAuthConfig{
+		ClientID:     "test-google-client-id",
+		ClientSecret: "test-google-client-secret",
+		RedirectURL:  "https://auth.example.com/api/google/callback",
+		DB:           db,
+	})
+	if err != nil {
+		t.Fatalf("failed to create google oauth: %v", err)
+	}
+	if err := googleOAuth.AutoMigrate(); err != nil {
+		t.Fatalf("auto migrate failed: %v", err)
+	}
+
+	user, err := googleOAuth.CreateUserFromGoogle(&GoogleUserInfo{
+		ID:            "google-subject-email-link",
+		Email:         "User@Example.COM",
+		EmailVerified: true,
+		Name:          "Verified Google",
+	})
+	if err != nil {
+		t.Fatalf("failed to create google user: %v", err)
+	}
+
+	var emailUser EmailUser
+	if err := db.First(&emailUser, "email = ?", "user@example.com").Error; err != nil {
+		t.Fatalf("expected verified google email to create email identity link: %v", err)
+	}
+	if emailUser.UserID != user.UserID {
+		t.Fatalf("expected email identity user id %s, got %s", user.UserID, emailUser.UserID)
+	}
+}
+
+func TestLinkGoogleUserUsesExistingEmailAccount(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file:google-link-existing-email?mode=memory&cache=shared"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("failed to open sqlite database: %v", err)
+	}
+
+	emailAuth, _, redisServer := newTestEmailAuth(t, db)
+	defer redisServer.Close()
+	hashedPassword, err := hashEmailPasswordOrRandom("")
+	if err != nil {
+		t.Fatalf("failed to generate random password hash: %v", err)
+	}
+	emailUser, err := emailAuth.RegisterEmailUser("same@example.com", hashedPassword, "Same User")
+	if err != nil {
+		t.Fatalf("failed to create email user: %v", err)
+	}
+
+	googleOAuth, err := NewGoogleOAuth(GoogleOAuthConfig{
+		ClientID:     "test-google-client-id",
+		ClientSecret: "test-google-client-secret",
+		RedirectURL:  "https://auth.example.com/api/google/callback",
+		DB:           db,
+	})
+	if err != nil {
+		t.Fatalf("failed to create google oauth: %v", err)
+	}
+	if err := googleOAuth.AutoMigrate(); err != nil {
+		t.Fatalf("auto migrate failed: %v", err)
+	}
+
+	matchedUser, err := googleOAuth.GetUserByGoogleID("google-subject-same-email", "SAME@example.com", true)
+	if err != nil {
+		t.Fatalf("failed to match existing email account: %v", err)
+	}
+	if matchedUser == nil || matchedUser.UserID != emailUser.UserID {
+		t.Fatalf("expected google lookup to match existing email account %s, got %#v", emailUser.UserID, matchedUser)
+	}
+	if err := googleOAuth.LinkGoogleUser(matchedUser.UserID, &GoogleUserInfo{
+		ID:            "google-subject-same-email",
+		Email:         "SAME@example.com",
+		EmailVerified: true,
+		Name:          "Same Google",
+	}); err != nil {
+		t.Fatalf("failed to link google user: %v", err)
+	}
+
+	var googleUser GoogleUser
+	if err := db.First(&googleUser, "google_id = ?", "google-subject-same-email").Error; err != nil {
+		t.Fatalf("expected google identity link: %v", err)
+	}
+	if googleUser.UserID != emailUser.UserID {
+		t.Fatalf("expected google identity user id %s, got %s", emailUser.UserID, googleUser.UserID)
+	}
+}

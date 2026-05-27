@@ -549,6 +549,22 @@ auth:
 
 Only enable the providers you really plan to expose.
 
+When `email` is enabled, configure one outbound email service. Cloudflare Email Service is supported through its REST API after your sending domain has been onboarded in Cloudflare DNS:
+
+```yaml
+auth:
+  enabled_providers:
+    - "email"
+  email:
+    provider: "cloudflare"
+    cloudflare:
+      account_id: "YOUR_CLOUDFLARE_ACCOUNT_ID"
+      api_token_env: "MKAUTH_CLOUDFLARE_EMAIL_API_TOKEN"
+      from: "no-reply@example.com"
+```
+
+SMTP is still supported through the legacy `auth.smtp` block or the newer `auth.email.smtp` block. Cloudflare Email Routing alone is not enough for verification-code delivery because it only routes inbound mail; use Cloudflare Email Service for sending.
+
 ### OIDC client configuration
 
 If you want to integrate through standard OIDC, configure `oidc.clients`:
@@ -756,6 +772,8 @@ Common endpoints:
 - `POST /api/account/register`
 - `POST /api/account/login`
 - `POST /api/email/login`
+- `POST /api/email/send-login-code`
+- `POST /api/email/code-login`
 - `POST /api/phone/login`
 - `GET /api/browser-session`
 - `POST /api/logout`
@@ -783,6 +801,20 @@ Example response:
   "expires_at": "2026-04-23T10:00:00Z"
 }
 ```
+
+Passwordless email login uses a 6-digit verification code. Email registration can omit `password`; MKAuth stores a random secure password hash internally and the user signs in through codes or other linked providers:
+
+```bash
+curl -X POST http://localhost:8080/api/email/send-login-code \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"user@example.com"}'
+
+curl -X POST http://localhost:8080/api/email/code-login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"user@example.com","code":"123456"}'
+```
+
+When Google returns a verified email address, MKAuth links that Google identity and the email identity to the same internal `user_id`. This works in both directions: email first then Google, or Google first then email-code login.
 
 These `/api` login endpoints now establish an `oidc_session` browser session only. They do not return a legacy `/api` bearer token, and this branch does not expose `POST /api/token/refresh`.
 
@@ -890,6 +922,8 @@ Only use this in local or test environments.
 - `POST /api/account/register`
 - `POST /api/account/login`
 - `POST /api/email/login`
+- `POST /api/email/send-login-code`
+- `POST /api/email/code-login`
 - `POST /api/phone/login`
 - `POST /api/logout`
 

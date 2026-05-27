@@ -62,26 +62,6 @@
       </div>
 
       <div class="form-item">
-        <input 
-          v-model="formData.password" 
-          type="password" 
-          :placeholder="$t('common.password')"
-          :class="{ 'error': formErrors.password }"
-        >
-        <span v-if="formErrors.password" class="error-text">{{ formErrors.password }}</span>
-      </div>
-
-      <div class="form-item">
-        <input 
-          v-model="formData.confirmPassword" 
-          type="password" 
-          :placeholder="$t('common.confirmPassword')"
-          :class="{ 'error': formErrors.confirmPassword }"
-        >
-        <span v-if="formErrors.confirmPassword" class="error-text">{{ formErrors.confirmPassword }}</span>
-      </div>
-
-      <div class="form-item">
         <input
           v-model="formData.invitationCode"
           type="text"
@@ -125,24 +105,18 @@ import { buildVerificationEmailTpl } from './emailtpl'
 interface FormData {
   nickname: string
   email: string
-  password: string
-  confirmPassword: string
   invitationCode: string
 }
 
 interface FormErrors {
   nickname?: string
   email?: string
-  password?: string
-  confirmPassword?: string
 }
 
 const isLoading = ref(false)
 const formData = reactive<FormData>({
   nickname: '',
   email: '',
-  password: '',
-  confirmPassword: '',
   invitationCode: props.invitationCode || ''
 })
 const formErrors = reactive<FormErrors>({})
@@ -163,22 +137,6 @@ const validateForm = () => {
     isValid = false
   } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
     formErrors.email = t('validation.invalidEmail')
-    isValid = false
-  }
-  
-  if (!formData.password) {
-    formErrors.password = t('validation.required', { field: t('common.password') })
-    isValid = false
-  } else if (formData.password.length < 6) {
-    formErrors.password = t('validation.passwordLength', { min: 6 })
-    isValid = false
-  }
-  
-  if (!formData.confirmPassword) {
-    formErrors.confirmPassword = t('validation.required', { field: t('common.confirmPassword') })
-    isValid = false
-  } else if (formData.password !== formData.confirmPassword) {
-    formErrors.confirmPassword = t('validation.passwordMismatch')
     isValid = false
   }
   
@@ -231,8 +189,6 @@ const resendVerification = async () => {
 const resetForm = () => {
   registrationStage.value = 'form'
   formData.email = ''
-  formData.password = ''
-  formData.confirmPassword = ''
   // 保留昵称，方便用户使用
 }
 
@@ -252,7 +208,6 @@ const handleEmailRegister = async () => {
     await axios.post('/email/register', {
       nickname: formData.nickname,
       email: formData.email,
-      password: formData.password,
       title: t('email.registrationTitle'),
       content: verificationEmailTpl,
       client_id: serverApi.clientId,

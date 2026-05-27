@@ -44,6 +44,16 @@ func (f *fakeEmailService) SendVerificationEmail(email, token, title, content st
 	return nil
 }
 
+func (f *fakeEmailService) SendLoginCodeEmail(email, code, title, content string) error {
+	f.verificationEmails = append(f.verificationEmails, emailVerificationCall{
+		Email:   email,
+		Token:   code,
+		Title:   title,
+		Content: content,
+	})
+	return nil
+}
+
 func (f *fakeEmailService) SendPasswordResetEmail(email, token, title, content string) error {
 	return nil
 }

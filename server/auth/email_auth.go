@@ -23,6 +23,10 @@ const (
 	RedisPrefixEmailPreregister = common.RedisKeyEmailPreregister
 )
 
+const (
+	VerificationTypeEmailLogin VerificationType = "email_login"
+)
+
 // Extended AccountAuth
 type EmailAuth struct {
 	db *gorm.DB
@@ -36,6 +40,7 @@ type EmailAuth struct {
 // EmailService Email service interface
 type EmailService interface {
 	SendVerificationEmail(email, token, title, content string) error
+	SendLoginCodeEmail(email, code, title, content string) error
 	SendPasswordResetEmail(email, token, title, content string) error
 	SendLoginNotificationEmail(email, ip, title, content string) error
 }
@@ -185,15 +190,9 @@ func (a *EmailAuth) EmailPreregister(email, password, nickname, title, content s
 		nickname = parts[0]
 	}
 
-	// Validate password strength
-	if err := a.ValidatePassword(password); err != nil {
-		return "", err
-	}
-
-	// Encrypt password
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	hashedPassword, err := hashEmailPasswordOrRandom(password)
 	if err != nil {
-		return "", fmt.Errorf("failed to encrypt password: %v", err)
+		return "", err
 	}
 
 	// Generate verification token
@@ -324,6 +323,40 @@ func (a *EmailAuth) RegisterEmailUser(email, password, nickname string) (*User, 
 	return user, nil
 }
 
+// AttachEmailToUser links a verified email address to an existing user.
+func (a *EmailAuth) AttachEmailToUser(userID, email string) error {
+	if a == nil || a.db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+	email, err := NormalizeEmailAddress(email)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(userID) == "" {
+		return ErrInvalidInput("User ID is required")
+	}
+
+	var existing EmailUser
+	err = a.db.First(&existing, "email = ?", email).Error
+	switch {
+	case err == nil:
+		if existing.UserID == userID {
+			return nil
+		}
+		return ErrDuplicateUser("Email is already in use")
+	case errors.Is(err, gorm.ErrRecordNotFound):
+		now := time.Now()
+		return a.db.Create(&EmailUser{
+			UserID:    userID,
+			Email:     email,
+			CreatedAt: now,
+			UpdatedAt: now,
+		}).Error
+	default:
+		return err
+	}
+}
+
 // VerifyEmail Verify email and complete registration
 func (a *EmailAuth) VerifyEmail(token string) (*User, error) {
 	// Get verification record from Redis
@@ -429,6 +462,87 @@ func (a *EmailAuth) EmailLogin(email, password string) (*User, error) {
 	return &user, nil
 }
 
+// SendLoginCode sends a short-lived code for passwordless email login.
+func (a *EmailAuth) SendLoginCode(email, title, content string) (string, error) {
+	var err error
+	email, err = NormalizeEmailAddress(email)
+	if err != nil {
+		return "", err
+	}
+
+	userID, err := a.findUserIDByVerifiedEmail(email)
+	if err != nil {
+		return "", err
+	}
+
+	code, err := generateVerificationCode()
+	if err != nil {
+		return "", err
+	}
+
+	if err := a.redis.StoreVerification(VerificationTypeEmailLogin, email, code, userID, 5*time.Minute); err != nil {
+		return "", fmt.Errorf("failed to store email login verification code: %w", err)
+	}
+
+	if err := a.emailService.SendLoginCodeEmail(email, code, title, content); err != nil {
+		return "", fmt.Errorf("failed to send email login verification code: %w", err)
+	}
+
+	return code, nil
+}
+
+// EmailCodeLogin logs in with an email verification code and links the email to
+// a verified Google account when the Google account was created first.
+func (a *EmailAuth) EmailCodeLogin(email, code string) (*User, error) {
+	var err error
+	email, err = NormalizeEmailAddress(email)
+	if err != nil {
+		return nil, err
+	}
+	code = strings.TrimSpace(code)
+	if code == "" {
+		return nil, ErrInvalidToken("Invalid or expired verification code")
+	}
+
+	verification, err := a.redis.GetVerification(VerificationTypeEmailLogin, email)
+	if err != nil {
+		return nil, ErrInvalidToken("Invalid or expired verification code")
+	}
+	if verification.Token != code {
+		return nil, ErrInvalidToken("Invalid or expired verification code")
+	}
+
+	userID := strings.TrimSpace(verification.UserID)
+	if userID == "" {
+		userID, err = a.findUserIDByVerifiedEmail(email)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	var user User
+	if err := a.db.First(&user, "user_id = ?", userID).Error; err != nil {
+		return nil, err
+	}
+	if err := EnsureUserCanAuthenticate(&user); err != nil {
+		return nil, err
+	}
+
+	if err := a.AttachEmailToUser(user.UserID, email); err != nil {
+		return nil, err
+	}
+
+	now := time.Now()
+	user.LastLogin = &now
+	user.UpdatedAt = now
+	if err := a.db.Save(&user).Error; err != nil {
+		return nil, err
+	}
+
+	_ = a.redis.DeleteVerification(VerificationTypeEmailLogin, email, verification.Token)
+	return &user, nil
+}
+
 // GetUserByEmail Get user by email
 func (a *EmailAuth) GetUserByEmail(email string) (*User, error) {
 	var err error
@@ -458,6 +572,24 @@ func (a *EmailAuth) GetUserByEmail(email string) (*User, error) {
 	return &user, nil
 }
 
+func (a *EmailAuth) findUserIDByVerifiedEmail(email string) (string, error) {
+	var emailUser EmailUser
+	if err := a.db.First(&emailUser, "email = ?", email).Error; err == nil {
+		return emailUser.UserID, nil
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return "", err
+	}
+
+	var googleUser GoogleUser
+	if err := a.db.First(&googleUser, "LOWER(email) = ? AND verified_email = ?", strings.ToLower(email), true).Error; err == nil {
+		return googleUser.UserID, nil
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return "", err
+	}
+
+	return "", ErrUserNotFound("User not found for this email address")
+}
+
 // CheckDuplicateEmail Check if email is duplicate
 func (a *EmailAuth) CheckDuplicateEmail(email string) error {
 	var err error
@@ -482,4 +614,28 @@ func (a *EmailAuth) ValidatePassword(password string) error {
 		return ErrWeakPassword("Password must be at least 8 characters")
 	}
 	return nil
+}
+
+func hashEmailPasswordOrRandom(password string) (string, error) {
+	password = strings.TrimSpace(password)
+	if password != "" {
+		if len(password) < 8 {
+			return "", ErrWeakPassword("Password must be at least 8 characters")
+		}
+		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+		if err != nil {
+			return "", fmt.Errorf("failed to encrypt password: %w", err)
+		}
+		return string(hashedPassword), nil
+	}
+
+	randomPassword := make([]byte, 32)
+	if _, err := rand.Read(randomPassword); err != nil {
+		return "", fmt.Errorf("failed to generate random password: %w", err)
+	}
+	hashedPassword, err := bcrypt.GenerateFromPassword(randomPassword, bcrypt.DefaultCost)
+	if err != nil {
+		return "", fmt.Errorf("failed to encrypt random password: %w", err)
+	}
+	return string(hashedPassword), nil
 }
