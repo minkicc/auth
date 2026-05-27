@@ -160,6 +160,7 @@ type AuthConfig struct {
 	Google           GoogleConfig     `json:"google" yaml:"google"`
 	Weixin           WeixinConfig     `json:"weixin" yaml:"weixin"`
 	WeixinMini       WeixinMiniConfig `json:"weixin_mini" yaml:"weixin_mini"`
+	Email            EmailConfig      `json:"email" yaml:"email"`
 	Smtp             SmtpConfig       `json:"smtp" yaml:"smtp"`
 	SMS              SMSConfig        `json:"sms" yaml:"sms"` // New: SMS configuration
 }
@@ -412,6 +413,21 @@ type SmtpConfig struct {
 	Password string `json:"password" yaml:"password"`
 	From     string `json:"from" yaml:"from"`
 	// BaseURL  string `json:"base_url"` // Used to generate verification links
+}
+
+// EmailConfig selects the outbound email provider used for verification codes.
+type EmailConfig struct {
+	Provider   string                `json:"provider" yaml:"provider"` // smtp / cloudflare
+	SMTP       SmtpConfig            `json:"smtp" yaml:"smtp"`
+	Cloudflare CloudflareEmailConfig `json:"cloudflare" yaml:"cloudflare"`
+}
+
+type CloudflareEmailConfig struct {
+	AccountID   string `json:"account_id" yaml:"account_id"`
+	APIToken    string `json:"api_token" yaml:"api_token"`
+	APITokenEnv string `json:"api_token_env" yaml:"api_token_env"`
+	From        string `json:"from" yaml:"from"`
+	Endpoint    string `json:"endpoint" yaml:"endpoint"`
 }
 
 // TrustedClient 受信任的第三方客户端配置

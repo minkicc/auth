@@ -460,16 +460,11 @@ func initAuthHandler(
 ) (*handlers.AuthHandler, *iam.EnterpriseOIDCManager, *iam.EnterpriseSAMLManager, *iam.EnterpriseLDAPManager, error) {
 	// Initialize email authentication
 	var emailAuth *auth.EmailAuth
-	if containsProvider(cfg.Auth.EnabledProviders, "email") && cfg.Auth.Smtp.Host != "" {
-		// Create email service
-		emailService := auth.NewEmailService(auth.SmtpConfig{
-			Host:     cfg.Auth.Smtp.Host,
-			Port:     cfg.Auth.Smtp.Port,
-			Username: cfg.Auth.Smtp.Username,
-			Password: cfg.Auth.Smtp.Password,
-			From:     cfg.Auth.Smtp.From,
-		})
-
+	if containsProvider(cfg.Auth.EnabledProviders, "email") {
+		emailService, err := buildEmailService(cfg)
+		if err != nil {
+			return nil, nil, nil, nil, err
+		}
 		emailAuth = auth.NewEmailAuth(globalDB, auth.EmailAutnConfig{
 			VerificationExpiry: time.Hour * 24,
 			EmailService:       emailService,
@@ -613,6 +608,54 @@ func initAuthHandler(
 	)
 
 	return handler, enterpriseOIDC, enterpriseSAML, enterpriseLDAP, nil
+}
+
+func buildEmailService(cfg *config.Config) (auth.EmailService, error) {
+	provider := strings.TrimSpace(strings.ToLower(cfg.Auth.Email.Provider))
+	if provider == "" {
+		switch {
+		case cfg.Auth.Email.Cloudflare.AccountID != "" || cfg.Auth.Email.Cloudflare.APIToken != "" || cfg.Auth.Email.Cloudflare.APITokenEnv != "":
+			provider = "cloudflare"
+		case cfg.Auth.Email.SMTP.Host != "":
+			provider = "smtp"
+		case cfg.Auth.Smtp.Host != "":
+			provider = "smtp"
+		}
+	}
+
+	switch provider {
+	case "cloudflare":
+		service, err := auth.NewCloudflareEmailService(auth.CloudflareEmailConfig{
+			AccountID:   cfg.Auth.Email.Cloudflare.AccountID,
+			APIToken:    cfg.Auth.Email.Cloudflare.APIToken,
+			APITokenEnv: cfg.Auth.Email.Cloudflare.APITokenEnv,
+			From:        cfg.Auth.Email.Cloudflare.From,
+			Endpoint:    cfg.Auth.Email.Cloudflare.Endpoint,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize Cloudflare email service: %w", err)
+		}
+		return service, nil
+	case "smtp":
+		smtpCfg := cfg.Auth.Email.SMTP
+		if smtpCfg.Host == "" {
+			smtpCfg = cfg.Auth.Smtp
+		}
+		if smtpCfg.Host == "" {
+			return nil, fmt.Errorf("email provider smtp requires auth.email.smtp.host or auth.smtp.host")
+		}
+		return auth.NewEmailService(auth.SmtpConfig{
+			Host:     smtpCfg.Host,
+			Port:     smtpCfg.Port,
+			Username: smtpCfg.Username,
+			Password: smtpCfg.Password,
+			From:     smtpCfg.From,
+		}), nil
+	case "":
+		return nil, fmt.Errorf("email provider is enabled but no outbound email service is configured")
+	default:
+		return nil, fmt.Errorf("unsupported email provider %q", provider)
+	}
 }
 
 func containsProvider(providers []string, provider string) bool {

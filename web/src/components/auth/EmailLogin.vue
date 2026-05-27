@@ -5,26 +5,35 @@
 
 <template>
   <div>
-    <!-- 邮箱登录表单 -->
+    <!-- 邮箱验证码登录表单 -->
     <form @submit.prevent="handleEmailLogin" class="auth-form">
       <div class="form-item">
-        <input 
-          v-model="formData.email" 
-          type="email" 
+        <input
+          v-model="formData.email"
+          type="email"
           :placeholder="$t('common.email')"
           :class="{ 'error': formErrors.email }"
         >
         <span v-if="formErrors.email" class="error-text">{{ formErrors.email }}</span>
       </div>
-      
-      <div class="form-item">
-        <input 
-          v-model="formData.password" 
-          type="password" 
-          :placeholder="$t('common.password')"
-          :class="{ 'error': formErrors.password }"
+
+      <div class="form-item verification-code">
+        <input
+          v-model="formData.code"
+          type="text"
+          :placeholder="$t('common.verificationCode')"
+          :class="{ 'error': formErrors.code }"
         >
-        <span v-if="formErrors.password" class="error-text">{{ formErrors.password }}</span>
+        <button
+          type="button"
+          class="code-btn"
+          :disabled="cooldown > 0 || !formData.email || isLoading || isSendingCode"
+          @click="sendVerificationCode"
+        >
+          <span v-if="isSendingCode">{{ $t('common.sending') }}</span>
+          <span v-else>{{ cooldown > 0 ? $t('common.secondsRemaining', { seconds: cooldown }) : $t('auth.getVerificationCode') }}</span>
+        </button>
+        <span v-if="formErrors.code" class="error-text">{{ formErrors.code }}</span>
       </div>
 
       <button type="submit" :disabled="isLoading" class="submit-btn">
@@ -35,7 +44,7 @@
 </template>
 
 <script lang="ts" setup>
-import { reactive, ref, defineEmits } from 'vue'
+import { onUnmounted, reactive, ref, defineEmits } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { serverApi } from '@/api/serverApi';
 
@@ -46,28 +55,31 @@ const emit = defineEmits<{
 
 interface FormData {
   email: string
-  password: string
+  code: string
 }
 
 interface FormErrors {
   email?: string
-  password?: string
+  code?: string
 }
 
 const { t } = useI18n()
 const isLoading = ref(false)
+const isSendingCode = ref(false)
+const cooldown = ref(0)
+let cooldownTimer: number | null = null
 const formData = reactive<FormData>({
   email: '',
-  password: ''
+  code: ''
 })
 const formErrors = reactive<FormErrors>({})
 
 const validateForm = () => {
   let isValid = true
-  
+
   // 清除之前的错误
   Object.keys(formErrors).forEach(key => delete formErrors[key as keyof FormErrors])
-  
+
   if (!formData.email) {
     formErrors.email = t('validation.required', { field: t('common.email') })
     isValid = false
@@ -75,23 +87,68 @@ const validateForm = () => {
     formErrors.email = t('validation.invalidEmail')
     isValid = false
   }
-  
-  if (!formData.password) {
-    formErrors.password = t('validation.required', { field: t('common.password') })
+
+  if (!formData.code) {
+    formErrors.code = t('validation.required', { field: t('common.verificationCode') })
+    isValid = false
+  } else if (!/^\d{6}$/.test(formData.code)) {
+    formErrors.code = t('validation.verificationCodeFormat')
     isValid = false
   }
-  
+
   return isValid
 }
+
+const validateEmailOnly = () => {
+  delete formErrors.email
+
+  if (!formData.email) {
+    formErrors.email = t('validation.required', { field: t('common.email') })
+    return false
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
+    formErrors.email = t('validation.invalidEmail')
+    return false
+  }
+  return true
+}
+
+const startCooldown = () => {
+  cooldown.value = 60
+  if (cooldownTimer) {
+    clearInterval(cooldownTimer)
+  }
+  cooldownTimer = window.setInterval(() => {
+    cooldown.value--
+    if (cooldown.value <= 0 && cooldownTimer) {
+      clearInterval(cooldownTimer)
+      cooldownTimer = null
+    }
+  }, 1000)
+}
+
+const sendVerificationCode = async () => {
+  if (!validateEmailOnly()) return
+
+  try {
+    isSendingCode.value = true
+    await serverApi.sendEmailLoginCode(formData.email)
+    startCooldown()
+  } catch (error: any) {
+    emit('login-error', error.response?.data?.error || error.message || t('errors.emailLoginFailed'))
+  } finally {
+    isSendingCode.value = false
+  }
+}
+
 const handleEmailLogin = async () => {
   try {
     // 表单验证
     if (!validateForm()) return
-    
+
     isLoading.value = true
-    
-    // 实际实现邮箱登录逻辑
-    await serverApi.emailLogin(formData.email, formData.password)
+
+    await serverApi.emailCodeLogin(formData.email, formData.code)
     emit('login-success')
 
   } catch (error: any) {
@@ -101,6 +158,12 @@ const handleEmailLogin = async () => {
     isLoading.value = false
   }
 }
+
+onUnmounted(() => {
+  if (cooldownTimer) {
+    clearInterval(cooldownTimer)
+  }
+})
 </script>
 
 <style scoped>
@@ -156,6 +219,31 @@ input.error {
 
 .submit-btn:disabled {
   background: #bfbfbf;
+  cursor: not-allowed;
+}
+
+.verification-code {
+  position: relative;
+}
+
+.verification-code input {
+  padding-right: 132px;
+}
+
+.code-btn {
+  position: absolute;
+  right: 6px;
+  top: 6px;
+  border: none;
+  border-radius: 6px;
+  padding: 7px 10px;
+  background: #eef6f9;
+  color: #155266;
+  cursor: pointer;
+}
+
+.code-btn:disabled {
+  color: #8aa1aa;
   cursor: not-allowed;
 }
 </style>

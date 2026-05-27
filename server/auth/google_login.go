@@ -17,6 +17,7 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -30,6 +31,7 @@ import (
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // GoogleUserInfo represents user information retrieved from Google
@@ -300,8 +302,12 @@ func (g *GoogleOAuth) GetUserByGoogleID(googleID, email string, emailVerified bo
 		if !canLinkGoogleEmail(email, emailVerified) {
 			return nil, nil
 		}
+		normalizedEmail, err := NormalizeEmailAddress(email)
+		if err != nil {
+			return nil, nil
+		}
 		var googleUserWithSameEmail EmailUser
-		err = g.db.Where("email = ?", email).First(&googleUserWithSameEmail).Error
+		err = g.db.Where("email = ?", normalizedEmail).First(&googleUserWithSameEmail).Error
 		if err != nil {
 			if err == gorm.ErrRecordNotFound {
 				return nil, nil
@@ -397,7 +403,7 @@ func (g *GoogleOAuth) CreateUserFromGoogle(googleInfo *GoogleUserInfo) (*User, e
 	googleUser := &GoogleUser{
 		UserID:        userID,
 		GoogleID:      googleInfo.ID,
-		Email:         googleInfo.Email,
+		Email:         normalizeGoogleEmailForStorage(googleInfo.Email),
 		VerifiedEmail: googleInfo.EmailVerified,
 		Name:          googleInfo.Name,
 		Picture:       avatarURL,
@@ -409,6 +415,10 @@ func (g *GoogleOAuth) CreateUserFromGoogle(googleInfo *GoogleUserInfo) (*User, e
 		tx.Rollback()
 		return nil, fmt.Errorf("failed to create Google user association: %v", err)
 	}
+	if err := g.ensureEmailUserForVerifiedGoogle(tx, userID, googleInfo.Email, googleInfo.EmailVerified); err != nil {
+		tx.Rollback()
+		return nil, err
+	}
 
 	// Commit transaction
 	if err := tx.Commit().Error; err != nil {
@@ -416,6 +426,89 @@ func (g *GoogleOAuth) CreateUserFromGoogle(googleInfo *GoogleUserInfo) (*User, e
 	}
 
 	return user, nil
+}
+
+// LinkGoogleUser links a verified Google identity to an existing Auth user.
+func (g *GoogleOAuth) LinkGoogleUser(userID string, googleInfo *GoogleUserInfo) error {
+	if g.db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+	if strings.TrimSpace(userID) == "" || googleInfo == nil || strings.TrimSpace(googleInfo.ID) == "" {
+		return ErrInvalidInput("Google identity link requires user and Google subject")
+	}
+
+	tx := g.db.Begin()
+	if tx.Error != nil {
+		return tx.Error
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
+
+	now := time.Now()
+	var byGoogleID GoogleUser
+	err := tx.First(&byGoogleID, "google_id = ?", googleInfo.ID).Error
+	switch {
+	case err == nil:
+		if byGoogleID.UserID != userID {
+			tx.Rollback()
+			return ErrDuplicateUser("Google account is already linked to another user")
+		}
+		byGoogleID.Email = normalizeGoogleEmailForStorage(googleInfo.Email)
+		byGoogleID.VerifiedEmail = googleInfo.EmailVerified
+		byGoogleID.Name = googleInfo.Name
+		byGoogleID.UpdatedAt = now
+		if err := tx.Save(&byGoogleID).Error; err != nil {
+			tx.Rollback()
+			return err
+		}
+	case errors.Is(err, gorm.ErrRecordNotFound):
+		var byUserID GoogleUser
+		userErr := tx.First(&byUserID, "user_id = ?", userID).Error
+		switch {
+		case userErr == nil:
+			if byUserID.GoogleID != googleInfo.ID {
+				tx.Rollback()
+				return ErrDuplicateUser("User is already linked to another Google account")
+			}
+			byUserID.Email = normalizeGoogleEmailForStorage(googleInfo.Email)
+			byUserID.VerifiedEmail = googleInfo.EmailVerified
+			byUserID.Name = googleInfo.Name
+			byUserID.UpdatedAt = now
+			if err := tx.Save(&byUserID).Error; err != nil {
+				tx.Rollback()
+				return err
+			}
+		case errors.Is(userErr, gorm.ErrRecordNotFound):
+			if err := tx.Create(&GoogleUser{
+				UserID:        userID,
+				GoogleID:      googleInfo.ID,
+				Email:         normalizeGoogleEmailForStorage(googleInfo.Email),
+				VerifiedEmail: googleInfo.EmailVerified,
+				Name:          googleInfo.Name,
+				Picture:       g.downloadAndUploadAvatarIfAvailable(userID, googleInfo.Picture),
+				CreatedAt:     now,
+				UpdatedAt:     now,
+			}).Error; err != nil {
+				tx.Rollback()
+				return err
+			}
+		default:
+			tx.Rollback()
+			return userErr
+		}
+	default:
+		tx.Rollback()
+		return err
+	}
+
+	if err := g.ensureEmailUserForVerifiedGoogle(tx, userID, googleInfo.Email, googleInfo.EmailVerified); err != nil {
+		tx.Rollback()
+		return err
+	}
+	return tx.Commit().Error
 }
 
 // UpdateGoogleUserInfo updates Google user information
@@ -433,7 +526,7 @@ func (g *GoogleOAuth) UpdateGoogleUserInfo(userID string, googleInfo *GoogleUser
 	}
 
 	googleUser.Name = googleInfo.Name
-	googleUser.Email = googleInfo.Email
+	googleUser.Email = normalizeGoogleEmailForStorage(googleInfo.Email)
 	googleUser.VerifiedEmail = googleInfo.EmailVerified
 	if avatarURL != "" {
 		googleUser.Picture = avatarURL
@@ -467,6 +560,43 @@ func (g *GoogleOAuth) UpdateGoogleUserInfo(userID string, googleInfo *GoogleUser
 	user.UpdatedAt = time.Now()
 
 	return g.db.Save(&user).Error
+}
+
+func (g *GoogleOAuth) ensureEmailUserForVerifiedGoogle(tx *gorm.DB, userID, email string, emailVerified bool) error {
+	if !canLinkGoogleEmail(email, emailVerified) {
+		return nil
+	}
+	normalizedEmail, err := NormalizeEmailAddress(email)
+	if err != nil {
+		return nil
+	}
+	var existing EmailUser
+	err = tx.First(&existing, "email = ?", normalizedEmail).Error
+	switch {
+	case err == nil:
+		if existing.UserID == userID {
+			return nil
+		}
+		return ErrDuplicateUser("Email is already in use")
+	case errors.Is(err, gorm.ErrRecordNotFound):
+	default:
+		return err
+	}
+	now := time.Now()
+	return tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&EmailUser{
+		UserID:    userID,
+		Email:     normalizedEmail,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}).Error
+}
+
+func normalizeGoogleEmailForStorage(email string) string {
+	normalized, err := NormalizeEmailAddress(email)
+	if err != nil {
+		return strings.TrimSpace(strings.ToLower(email))
+	}
+	return normalized
 }
 
 func (g *GoogleOAuth) downloadAndUploadAvatarIfAvailable(userID, pictureURL string) string {

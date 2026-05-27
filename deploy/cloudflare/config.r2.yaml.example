@@ -64,6 +64,14 @@ auth:
     username: "YOUR_SMTP_USERNAME"
     password: "YOUR_SMTP_PASSWORD"
     from: "YOUR_SMTP_FROM"
+  # Cloudflare R2 can be used for object storage. For email verification codes,
+  # use Cloudflare Email Service after onboarding the sending domain.
+  email:
+    provider: "cloudflare"
+    cloudflare:
+      account_id: "YOUR_CLOUDFLARE_ACCOUNT_ID"
+      api_token_env: "AUTH_CLOUDFLARE_EMAIL_API_TOKEN"
+      from: "no-reply@example.com"
 
 auth_admin:
   enabled: true

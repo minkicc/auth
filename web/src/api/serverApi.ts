@@ -668,6 +668,18 @@ class ServerApi {
         this.updateUserInfo(authResponse)
         return authResponse
     }
+
+    async sendEmailLoginCode(email: string) {
+        const response = await axios.post('/email/send-login-code', { email })
+        return response.data
+    }
+
+    async emailCodeLogin(email: string, code: string): Promise<AuthResponse> {
+        const response = await axios.post('/email/code-login', { email, code, client_id: this.clientId, redirect_uri: this.redirectUri })
+        const authResponse = this.normalizeAuthResponse(response.data)
+        this.updateUserInfo(authResponse)
+        return authResponse
+    }
 }
 
 export const serverApi = new ServerApi()

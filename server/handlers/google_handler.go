@@ -46,6 +46,9 @@ func (h *AuthHandler) handleGoogleUser(c *gin.Context, googleUserInfo *auth.Goog
 			return nil, false, errRegistrationResponseSent
 		}
 	} else {
+		if err := h.googleOAuth.LinkGoogleUser(user.UserID, googleUserInfo); err != nil {
+			return nil, false, fmt.Errorf("failed to link Google user: %w", err)
+		}
 		// Update user information
 		// if err := h.googleOAuth.UpdateGoogleUserInfo(user.UserID, googleUserInfo); err != nil {
 		// 	h.logger.Printf("Failed to update Google user information: %v", err)

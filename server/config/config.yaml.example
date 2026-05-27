@@ -303,6 +303,23 @@ auth:
     username: "YOUR_SMTP_USERNAME"
     password: "YOUR_SMTP_PASSWORD"
     from: "YOUR_SMTP_FROM"
+  # Preferred when your domain is on Cloudflare DNS and Email Sending is onboarded.
+  # This uses Cloudflare Email Service REST API; do not confuse it with Email Routing,
+  # which is inbound/forwarding only.
+  email:
+    # provider: "cloudflare"
+    cloudflare:
+      account_id: "YOUR_CLOUDFLARE_ACCOUNT_ID"
+      api_token_env: "AUTH_CLOUDFLARE_EMAIL_API_TOKEN"
+      from: "no-reply@example.com"
+    # Or keep using SMTP:
+    # provider: "smtp"
+    # smtp:
+    #   host: "YOUR_SMTP_HOST"
+    #   port: 587
+    #   username: "YOUR_SMTP_USERNAME"
+    #   password: "YOUR_SMTP_PASSWORD"
+    #   from: "YOUR_SMTP_FROM"
 
 auth_admin:
   enabled: true
