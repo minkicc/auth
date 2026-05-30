@@ -17,8 +17,9 @@ const toGoTemplate = (content: string): string => {
 }
 
 export const buildVerificationEmailTpl = (authData?: { clientId?: string; redirectUri?: string }): string => {
+  const tokenPlaceholder = '__MKAUTH_EMAIL_VERIFY_TOKEN__'
   const verifyURL = new URL(buildAppURL('/verify-email'))
-  verifyURL.searchParams.set('token', '<%Token%>')
+  verifyURL.searchParams.set('token', tokenPlaceholder)
 
   if (authData?.clientId) {
     verifyURL.searchParams.set('client_id', authData.clientId)
@@ -27,8 +28,9 @@ export const buildVerificationEmailTpl = (authData?: { clientId?: string; redire
     verifyURL.searchParams.set('redirect_uri', authData.redirectUri)
   }
 
+  const verifyURLTpl = verifyURL.toString().replace(tokenPlaceholder, '<%Token%>')
   return toGoTemplate(
-    t("email.verificationEmailTpl").replace(/<%VerifyURL%>/g, verifyURL.toString())
+    t("email.verificationEmailTpl").replace(/<%VerifyURL%>/g, verifyURLTpl)
   )
 }
 
