@@ -85,6 +85,7 @@ func NewCloudflareEmailService(config CloudflareEmailConfig) (EmailService, erro
 
 // SendVerificationEmail Send verification email
 func (s *EmailServiceImpl) SendVerificationEmail(email, token, title, content string) error {
+	content = normalizeEmailTemplatePlaceholders(content)
 	data := struct {
 		Token string
 		Code  string
@@ -109,6 +110,7 @@ func (s *EmailServiceImpl) SendLoginCodeEmail(email, code, title, content string
 
 // SendPasswordResetEmail Send password reset email
 func (s *EmailServiceImpl) SendPasswordResetEmail(email, token, title, content string) error {
+	content = normalizeEmailTemplatePlaceholders(content)
 	data := struct {
 		// BaseURL string
 		Token string
@@ -144,6 +146,7 @@ func (c CloudflareEmailConfig) effectiveAPIToken() string {
 }
 
 func (s *CloudflareEmailService) SendVerificationEmail(email, token, title, content string) error {
+	content = normalizeEmailTemplatePlaceholders(content)
 	data := struct {
 		Token string
 		Code  string
@@ -166,6 +169,7 @@ func (s *CloudflareEmailService) SendLoginCodeEmail(email, code, title, content 
 }
 
 func (s *CloudflareEmailService) SendPasswordResetEmail(email, token, title, content string) error {
+	content = normalizeEmailTemplatePlaceholders(content)
 	data := struct {
 		Token string
 		Code  string
@@ -290,6 +294,16 @@ func buildHTMLMessage(from, to, subject, body string) string {
 		"Subject: %s\r\n"+
 		"Content-Type: text/html; charset=UTF-8\r\n"+
 		"\r\n%s", to, from, subject, body)
+}
+
+func normalizeEmailTemplatePlaceholders(content string) string {
+	replacer := strings.NewReplacer(
+		"%3C%25Token%25%3E", "{{.Token}}",
+		"%3c%25Token%25%3e", "{{.Token}}",
+		"%3C%25Code%25%3E", "{{.Code}}",
+		"%3c%25Code%25%3e", "{{.Code}}",
+	)
+	return replacer.Replace(content)
 }
 
 func stripHTMLForText(input string) string {
