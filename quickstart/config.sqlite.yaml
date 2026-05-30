@@ -67,6 +67,28 @@ oidc:
         - "openid"
         - "profile"
         - "email"
+    - client_id: "demo-client"
+      public: true
+      require_pkce: true
+      redirect_uris:
+        - "http://localhost:5173/auth/callback"
+        - "http://localhost:5173/merchant?logged_out=1"
+        - "http://127.0.0.1:5173/auth/callback"
+        - "http://127.0.0.1:5173/merchant?logged_out=1"
+      scopes:
+        - "openid"
+        - "profile"
+        - "email"
+    - client_id: "demo-client-ops"
+      public: true
+      require_pkce: true
+      redirect_uris:
+        - "http://localhost:5174/auth/callback"
+        - "http://127.0.0.1:5174/auth/callback"
+      scopes:
+        - "openid"
+        - "profile"
+        - "email"
 
 auth:
   enabled_providers:
