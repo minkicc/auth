@@ -80,7 +80,7 @@
 import { reactive, ref, defineEmits } from 'vue'
 import axios from 'axios'
 import { useI18n } from 'vue-i18n'
-import { serverApi } from '@/api/serverApi'
+import { getApiErrorMessage, serverApi } from '@/api/serverApi'
 
 const emit = defineEmits<{
   (e: 'register-send-email'): void
@@ -174,7 +174,7 @@ const resendVerification = async () => {
     }, 5000)
   } catch (error: any) {
     // 显示内联错误提示，而不是使用alert
-    resendError.value = error.response?.data?.message || t('errors.resendVerificationFailed')
+    resendError.value = getApiErrorMessage(error, t('errors.resendVerificationFailed'))
     
     // 5秒后自动隐藏错误提示
     setTimeout(() => {
@@ -221,7 +221,7 @@ const handleEmailRegister = async () => {
     emit('register-send-email')
   } catch (error: any) {
     // 注册失败，通知父组件
-    emit('register-error', error.response?.data?.message || t('errors.emailRegisterFailed'))
+    emit('register-error', getApiErrorMessage(error, t('errors.emailRegisterFailed')))
   } finally {
     isLoading.value = false
   }
