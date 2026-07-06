@@ -92,6 +92,7 @@ type idTokenClaims struct {
 	EmailVerified     *bool    `json:"email_verified,omitempty"`
 	OrgID             string   `json:"org_id,omitempty"`
 	OrgSlug           string   `json:"org_slug,omitempty"`
+	OrgName           string   `json:"org_name,omitempty"`
 	OrgRoles          []string `json:"org_roles,omitempty"`
 	OrgGroups         []string `json:"org_groups,omitempty"`
 	jwt.RegisteredClaims
@@ -100,6 +101,7 @@ type idTokenClaims struct {
 type organizationClaims struct {
 	OrgID     string
 	OrgSlug   string
+	OrgName   string
 	OrgRoles  []string
 	OrgGroups []string
 }
@@ -176,7 +178,7 @@ func (p *Provider) discovery(c *gin.Context) {
 		"subject_types_supported":               []string{"public"},
 		"id_token_signing_alg_values_supported": []string{"RS256"},
 		"scopes_supported":                      defaultScopes,
-		"claims_supported":                      []string{"sub", "preferred_username", "name", "picture", "email", "email_verified", "org_id", "org_slug", "org_roles", "org_groups"},
+		"claims_supported":                      []string{"sub", "preferred_username", "name", "picture", "email", "email_verified", "org_id", "org_slug", "org_name", "org_roles", "org_groups"},
 		"grant_types_supported":                 []string{grantTypeAuthorizationCode, grantTypeClientCredentials},
 		"token_endpoint_auth_methods_supported": []string{"client_secret_basic", "client_secret_post", "none"},
 		"introspection_endpoint_auth_methods_supported": []string{
@@ -474,6 +476,9 @@ func (p *Provider) userInfo(c *gin.Context) {
 		if orgClaims.OrgSlug != "" {
 			resp["org_slug"] = orgClaims.OrgSlug
 		}
+		if orgClaims.OrgName != "" {
+			resp["org_name"] = orgClaims.OrgName
+		}
 		if len(orgClaims.OrgRoles) > 0 {
 			resp["org_roles"] = orgClaims.OrgRoles
 		}
@@ -745,6 +750,7 @@ func (p *Provider) signIDToken(c *gin.Context, user *auth.User, client config.OI
 		claims.Picture = user.Avatar
 		claims.OrgID = orgClaims.OrgID
 		claims.OrgSlug = orgClaims.OrgSlug
+		claims.OrgName = orgClaims.OrgName
 		claims.OrgRoles = orgClaims.OrgRoles
 		claims.OrgGroups = orgClaims.OrgGroups
 	}
@@ -880,6 +886,9 @@ func idTokenClaimMap(claims idTokenClaims) map[string]any {
 	}
 	if claims.OrgSlug != "" {
 		result["org_slug"] = claims.OrgSlug
+	}
+	if claims.OrgName != "" {
+		result["org_name"] = claims.OrgName
 	}
 	if len(claims.OrgRoles) > 0 {
 		result["org_roles"] = claims.OrgRoles
@@ -1301,10 +1310,18 @@ func (p *Provider) lookupOrganizationClaims(userID string, requestedOrganization
 		var org iam.Organization
 		if err := p.db.First(&org, "organization_id = ?", membership.OrganizationID).Error; err == nil {
 			claims.OrgSlug = org.Slug
+			claims.OrgName = organizationDisplayName(org)
 		}
 	}
 
 	return claims
+}
+
+func organizationDisplayName(org iam.Organization) string {
+	if name := strings.TrimSpace(org.DisplayName); name != "" {
+		return name
+	}
+	return strings.TrimSpace(org.Name)
 }
 
 func (p *Provider) lookupOrganizationMembership(userID, requestedOrganization string) (iam.OrganizationMembership, error) {
