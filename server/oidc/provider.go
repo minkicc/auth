@@ -64,6 +64,7 @@ type authCode struct {
 	ClientID            string    `json:"client_id"`
 	Nonce               string    `json:"nonce,omitempty"`
 	OrganizationID      string    `json:"organization_id,omitempty"`
+	PlatformContext     bool      `json:"platform_context,omitempty"`
 	RedirectURI         string    `json:"redirect_uri"`
 	Scope               string    `json:"scope"`
 	UserID              string    `json:"user_id"`
@@ -105,6 +106,8 @@ type organizationClaims struct {
 	OrgRoles  []string
 	OrgGroups []string
 }
+
+const platformOrganizationContext = "platform"
 
 func NewProvider(cfg config.OIDCConfig, db *gorm.DB, redis *auth.RedisStore, accountAuth *auth.AccountAuth) (*Provider, error) {
 	if !cfg.Enabled {
@@ -241,7 +244,7 @@ func (p *Provider) authorize(c *gin.Context) {
 		return
 	}
 
-	if p.requiresOrganizationSelection(client, user.UserID, c.Query("org_hint"), requestedScopes) {
+	if !p.platformContextRequested(c) && p.requiresOrganizationSelection(client, user.UserID, c.Query("org_hint"), requestedScopes) {
 		if c.Query("prompt") == "none" {
 			p.redirectAuthorizeError(c, redirectURI, "interaction_required", c.Query("state"))
 			return
@@ -251,7 +254,7 @@ func (p *Provider) authorize(c *gin.Context) {
 		return
 	}
 
-	selectedOrgID, ok := p.resolveAuthorizeOrganization(c, user.UserID, client, redirectURI, requestedScopes)
+	selectedOrgID, platformContext, ok := p.resolveAuthorizeOrganization(c, user.UserID, client, redirectURI, requestedScopes)
 	if !ok {
 		return
 	}
@@ -263,6 +266,7 @@ func (p *Provider) authorize(c *gin.Context) {
 		ClientID:            client.ClientID,
 		Nonce:               c.Query("nonce"),
 		OrganizationID:      selectedOrgID,
+		PlatformContext:     platformContext,
 		RedirectURI:         redirectURI,
 		Scope:               strings.Join(strings.Fields(c.Query("scope")), " "),
 		UserID:              user.UserID,
@@ -346,7 +350,10 @@ func (p *Provider) tokenAuthorizationCode(c *gin.Context, client config.OIDCClie
 		return
 	}
 
-	orgClaims := p.lookupOrganizationClaims(user.UserID, stored.OrganizationID)
+	orgClaims := organizationClaims{}
+	if !stored.PlatformContext {
+		orgClaims = p.lookupOrganizationClaims(user.UserID, stored.OrganizationID)
+	}
 	accessToken, expiresIn, err := p.signAccessToken(c, user, client, stored.Scope, orgClaims)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
@@ -469,7 +476,10 @@ func (p *Provider) userInfo(c *gin.Context) {
 		if user.Avatar != "" {
 			resp["picture"] = user.Avatar
 		}
-		orgClaims := p.lookupOrganizationClaims(user.UserID, claims.OrgID)
+		orgClaims := organizationClaims{}
+		if claims.OrgID != "" {
+			orgClaims = p.lookupOrganizationClaims(user.UserID, claims.OrgID)
+		}
 		if orgClaims.OrgID != "" {
 			resp["org_id"] = orgClaims.OrgID
 		}
@@ -1096,42 +1106,54 @@ func (p *Provider) validAuthorizeRequest(c *gin.Context) (config.OIDCClientConfi
 	return client, redirectURI, true
 }
 
-func (p *Provider) resolveAuthorizeOrganization(c *gin.Context, userID string, client config.OIDCClientConfig, redirectURI string, requestedScopes []string) (string, bool) {
+func (p *Provider) resolveAuthorizeOrganization(c *gin.Context, userID string, client config.OIDCClientConfig, redirectURI string, requestedScopes []string) (string, bool, bool) {
+	if p.platformContextRequested(c) {
+		if p.clientUsesOrganizationPolicy(client, requestedScopes) {
+			p.redirectAuthorizeError(c, redirectURI, "access_denied", c.Query("state"))
+			return "", false, false
+		}
+		return "", true, true
+	}
+
 	orgHint := strings.TrimSpace(c.Query("org_hint"))
 	if p.clientUsesOrganizationPolicy(client, requestedScopes) {
 		organizations, err := p.listAuthorizedOrganizations(userID, client, requestedScopes)
 		if err != nil {
 			p.redirectAuthorizeError(c, redirectURI, "server_error", c.Query("state"))
-			return "", false
+			return "", false, false
 		}
 		if orgHint != "" {
 			for _, organization := range organizations {
 				if organizationClaimsMatchHint(organization, orgHint) {
-					return organization.OrgID, true
+					return organization.OrgID, false, true
 				}
 			}
 			p.redirectAuthorizeError(c, redirectURI, "access_denied", c.Query("state"))
-			return "", false
+			return "", false, false
 		}
 		switch len(organizations) {
 		case 0:
 			p.redirectAuthorizeError(c, redirectURI, "access_denied", c.Query("state"))
-			return "", false
+			return "", false, false
 		case 1:
-			return organizations[0].OrgID, true
+			return organizations[0].OrgID, false, true
 		default:
-			return "", true
+			return "", false, true
 		}
 	}
 	if orgHint == "" {
-		return "", true
+		return "", false, true
 	}
 	orgClaims := p.lookupOrganizationClaims(userID, orgHint)
 	if orgClaims.OrgID == "" {
 		p.redirectAuthorizeError(c, redirectURI, "access_denied", c.Query("state"))
-		return "", false
+		return "", false, false
 	}
-	return orgClaims.OrgID, true
+	return orgClaims.OrgID, false, true
+}
+
+func (p *Provider) platformContextRequested(c *gin.Context) bool {
+	return strings.EqualFold(strings.TrimSpace(c.Query("organization_context")), platformOrganizationContext)
 }
 
 func (p *Provider) requiresOrganizationSelection(client config.OIDCClientConfig, userID, orgHint string, requestedScopes []string) bool {

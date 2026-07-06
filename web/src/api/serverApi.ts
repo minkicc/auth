@@ -72,6 +72,11 @@ export interface CurrentUserOrganization {
     current?: boolean
 }
 
+export interface CurrentUserOrganizationsResponse {
+    organizations: CurrentUserOrganization[]
+    platform_available: boolean
+}
+
 export interface CurrentOrganizationAuthorization {
     organization_id: string
     organization_slug?: string
@@ -504,7 +509,7 @@ class ServerApi {
         }
     }
 
-    async fetchCurrentUserOrganizations(): Promise<{ organizations: CurrentUserOrganization[] }> {
+    async fetchCurrentUserOrganizations(): Promise<CurrentUserOrganizationsResponse> {
         const params: Record<string, string> = {}
         if (this.clientId) {
             params.client_id = this.clientId
@@ -517,7 +522,8 @@ class ServerApi {
             params: Object.keys(params).length > 0 ? params : undefined
         })
         return {
-            organizations: response.data?.organizations || []
+            organizations: response.data?.organizations || [],
+            platform_available: !!response.data?.platform_available
         }
     }
 
@@ -599,8 +605,23 @@ class ServerApi {
 
         const redirectURL = new URL(this.redirectUri)
         redirectURL.searchParams.set('org_hint', sanitizedOrgHint)
+        redirectURL.searchParams.delete('organization_context')
         const nextRedirectUri = redirectURL.toString()
         this.updateAuthData(this.clientId, nextRedirectUri, this.loginHint, this.domainHint, sanitizedOrgHint)
+        window.location.href = nextRedirectUri
+    }
+
+    continueOIDCWithPlatformContext(): void {
+        if (!this.isOIDCFlow()) {
+            window.location.href = this.getDefaultAuthenticatedURL()
+            return
+        }
+
+        const redirectURL = new URL(this.redirectUri)
+        redirectURL.searchParams.delete('org_hint')
+        redirectURL.searchParams.set('organization_context', 'platform')
+        const nextRedirectUri = redirectURL.toString()
+        this.updateAuthData(this.clientId, nextRedirectUri, this.loginHint, this.domainHint, '')
         window.location.href = nextRedirectUri
     }
 

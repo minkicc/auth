@@ -37,13 +37,13 @@
             <strong>{{ serverApi.clientId || '-' }}</strong>
           </div>
           <div class="meta-chip">
-            <span class="meta-label">{{ $t('organizationSelect.organizationCount') }}</span>
-            <strong>{{ organizations.length }}</strong>
+            <span class="meta-label">{{ $t('organizationSelect.identityCount') }}</span>
+            <strong>{{ availableContextCount }}</strong>
           </div>
         </div>
       </div>
 
-      <div v-if="organizations.length === 0" class="empty-state">
+      <div v-if="availableContextCount === 0" class="empty-state">
         <h2>{{ $t('organizationSelect.emptyTitle') }}</h2>
         <p>{{ $t('organizationSelect.emptySubtitle') }}</p>
         <div class="organization-select-actions">
@@ -57,6 +57,45 @@
       </div>
 
       <div v-else class="organization-grid">
+        <button
+          v-if="platformAvailable"
+          class="organization-card platform-card"
+          type="button"
+          :disabled="!!selectingOrganizationId"
+          @click="selectPlatformContext"
+        >
+          <div class="organization-card-top">
+            <div class="organization-avatar platform-avatar">
+              {{ $t('organizationSelect.platformInitial') }}
+            </div>
+            <div class="organization-copy">
+              <div class="organization-name-row">
+                <h2>{{ $t('organizationSelect.platformTitle') }}</h2>
+              </div>
+              <p class="organization-slug">
+                {{ $t('organizationSelect.platformSubtitle') }}
+              </p>
+            </div>
+          </div>
+
+          <div class="organization-section">
+            <span class="section-label">{{ $t('organizationSelect.identityType') }}</span>
+            <span class="status-pill platform-pill">{{ $t('organizationSelect.platformType') }}</span>
+          </div>
+
+          <div class="organization-section">
+            <span class="section-label">{{ $t('organizationSelect.status') }}</span>
+            <span class="status-pill">{{ $t('organizationSelect.available') }}</span>
+          </div>
+
+          <div class="organization-card-footer">
+            <span v-if="selectingOrganizationId === platformSelectionKey">
+              {{ $t('organizationSelect.redirecting') }}
+            </span>
+            <span v-else>{{ $t('organizationSelect.continuePlatform') }}</span>
+          </div>
+        </button>
+
         <button
           v-for="organization in organizations"
           :key="organization.organization_id"
@@ -133,8 +172,11 @@ const loading = ref(true)
 const error = ref('')
 const organizations = ref<CurrentUserOrganization[]>([])
 const selectingOrganizationId = ref('')
+const platformAvailable = ref(false)
+const platformSelectionKey = '__platform__'
 
 const hasBusinessConnection = computed(() => serverApi.hasBusinessConnection())
+const availableContextCount = computed(() => organizations.value.length + (platformAvailable.value ? 1 : 0))
 
 const authQuery = computed(() => ({
   ...(serverApi.clientId ? { client_id: serverApi.clientId } : {}),
@@ -171,6 +213,12 @@ const selectOrganization = (organization: CurrentUserOrganization) => {
   serverApi.continueOIDCWithOrganization(nextOrgHint)
 }
 
+const selectPlatformContext = () => {
+  selectingOrganizationId.value = platformSelectionKey
+  error.value = ''
+  serverApi.continueOIDCWithPlatformContext()
+}
+
 const loadOrganizations = async () => {
   if (!hasBusinessConnection.value) {
     await router.replace('/profile')
@@ -192,8 +240,9 @@ const loadOrganizations = async () => {
 
     const response = await serverApi.fetchCurrentUserOrganizations()
     organizations.value = response.organizations || []
+    platformAvailable.value = !!response.platform_available
 
-    if (organizations.value.length === 1) {
+    if (organizations.value.length === 1 && !platformAvailable.value) {
       selectOrganization(organizations.value[0])
       return
     }
@@ -336,6 +385,12 @@ onMounted(async () => {
   box-shadow: 0 22px 40px rgba(17, 63, 84, 0.12);
 }
 
+.platform-card {
+  background:
+    radial-gradient(circle at top right, rgba(238, 186, 94, 0.16), transparent 38%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(249, 246, 235, 0.94) 100%);
+}
+
 .organization-card:disabled {
   cursor: wait;
   opacity: 0.82;
@@ -361,6 +416,11 @@ onMounted(async () => {
   font-size: 22px;
   background: linear-gradient(135deg, #103e4f 0%, #1f6c76 100%);
   box-shadow: 0 12px 24px rgba(16, 62, 79, 0.2);
+}
+
+.platform-avatar {
+  background: linear-gradient(135deg, #d39d36 0%, #996d20 100%);
+  box-shadow: 0 12px 24px rgba(153, 109, 32, 0.2);
 }
 
 .organization-copy {
@@ -417,6 +477,11 @@ onMounted(async () => {
 .current-pill {
   background: rgba(23, 148, 96, 0.16);
   color: #0f6b48;
+}
+
+.platform-pill {
+  background: rgba(238, 186, 94, 0.22);
+  color: #7c5615;
 }
 
 .organization-card-footer {
