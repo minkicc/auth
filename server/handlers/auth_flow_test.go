@@ -998,10 +998,14 @@ func TestCurrentUserOrganizationsEndpointReturnsMemberships(t *testing.T) {
 	}
 
 	var response struct {
-		Organizations []map[string]any `json:"organizations"`
+		Organizations     []map[string]any `json:"organizations"`
+		PlatformAvailable bool             `json:"platform_available"`
 	}
 	if err := json.Unmarshal(resp.Body.Bytes(), &response); err != nil {
 		t.Fatalf("failed to decode organizations response: %v", err)
+	}
+	if !response.PlatformAvailable {
+		t.Fatalf("expected platform context to be available for client without organization policy")
 	}
 	if len(response.Organizations) != 2 {
 		t.Fatalf("expected 2 organizations, got %#v", response.Organizations)
@@ -1103,10 +1107,14 @@ func TestCurrentUserOrganizationsEndpointFiltersByOIDCClientPolicy(t *testing.T)
 	}
 
 	var response struct {
-		Organizations []map[string]any `json:"organizations"`
+		Organizations     []map[string]any `json:"organizations"`
+		PlatformAvailable bool             `json:"platform_available"`
 	}
 	if err := json.Unmarshal(resp.Body.Bytes(), &response); err != nil {
 		t.Fatalf("failed to decode organizations response: %v", err)
+	}
+	if response.PlatformAvailable {
+		t.Fatalf("expected platform context to be unavailable for client with organization policy")
 	}
 	if len(response.Organizations) != 1 {
 		t.Fatalf("expected 1 filtered organization, got %#v", response.Organizations)
@@ -1202,10 +1210,14 @@ func TestCurrentUserOrganizationsEndpointFiltersByOIDCClientScopePolicy(t *testi
 	}
 
 	var response struct {
-		Organizations []map[string]any `json:"organizations"`
+		Organizations     []map[string]any `json:"organizations"`
+		PlatformAvailable bool             `json:"platform_available"`
 	}
 	if err := json.Unmarshal(resp.Body.Bytes(), &response); err != nil {
 		t.Fatalf("failed to decode organizations response: %v", err)
+	}
+	if response.PlatformAvailable {
+		t.Fatalf("expected platform context to be unavailable for scoped organization policy")
 	}
 	if len(response.Organizations) != 1 {
 		t.Fatalf("expected 1 filtered organization for scoped policy, got %#v", response.Organizations)

@@ -43,6 +43,15 @@ func (p *Provider) AuthorizedOrganizationIDsForClient(userID, clientID, scope st
 	return allowed, true, nil
 }
 
+func (p *Provider) PlatformContextAllowedForClient(clientID, scope string) (bool, error) {
+	client, ok := p.findClient(strings.TrimSpace(clientID))
+	if !ok {
+		return false, ErrClientNotFound
+	}
+	requestedScopes := normalizeRequestedScopes(strings.Fields(scope))
+	return !p.clientUsesOrganizationPolicy(client, requestedScopes), nil
+}
+
 func (p *Provider) listAuthorizedOrganizations(userID string, client config.OIDCClientConfig, requestedScopes []string) ([]organizationClaims, error) {
 	if p.db == nil || userID == "" || !p.db.Migrator().HasTable(&iam.OrganizationMembership{}) {
 		return nil, nil

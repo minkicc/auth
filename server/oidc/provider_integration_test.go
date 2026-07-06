@@ -1380,6 +1380,107 @@ func TestAuthorizeRedirectsToOrganizationChooserWithoutOrgHint(t *testing.T) {
 	}
 }
 
+func TestAuthorizeSupportsExplicitPlatformContextForMultiOrganizationUser(t *testing.T) {
+	env := newIntegrationEnv(t)
+	defer env.Close()
+
+	user := env.createAccountUser(t, "demo")
+	env.createOrganizationMembershipRecord(t, user.UserID, "org_alpha0000000000", "alpha", []string{"viewer"})
+	env.createOrganizationMembershipRecord(t, user.UserID, "org_beta00000000000", "beta", []string{"admin"})
+	sessionCookie := env.createBrowserSessionCookie(t, user.UserID)
+
+	authorizeURL := "/oauth2/authorize?client_id=demo-spa" +
+		"&redirect_uri=" + url.QueryEscape(testRedirectURI) +
+		"&response_type=code" +
+		"&scope=" + url.QueryEscape("openid profile") +
+		"&code_challenge=" + testCodeChallenge +
+		"&code_challenge_method=S256" +
+		"&state=platform-context" +
+		"&organization_context=platform"
+
+	authorizeResp := performRequest(t, env.router, http.MethodGet, authorizeURL, nil, sessionCookie)
+	if authorizeResp.Code != http.StatusFound {
+		t.Fatalf("expected authorize status 302, got %d with body %s", authorizeResp.Code, authorizeResp.Body.String())
+	}
+
+	redirectLocation, err := url.Parse(authorizeResp.Header().Get("Location"))
+	if err != nil {
+		t.Fatalf("failed to parse authorize redirect: %v", err)
+	}
+	if redirectLocation.Path != "/callback" || redirectLocation.Host != "127.0.0.1:3000" {
+		t.Fatalf("expected direct callback redirect, got %s", redirectLocation.String())
+	}
+	if redirectLocation.Query().Get("state") != "platform-context" {
+		t.Fatalf("expected state to round-trip, got %q", redirectLocation.Query().Get("state"))
+	}
+	code := redirectLocation.Query().Get("code")
+	if code == "" {
+		t.Fatalf("expected authorization code in redirect location %s", redirectLocation.String())
+	}
+
+	accessToken, idToken := exchangeAuthorizationCode(t, env, code)
+	accessClaims, err := env.provider.ParseAccessToken(accessToken)
+	if err != nil {
+		t.Fatalf("failed to parse access token: %v", err)
+	}
+	if accessClaims.OrgID != "" || accessClaims.OrgSlug != "" {
+		t.Fatalf("expected platform access token to omit organization claims, got %#v", accessClaims)
+	}
+
+	idTokenClaims := env.parseIDToken(t, idToken)
+	if idTokenClaims.OrgID != "" || idTokenClaims.OrgSlug != "" || len(idTokenClaims.OrgRoles) > 0 || len(idTokenClaims.OrgGroups) > 0 {
+		t.Fatalf("expected platform id token to omit organization claims, got %#v", idTokenClaims)
+	}
+
+	userInfoResp := performBearerRequest(t, env.router, http.MethodGet, "/oauth2/userinfo", accessToken)
+	if userInfoResp.Code != http.StatusOK {
+		t.Fatalf("expected userinfo status 200, got %d with body %s", userInfoResp.Code, userInfoResp.Body.String())
+	}
+	var userInfoBody map[string]any
+	if err := json.Unmarshal(userInfoResp.Body.Bytes(), &userInfoBody); err != nil {
+		t.Fatalf("failed to decode userinfo response: %v", err)
+	}
+	if _, ok := userInfoBody["org_id"]; ok {
+		t.Fatalf("expected platform userinfo to omit org_id, got %#v", userInfoBody)
+	}
+}
+
+func TestAuthorizeRejectsPlatformContextWhenClientRequiresOrganization(t *testing.T) {
+	env := newIntegrationEnv(t)
+	defer env.Close()
+
+	env.provider.cfg.Clients[0].RequireOrganization = true
+
+	user := env.createAccountUser(t, "demo")
+	env.createOrganizationMembershipRecord(t, user.UserID, "org_alpha0000000000", "alpha", []string{"viewer"})
+	sessionCookie := env.createBrowserSessionCookie(t, user.UserID)
+
+	authorizeURL := "/oauth2/authorize?client_id=demo-spa" +
+		"&redirect_uri=" + url.QueryEscape(testRedirectURI) +
+		"&response_type=code" +
+		"&scope=" + url.QueryEscape("openid profile") +
+		"&code_challenge=" + testCodeChallenge +
+		"&code_challenge_method=S256" +
+		"&state=platform-denied" +
+		"&organization_context=platform"
+
+	authorizeResp := performRequest(t, env.router, http.MethodGet, authorizeURL, nil, sessionCookie)
+	if authorizeResp.Code != http.StatusFound {
+		t.Fatalf("expected authorize status 302, got %d with body %s", authorizeResp.Code, authorizeResp.Body.String())
+	}
+
+	redirectLocation, err := url.Parse(authorizeResp.Header().Get("Location"))
+	if err != nil {
+		t.Fatalf("failed to parse redirect location %q: %v", authorizeResp.Header().Get("Location"), err)
+	}
+	if redirectLocation.Query().Get("error") != "access_denied" {
+		t.Fatalf("expected access_denied, got %q in location %s", redirectLocation.Query().Get("error"), redirectLocation.String())
+	}
+	if redirectLocation.Query().Get("state") != "platform-denied" {
+		t.Fatalf("expected state to round-trip, got %q", redirectLocation.Query().Get("state"))
+	}
+}
+
 func TestAuthorizePromptNoneReturnsInteractionRequiredForOrganizationChooser(t *testing.T) {
 	env := newIntegrationEnv(t)
 	defer env.Close()

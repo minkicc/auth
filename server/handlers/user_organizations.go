@@ -23,6 +23,11 @@ type currentUserOrganizationView struct {
 	Current        bool     `json:"current"`
 }
 
+type currentUserOrganizationsResponse struct {
+	Organizations     []currentUserOrganizationView `json:"organizations"`
+	PlatformAvailable bool                          `json:"platform_available"`
+}
+
 func (h *AuthHandler) GetCurrentUserOrganizations(c *gin.Context) {
 	userID, _ := c.Get("user_id")
 	userIDStr, ok := userID.(string)
@@ -32,12 +37,12 @@ func (h *AuthHandler) GetCurrentUserOrganizations(c *gin.Context) {
 	}
 
 	if h.accountAuth == nil || h.accountAuth.DB() == nil {
-		c.JSON(http.StatusOK, gin.H{"organizations": []currentUserOrganizationView{}})
+		c.JSON(http.StatusOK, currentUserOrganizationsResponse{Organizations: []currentUserOrganizationView{}, PlatformAvailable: true})
 		return
 	}
 	db := h.accountAuth.DB()
 	if !db.Migrator().HasTable(&iam.OrganizationMembership{}) {
-		c.JSON(http.StatusOK, gin.H{"organizations": []currentUserOrganizationView{}})
+		c.JSON(http.StatusOK, currentUserOrganizationsResponse{Organizations: []currentUserOrganizationView{}, PlatformAvailable: true})
 		return
 	}
 
@@ -48,8 +53,19 @@ func (h *AuthHandler) GetCurrentUserOrganizations(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	platformAvailable := true
 	if clientID := strings.TrimSpace(c.Query("client_id")); clientID != "" && h.oidcProvider != nil {
 		scope := strings.Join(strings.Fields(c.Query("scope")), " ")
+		var err error
+		platformAvailable, err = h.oidcProvider.PlatformContextAllowedForClient(clientID, scope)
+		switch {
+		case errors.Is(err, oidc.ErrClientNotFound):
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_client"})
+			return
+		case err != nil:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
 		allowedOrgIDs, filtered, err := h.oidcProvider.AuthorizedOrganizationIDsForClient(userIDStr, clientID, scope)
 		switch {
 		case errors.Is(err, oidc.ErrClientNotFound):
@@ -69,7 +85,7 @@ func (h *AuthHandler) GetCurrentUserOrganizations(c *gin.Context) {
 		}
 	}
 	if len(memberships) == 0 {
-		c.JSON(http.StatusOK, gin.H{"organizations": []currentUserOrganizationView{}})
+		c.JSON(http.StatusOK, currentUserOrganizationsResponse{Organizations: []currentUserOrganizationView{}, PlatformAvailable: platformAvailable})
 		return
 	}
 
@@ -124,5 +140,5 @@ func (h *AuthHandler) GetCurrentUserOrganizations(c *gin.Context) {
 		views = append(views, view)
 	}
 
-	c.JSON(http.StatusOK, gin.H{"organizations": views})
+	c.JSON(http.StatusOK, currentUserOrganizationsResponse{Organizations: views, PlatformAvailable: platformAvailable})
 }
