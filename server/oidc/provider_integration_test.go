@@ -652,6 +652,9 @@ func TestAuthorizeReusesBrowserSessionAndTokenExchangeSucceeds(t *testing.T) {
 	if idTokenClaims.OrgSlug != "acme" {
 		t.Fatalf("expected id token org_slug acme, got %q", idTokenClaims.OrgSlug)
 	}
+	if idTokenClaims.OrgName != "Acme" {
+		t.Fatalf("expected id token org_name Acme, got %q", idTokenClaims.OrgName)
+	}
 	if !stringSliceEqual(idTokenClaims.OrgRoles, []string{"billing_admin", "owner", "platform-team"}) {
 		t.Fatalf("expected id token org_roles owner/billing_admin/platform-team, got %#v", idTokenClaims.OrgRoles)
 	}
@@ -687,6 +690,9 @@ func TestAuthorizeReusesBrowserSessionAndTokenExchangeSucceeds(t *testing.T) {
 	}
 	if userInfoBody["org_slug"] != "acme" {
 		t.Fatalf("expected userinfo org_slug acme, got %#v", userInfoBody["org_slug"])
+	}
+	if userInfoBody["org_name"] != "Acme" {
+		t.Fatalf("expected userinfo org_name Acme, got %#v", userInfoBody["org_name"])
 	}
 	userInfoRoles, ok := userInfoBody["org_roles"].([]interface{})
 	if !ok || len(userInfoRoles) != 3 || userInfoRoles[0] != "billing_admin" || userInfoRoles[1] != "owner" || userInfoRoles[2] != "platform-team" {

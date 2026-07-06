@@ -75,6 +75,7 @@ func (p *Provider) listAuthorizedOrganizations(userID string, client config.OIDC
 				continue
 			}
 			claims.OrgSlug = organization.Slug
+			claims.OrgName = organizationDisplayName(organization)
 		}
 		authz, err := iam.NewService(p.db).ResolveOrganizationAuthorization(userID, membership.OrganizationID)
 		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
