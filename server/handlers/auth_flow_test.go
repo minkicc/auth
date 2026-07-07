@@ -1022,6 +1022,108 @@ func TestCurrentUserOrganizationsEndpointReturnsMemberships(t *testing.T) {
 	}
 }
 
+func TestCreateCurrentUserOrganizationEndpoint(t *testing.T) {
+	env := newAuthTestEnv(t)
+	defer env.Close()
+
+	registerResp := performJSONRequest(t, env.router, http.MethodPost, "/api/account/register", map[string]string{
+		"username": "org_create_user",
+		"password": "demo12345",
+	}, nil, nil)
+	if registerResp.Code != http.StatusOK {
+		t.Fatalf("expected register status 200, got %d with body %s", registerResp.Code, registerResp.Body.String())
+	}
+
+	sessionCookie := requireCookie(t, registerResp, auth.OIDCSessionCookieName)
+	body := decodeBodyMap(t, registerResp)
+	userID, ok := body["user_id"].(string)
+	if !ok || userID == "" {
+		t.Fatalf("expected user_id in register response, got %#v", body["user_id"])
+	}
+
+	sameOriginHeaders := map[string]string{"Origin": "http://127.0.0.1:8080"}
+	createResp := performJSONRequest(t, env.router, http.MethodPost, "/api/user/organizations", map[string]string{
+		"name": "锐强企业",
+	}, sessionCookie, sameOriginHeaders)
+	if createResp.Code != http.StatusCreated {
+		t.Fatalf("expected create organization status 201, got %d with body %s", createResp.Code, createResp.Body.String())
+	}
+
+	var createBody struct {
+		Organization map[string]any `json:"organization"`
+	}
+	if err := json.Unmarshal(createResp.Body.Bytes(), &createBody); err != nil {
+		t.Fatalf("failed to decode create response: %v", err)
+	}
+	orgID, _ := createBody.Organization["organization_id"].(string)
+	if orgID == "" {
+		t.Fatalf("expected created organization_id, got %#v", createBody.Organization)
+	}
+	if createBody.Organization["name"] != "锐强企业" || createBody.Organization["display_name"] != "锐强企业" {
+		t.Fatalf("expected created organization to keep display name, got %#v", createBody.Organization)
+	}
+	slug, _ := createBody.Organization["slug"].(string)
+	if !strings.HasPrefix(slug, "enterprise") {
+		t.Fatalf("expected generated fallback slug for non-ascii name, got %q", slug)
+	}
+
+	var membership iam.OrganizationMembership
+	if err := env.db.First(&membership, "organization_id = ? AND user_id = ?", orgID, userID).Error; err != nil {
+		t.Fatalf("expected owner membership to be created: %v", err)
+	}
+	if membership.Status != iam.MembershipStatusActive {
+		t.Fatalf("expected active membership, got %s", membership.Status)
+	}
+	if !strings.Contains(membership.RolesJSON, "owner") || !strings.Contains(membership.RolesJSON, "admin") {
+		t.Fatalf("expected owner/admin roles, got %s", membership.RolesJSON)
+	}
+
+	listResp := performJSONRequest(t, env.router, http.MethodGet, "/api/user/organizations", nil, sessionCookie, nil)
+	if listResp.Code != http.StatusOK {
+		t.Fatalf("expected organizations status 200, got %d with body %s", listResp.Code, listResp.Body.String())
+	}
+	var listBody struct {
+		Organizations []map[string]any `json:"organizations"`
+	}
+	if err := json.Unmarshal(listResp.Body.Bytes(), &listBody); err != nil {
+		t.Fatalf("failed to decode organizations response: %v", err)
+	}
+	if len(listBody.Organizations) != 1 || listBody.Organizations[0]["organization_id"] != orgID {
+		t.Fatalf("expected created organization in list, got %#v", listBody.Organizations)
+	}
+}
+
+func TestCreateCurrentUserOrganizationRejectsDuplicateExplicitSlug(t *testing.T) {
+	env := newAuthTestEnv(t)
+	defer env.Close()
+
+	registerResp := performJSONRequest(t, env.router, http.MethodPost, "/api/account/register", map[string]string{
+		"username": "org_duplicate_slug_user",
+		"password": "demo12345",
+	}, nil, nil)
+	if registerResp.Code != http.StatusOK {
+		t.Fatalf("expected register status 200, got %d with body %s", registerResp.Code, registerResp.Body.String())
+	}
+	sessionCookie := requireCookie(t, registerResp, auth.OIDCSessionCookieName)
+	sameOriginHeaders := map[string]string{"Origin": "http://127.0.0.1:8080"}
+
+	firstResp := performJSONRequest(t, env.router, http.MethodPost, "/api/user/organizations", map[string]string{
+		"name": "Acme",
+		"slug": "acme",
+	}, sessionCookie, sameOriginHeaders)
+	if firstResp.Code != http.StatusCreated {
+		t.Fatalf("expected first create status 201, got %d with body %s", firstResp.Code, firstResp.Body.String())
+	}
+
+	duplicateResp := performJSONRequest(t, env.router, http.MethodPost, "/api/user/organizations", map[string]string{
+		"name": "Acme 2",
+		"slug": "acme",
+	}, sessionCookie, sameOriginHeaders)
+	if duplicateResp.Code != http.StatusConflict {
+		t.Fatalf("expected duplicate slug status 409, got %d with body %s", duplicateResp.Code, duplicateResp.Body.String())
+	}
+}
+
 func TestCurrentUserOrganizationsEndpointFiltersByOIDCClientPolicy(t *testing.T) {
 	env := newAuthTestEnvWithOIDCProvider(t, config.OIDCConfig{
 		Enabled: true,
