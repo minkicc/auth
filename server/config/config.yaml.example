@@ -49,6 +49,7 @@ oidc:
   code_ttl_seconds: 300
   access_token_ttl_seconds: 900
   id_token_ttl_seconds: 900
+  refresh_token_ttl_seconds: 2592000
   clients:
     - name: "Demo SPA"
       client_id: "demo-spa"
@@ -56,6 +57,7 @@ oidc:
       require_pkce: true
       grant_types:
         - "authorization_code"
+        - "refresh_token"
       redirect_uris:
         - "http://127.0.0.1:3000/callback"
       scopes:

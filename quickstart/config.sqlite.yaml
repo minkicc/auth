@@ -33,6 +33,7 @@ oidc:
   code_ttl_seconds: 300
   access_token_ttl_seconds: 900
   id_token_ttl_seconds: 900
+  refresh_token_ttl_seconds: 2592000
   clients:
     - client_id: "demo-spa"
       public: true
@@ -58,6 +59,9 @@ oidc:
     - client_id: "one_api"
       public: true
       require_pkce: true
+      grant_types:
+        - "authorization_code"
+        - "refresh_token"
       redirect_uris:
         - "http://localhost:3000/oauth/oidc"
         - "http://127.0.0.1:3000/oauth/oidc"

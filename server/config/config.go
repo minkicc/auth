@@ -439,15 +439,16 @@ type TrustedClient struct {
 }
 
 type OIDCConfig struct {
-	Enabled               bool               `json:"enabled" yaml:"enabled"`
-	Issuer                string             `json:"issuer" yaml:"issuer"`
-	KeyID                 string             `json:"key_id" yaml:"key_id"`
-	PrivateKeyPEM         string             `json:"private_key_pem" yaml:"private_key_pem"`
-	PrivateKeyFile        string             `json:"private_key_file" yaml:"private_key_file"`
-	CodeTTLSeconds        int                `json:"code_ttl_seconds" yaml:"code_ttl_seconds"`
-	AccessTokenTTLSeconds int                `json:"access_token_ttl_seconds" yaml:"access_token_ttl_seconds"`
-	IDTokenTTLSeconds     int                `json:"id_token_ttl_seconds" yaml:"id_token_ttl_seconds"`
-	Clients               []OIDCClientConfig `json:"clients" yaml:"clients"`
+	Enabled                bool               `json:"enabled" yaml:"enabled"`
+	Issuer                 string             `json:"issuer" yaml:"issuer"`
+	KeyID                  string             `json:"key_id" yaml:"key_id"`
+	PrivateKeyPEM          string             `json:"private_key_pem" yaml:"private_key_pem"`
+	PrivateKeyFile         string             `json:"private_key_file" yaml:"private_key_file"`
+	CodeTTLSeconds         int                `json:"code_ttl_seconds" yaml:"code_ttl_seconds"`
+	AccessTokenTTLSeconds  int                `json:"access_token_ttl_seconds" yaml:"access_token_ttl_seconds"`
+	IDTokenTTLSeconds      int                `json:"id_token_ttl_seconds" yaml:"id_token_ttl_seconds"`
+	RefreshTokenTTLSeconds int                `json:"refresh_token_ttl_seconds" yaml:"refresh_token_ttl_seconds"`
+	Clients                []OIDCClientConfig `json:"clients" yaml:"clients"`
 }
 
 type OIDCOrganizationPolicy struct {

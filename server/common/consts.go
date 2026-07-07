@@ -23,6 +23,7 @@ const (
 	RedisKeyInvitationPending   = "auth_invitation_pending:"
 	RedisKeyOIDCAuthCode        = "auth_oidc_code:"
 	RedisKeyOIDCBrowserSession  = "auth_oidc_browser_session:"
+	RedisKeyOIDCRefreshToken    = "auth_oidc_refresh_token:"
 	RedisKeyOIDCRevokedToken    = "auth_oidc_revoked_token:"
 	RedisKeyEnterpriseOIDCState = "auth_enterprise_oidc_state:"
 	RedisKeyEnterpriseSAMLState = "auth_enterprise_saml_state:"

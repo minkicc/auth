@@ -16,6 +16,7 @@ import (
 const (
 	grantTypeAuthorizationCode = "authorization_code"
 	grantTypeClientCredentials = "client_credentials"
+	grantTypeRefreshToken      = "refresh_token"
 
 	serviceAccountSubjectPrefix          = "svc:"
 	accessTokenSubjectTypeServiceAccount = "service_account"
@@ -65,13 +66,16 @@ func ValidateClientConfig(client config.OIDCClientConfig) error {
 	}
 	for _, grantType := range client.GrantTypes {
 		switch grantType {
-		case grantTypeAuthorizationCode, grantTypeClientCredentials:
+		case grantTypeAuthorizationCode, grantTypeClientCredentials, grantTypeRefreshToken:
 		default:
 			return fmt.Errorf("client %s has unsupported grant_type %q", client.ClientID, grantType)
 		}
 	}
 	if !clientSupportsGrant(client, grantTypeAuthorizationCode) && !clientSupportsGrant(client, grantTypeClientCredentials) {
 		return fmt.Errorf("client %s must define at least one supported grant_type", client.ClientID)
+	}
+	if clientSupportsGrant(client, grantTypeRefreshToken) && !clientSupportsGrant(client, grantTypeAuthorizationCode) {
+		return fmt.Errorf("client %s cannot use refresh_token without authorization_code", client.ClientID)
 	}
 	if clientSupportsGrant(client, grantTypeAuthorizationCode) && len(client.RedirectURIs) == 0 {
 		return fmt.Errorf("client %s must define at least one redirect_uri", client.ClientID)
@@ -192,6 +196,8 @@ func grantTypeSortKey(value string) string {
 		return "0:" + value
 	case grantTypeClientCredentials:
 		return "1:" + value
+	case grantTypeRefreshToken:
+		return "2:" + value
 	default:
 		return "9:" + value
 	}

@@ -75,6 +75,7 @@ func newIntegrationEnv(t *testing.T) *integrationEnv {
 				ClientID:     "demo-spa",
 				Public:       true,
 				RequirePKCE:  true,
+				GrantTypes:   []string{"authorization_code", "refresh_token"},
 				RedirectURIs: []string{testRedirectURI},
 				Scopes:       []string{"openid", "profile"},
 			},
@@ -349,6 +350,90 @@ func exchangeAuthorizationCode(t *testing.T, env *integrationEnv, code string) (
 		t.Fatalf("expected access_token and id_token in response")
 	}
 	return accessToken, idToken
+}
+
+func TestRefreshTokenRotatesAndIssuesNewAccessToken(t *testing.T) {
+	env := newIntegrationEnv(t)
+	defer env.Close()
+
+	user := env.createAccountUser(t, "refresh-user")
+	sessionCookie := env.createBrowserSessionCookie(t, user.UserID)
+	authorizeURL := "/oauth2/authorize?client_id=demo-spa" +
+		"&redirect_uri=" + url.QueryEscape(testRedirectURI) +
+		"&response_type=code" +
+		"&scope=" + url.QueryEscape("openid profile") +
+		"&code_challenge=" + testCodeChallenge +
+		"&code_challenge_method=S256" +
+		"&state=refresh-state"
+
+	authorizeResp := performRequest(t, env.router, http.MethodGet, authorizeURL, nil, sessionCookie)
+	if authorizeResp.Code != http.StatusFound {
+		t.Fatalf("expected authorize status 302, got %d with body %s", authorizeResp.Code, authorizeResp.Body.String())
+	}
+	redirectLocation, err := url.Parse(authorizeResp.Header().Get("Location"))
+	if err != nil {
+		t.Fatalf("failed to parse authorize redirect: %v", err)
+	}
+	code := redirectLocation.Query().Get("code")
+	if code == "" {
+		t.Fatalf("expected authorization code in redirect location %s", redirectLocation.String())
+	}
+
+	tokenResp := performRequest(t, env.router, http.MethodPost, "/oauth2/token", url.Values{
+		"grant_type":    {"authorization_code"},
+		"client_id":     {"demo-spa"},
+		"code":          {code},
+		"redirect_uri":  {testRedirectURI},
+		"code_verifier": {testCodeVerifier},
+	}, nil)
+	if tokenResp.Code != http.StatusOK {
+		t.Fatalf("expected token status 200, got %d with body %s", tokenResp.Code, tokenResp.Body.String())
+	}
+	var tokenBody map[string]any
+	if err := json.Unmarshal(tokenResp.Body.Bytes(), &tokenBody); err != nil {
+		t.Fatalf("failed to decode token response: %v", err)
+	}
+	refreshToken, _ := tokenBody["refresh_token"].(string)
+	if refreshToken == "" {
+		t.Fatalf("expected refresh_token in token response: %#v", tokenBody)
+	}
+
+	refreshResp := performRequest(t, env.router, http.MethodPost, "/oauth2/token", url.Values{
+		"grant_type":    {"refresh_token"},
+		"client_id":     {"demo-spa"},
+		"refresh_token": {refreshToken},
+	}, nil)
+	if refreshResp.Code != http.StatusOK {
+		t.Fatalf("expected refresh status 200, got %d with body %s", refreshResp.Code, refreshResp.Body.String())
+	}
+	var refreshBody map[string]any
+	if err := json.Unmarshal(refreshResp.Body.Bytes(), &refreshBody); err != nil {
+		t.Fatalf("failed to decode refresh response: %v", err)
+	}
+	if _, ok := refreshBody["id_token"]; ok {
+		t.Fatalf("refresh response should not include id_token: %#v", refreshBody)
+	}
+	accessToken, _ := refreshBody["access_token"].(string)
+	nextRefreshToken, _ := refreshBody["refresh_token"].(string)
+	if accessToken == "" || nextRefreshToken == "" || nextRefreshToken == refreshToken {
+		t.Fatalf("unexpected refresh response: %#v", refreshBody)
+	}
+	claims, err := env.provider.ParseAccessToken(accessToken)
+	if err != nil {
+		t.Fatalf("failed to parse refreshed access token: %v", err)
+	}
+	if claims.Subject != user.UserID || claims.ClientID != "demo-spa" {
+		t.Fatalf("unexpected refreshed access token claims: %#v", claims)
+	}
+
+	reuseResp := performRequest(t, env.router, http.MethodPost, "/oauth2/token", url.Values{
+		"grant_type":    {"refresh_token"},
+		"client_id":     {"demo-spa"},
+		"refresh_token": {refreshToken},
+	}, nil)
+	if reuseResp.Code != http.StatusBadRequest {
+		t.Fatalf("expected reused refresh token status 400, got %d with body %s", reuseResp.Code, reuseResp.Body.String())
+	}
 }
 
 func TestClientCredentialsIssuesServiceAccountAccessToken(t *testing.T) {

@@ -32,9 +32,10 @@ import (
 )
 
 const (
-	defaultCodeTTL        = 5 * time.Minute
-	defaultAccessTokenTTL = 15 * time.Minute
-	defaultIDTokenTTL     = 15 * time.Minute
+	defaultCodeTTL         = 5 * time.Minute
+	defaultAccessTokenTTL  = 15 * time.Minute
+	defaultIDTokenTTL      = 15 * time.Minute
+	defaultRefreshTokenTTL = 30 * 24 * time.Hour
 )
 
 var defaultScopes = []string{"openid", "profile", "email"}
@@ -69,6 +70,16 @@ type authCode struct {
 	Scope               string    `json:"scope"`
 	UserID              string    `json:"user_id"`
 	CreatedAt           time.Time `json:"created_at"`
+}
+
+type refreshTokenRecord struct {
+	ClientID        string    `json:"client_id"`
+	OrganizationID  string    `json:"organization_id,omitempty"`
+	PlatformContext bool      `json:"platform_context,omitempty"`
+	Scope           string    `json:"scope"`
+	TokenVersion    int       `json:"token_version,omitempty"`
+	UserID          string    `json:"user_id"`
+	CreatedAt       time.Time `json:"created_at"`
 }
 
 type AccessTokenClaims struct {
@@ -182,7 +193,7 @@ func (p *Provider) discovery(c *gin.Context) {
 		"id_token_signing_alg_values_supported": []string{"RS256"},
 		"scopes_supported":                      defaultScopes,
 		"claims_supported":                      []string{"sub", "preferred_username", "name", "picture", "email", "email_verified", "org_id", "org_slug", "org_name", "org_roles", "org_groups"},
-		"grant_types_supported":                 []string{grantTypeAuthorizationCode, grantTypeClientCredentials},
+		"grant_types_supported":                 []string{grantTypeAuthorizationCode, grantTypeClientCredentials, grantTypeRefreshToken},
 		"token_endpoint_auth_methods_supported": []string{"client_secret_basic", "client_secret_post", "none"},
 		"introspection_endpoint_auth_methods_supported": []string{
 			"client_secret_basic",
@@ -302,6 +313,8 @@ func (p *Provider) token(c *gin.Context) {
 		p.tokenAuthorizationCode(c, client)
 	case grantTypeClientCredentials:
 		p.tokenClientCredentials(c, client)
+	case grantTypeRefreshToken:
+		p.tokenRefreshToken(c, client)
 	default:
 		c.JSON(http.StatusBadRequest, gin.H{"error": "unsupported_grant_type"})
 	}
@@ -364,15 +377,86 @@ func (p *Provider) tokenAuthorizationCode(c *gin.Context, client config.OIDCClie
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
 		return
 	}
+	var refreshToken string
+	if clientSupportsGrant(client, grantTypeRefreshToken) {
+		refreshToken, err = p.issueRefreshToken(user, client, stored.Scope, stored.OrganizationID, stored.PlatformContext)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+			return
+		}
+	}
 
 	c.Header("Cache-Control", "no-store")
 	c.Header("Pragma", "no-cache")
-	c.JSON(http.StatusOK, gin.H{
+	response := gin.H{
 		"access_token": accessToken,
 		"id_token":     idToken,
 		"token_type":   "Bearer",
 		"expires_in":   int(expiresIn.Seconds()),
 		"scope":        stored.Scope,
+	}
+	if refreshToken != "" {
+		response["refresh_token"] = refreshToken
+	}
+	c.JSON(http.StatusOK, response)
+}
+
+func (p *Provider) tokenRefreshToken(c *gin.Context, client config.OIDCClientConfig) {
+	if !clientSupportsGrant(client, grantTypeRefreshToken) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "unsupported_grant_type"})
+		return
+	}
+
+	token := strings.TrimSpace(c.PostForm("refresh_token"))
+	if token == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request", "error_description": "missing refresh_token"})
+		return
+	}
+
+	var stored refreshTokenRecord
+	if err := p.redis.Get(refreshTokenRedisKey(token), &stored); err != nil || stored.ClientID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_grant"})
+		return
+	}
+	if stored.ClientID != client.ClientID {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_grant"})
+		return
+	}
+
+	user, err := p.accountAuth.GetUserByID(stored.UserID)
+	if err != nil || auth.EnsureUserCanAuthenticate(user) != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_grant"})
+		return
+	}
+	if auth.NormalizeTokenVersion(stored.TokenVersion) != auth.EffectiveUserTokenVersion(user) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_grant"})
+		return
+	}
+
+	orgClaims := organizationClaims{}
+	if !stored.PlatformContext {
+		orgClaims = p.lookupOrganizationClaims(user.UserID, stored.OrganizationID)
+	}
+	accessToken, expiresIn, err := p.signAccessToken(c, user, client, stored.Scope, orgClaims)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+		return
+	}
+	newRefreshToken, err := p.issueRefreshToken(user, client, stored.Scope, stored.OrganizationID, stored.PlatformContext)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+		return
+	}
+	_ = p.redis.Delete(refreshTokenRedisKey(token))
+
+	c.Header("Cache-Control", "no-store")
+	c.Header("Pragma", "no-cache")
+	c.JSON(http.StatusOK, gin.H{
+		"access_token":  accessToken,
+		"refresh_token": newRefreshToken,
+		"token_type":    "Bearer",
+		"expires_in":    int(expiresIn.Seconds()),
+		"scope":         stored.Scope,
 	})
 }
 
@@ -561,7 +645,13 @@ func (p *Provider) revoke(c *gin.Context) {
 		writeRevocationOK(c)
 		return
 	}
-	if hint := strings.TrimSpace(c.PostForm("token_type_hint")); hint != "" && hint != "access_token" {
+	hint := strings.TrimSpace(c.PostForm("token_type_hint"))
+	if hint != "" && hint != "access_token" && hint != "refresh_token" {
+		writeRevocationOK(c)
+		return
+	}
+	if hint == "refresh_token" {
+		_ = p.redis.Delete(refreshTokenRedisKey(token))
 		writeRevocationOK(c)
 		return
 	}
@@ -569,6 +659,8 @@ func (p *Provider) revoke(c *gin.Context) {
 	claims, err := p.ParseAccessToken(token)
 	if err == nil && claims.TokenType == "access_token" && claims.Issuer == p.issuer(c) && tokenBelongsToClient(client, claims) {
 		_ = p.revokeAccessToken(claims)
+	} else if hint == "" {
+		_ = p.redis.Delete(refreshTokenRedisKey(token))
 	}
 	writeRevocationOK(c)
 }
@@ -711,6 +803,26 @@ func (p *Provider) signAccessToken(c *gin.Context, user *auth.User, client confi
 	protectAccessTokenClaims(claimMap, claims)
 	value, err := p.signer.sign(jwt.MapClaims(claimMap))
 	return value, ttl, err
+}
+
+func (p *Provider) issueRefreshToken(user *auth.User, client config.OIDCClientConfig, scope string, organizationID string, platformContext bool) (string, error) {
+	if p == nil || p.redis == nil || user == nil || !clientSupportsGrant(client, grantTypeRefreshToken) {
+		return "", nil
+	}
+	token := randomToken(48)
+	record := refreshTokenRecord{
+		ClientID:        client.ClientID,
+		OrganizationID:  strings.TrimSpace(organizationID),
+		PlatformContext: platformContext,
+		Scope:           strings.Join(strings.Fields(scope), " "),
+		TokenVersion:    auth.EffectiveUserTokenVersion(user),
+		UserID:          user.UserID,
+		CreatedAt:       time.Now(),
+	}
+	if err := p.redis.Set(refreshTokenRedisKey(token), record, p.refreshTokenTTL()); err != nil {
+		return "", err
+	}
+	return token, nil
 }
 
 func (p *Provider) signServiceAccountAccessToken(c *gin.Context, client config.OIDCClientConfig, scope string) (string, time.Duration, error) {
@@ -1445,6 +1557,13 @@ func (p *Provider) idTokenTTL() time.Duration {
 	return defaultIDTokenTTL
 }
 
+func (p *Provider) refreshTokenTTL() time.Duration {
+	if p.cfg.RefreshTokenTTLSeconds > 0 {
+		return time.Duration(p.cfg.RefreshTokenTTLSeconds) * time.Second
+	}
+	return defaultRefreshTokenTTL
+}
+
 func newTokenSigner(cfg config.OIDCConfig) (*tokenSigner, error) {
 	keyPEM := strings.TrimSpace(cfg.PrivateKeyPEM)
 	if keyPEM == "" && cfg.PrivateKeyFile != "" {
@@ -1526,6 +1645,11 @@ func bearerToken(header string) string {
 		return strings.TrimSpace(strings.TrimPrefix(header, "Bearer "))
 	}
 	return ""
+}
+
+func refreshTokenRedisKey(token string) string {
+	sum := sha256.Sum256([]byte(strings.TrimSpace(token)))
+	return common.RedisKeyOIDCRefreshToken + base64.RawURLEncoding.EncodeToString(sum[:])
 }
 
 func defaultString(value, fallback string) string {
