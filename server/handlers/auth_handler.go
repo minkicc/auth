@@ -122,9 +122,6 @@ func (h *AuthHandler) RegisterRoutes(authGroup *gin.RouterGroup, cfg *config.Con
 	authGroup.POST("/logout", h.AuthRequired(), h.RequireSameOriginForBrowserSession(), h.Logout)
 	authGroup.GET("/browser-session", h.GetBrowserSession)
 
-	trustedClient := middleware.TrustedClient(cfg)
-	authGroup.GET("/internal/organizations", trustedClient, h.GetTrustedOrganizations)
-
 	// Email login related routes
 	if h.emailAuth != nil {
 		authGroup.POST("/email/login", rejectCrossOriginSessionCreation, h.EmailLogin)
@@ -188,6 +185,8 @@ func (h *AuthHandler) RegisterRoutes(authGroup *gin.RouterGroup, cfg *config.Con
 		// Complete password reset
 		authGroup.POST("/phone/reset-password/complete", h.PhoneCompletePasswordReset)
 	}
+
+	trustedClient := middleware.TrustedClient(cfg)
 
 	// User information related routes
 	authGroup.GET("/user", h.AuthRequired(), h.GetUserInfo)

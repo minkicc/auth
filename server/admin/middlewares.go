@@ -7,6 +7,7 @@ package admin
 
 import (
 	"encoding/json"
+	"errors"
 	"net"
 	"net/http"
 	"strings"
@@ -14,6 +15,9 @@ import (
 
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
+
+	"example.com/auth/server/auth"
 )
 
 // Logger middleware
@@ -108,6 +112,11 @@ func (s *AdminServer) ipRestrictionMiddleware() gin.HandlerFunc {
 // Authentication middleware
 func (s *AdminServer) authMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if token := adminBearerToken(c.GetHeader("Authorization")); token != "" {
+			s.authenticateBearerAdmin(c, token)
+			return
+		}
+
 		session := sessions.Default(c)
 
 		userID := session.Get(sessionUserIDKey)
@@ -180,6 +189,81 @@ func (s *AdminServer) authMiddleware() gin.HandlerFunc {
 
 		c.Next()
 	}
+}
+
+func (s *AdminServer) authenticateBearerAdmin(c *gin.Context, token string) {
+	if s == nil || s.oidcProvider == nil || s.accessController == nil || s.db == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Admin bearer authentication is not initialized"})
+		c.Abort()
+		return
+	}
+
+	claims, err := s.oidcProvider.ValidateAccessToken(c, token)
+	if err != nil || claims == nil || claims.TokenType != "access_token" || claims.ServiceAccount || strings.EqualFold(claims.GrantType, "client_credentials") || strings.EqualFold(claims.SubjectType, "service_account") {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized access"})
+		c.Abort()
+		return
+	}
+
+	var user auth.User
+	if err := s.db.Where("user_id = ?", claims.Subject).First(&user).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized access"})
+			c.Abort()
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load current user"})
+		c.Abort()
+		return
+	}
+	if auth.EnsureUserCanAuthenticate(&user) != nil || auth.NormalizeTokenVersion(claims.TokenVersion) != auth.EffectiveUserTokenVersion(&user) {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized access"})
+		c.Abort()
+		return
+	}
+
+	isGlobalAdmin, sources, err := s.accessController.IsAdminUser(user.UserID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to evaluate admin access"})
+		c.Abort()
+		return
+	}
+	organizationAdminIDs, err := s.accessController.OrganizationAdminOrganizationIDs(user.UserID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to evaluate organization admin access"})
+		c.Abort()
+		return
+	}
+	if !isGlobalAdmin && len(organizationAdminIDs) == 0 {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Administrator access is required"})
+		c.Abort()
+		return
+	}
+
+	username, err := s.accessController.lookupUsername(user.UserID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to resolve current user username"})
+		c.Abort()
+		return
+	}
+	roles := adminSessionRoles(isGlobalAdmin, len(organizationAdminIDs) > 0)
+
+	c.Set("user_id", user.UserID)
+	c.Set("username", username)
+	c.Set("nickname", user.Nickname)
+	c.Set("admin_sources", sources)
+	c.Set("admin_access_checked", true)
+	c.Set("admin_is_global", isGlobalAdmin)
+	c.Set("organization_admin_ids", organizationAdminIDs)
+	c.Set("roles", roles)
+	c.Next()
+}
+
+func adminBearerToken(header string) string {
+	if !strings.HasPrefix(header, "Bearer ") {
+		return ""
+	}
+	return strings.TrimSpace(strings.TrimPrefix(header, "Bearer "))
 }
 
 func (s *AdminServer) globalAdminMiddleware() gin.HandlerFunc {
