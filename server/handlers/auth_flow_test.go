@@ -15,6 +15,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/go-redis/redis/v8"
+	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 
 	"example.com/auth/server/auth"
@@ -1019,6 +1020,83 @@ func TestCurrentUserOrganizationsEndpointReturnsMemberships(t *testing.T) {
 	groups, ok := response.Organizations[1]["groups"].([]any)
 	if !ok || len(groups) != 1 || groups[0] != "Beta Team" {
 		t.Fatalf("expected beta organization groups to include Beta Team, got %#v", response.Organizations[1]["groups"])
+	}
+}
+
+func TestTrustedOrganizationsEndpointListsAuthOrganizations(t *testing.T) {
+	env := newAuthTestEnv(t)
+	defer env.Close()
+
+	hash, err := bcrypt.GenerateFromPassword([]byte("secret"), bcrypt.MinCost)
+	if err != nil {
+		t.Fatalf("failed to hash trusted client secret: %v", err)
+	}
+	env.handler.config.TrustedClients = []config.TrustedClient{
+		{
+			ClientID:     "one-api",
+			ClientSecret: string(hash),
+			AllowedIPs:   []string{"203.0.113.10"},
+			Scopes:       []string{"read:organizations"},
+		},
+	}
+
+	now := time.Now()
+	if err := env.db.Create(&iam.Organization{
+		OrganizationID: "org_trusted_alpha",
+		Slug:           "trusted-alpha",
+		Name:           "Trusted Alpha",
+		DisplayName:    "Trusted Alpha",
+		Status:         iam.OrganizationStatusActive,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}).Error; err != nil {
+		t.Fatalf("failed to create organization: %v", err)
+	}
+	if err := env.db.Create(&iam.OrganizationMembership{
+		OrganizationID: "org_trusted_alpha",
+		UserID:         "usr_member",
+		Status:         iam.MembershipStatusActive,
+		RolesJSON:      `["member"]`,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}).Error; err != nil {
+		t.Fatalf("failed to create member membership: %v", err)
+	}
+	if err := env.db.Create(&iam.OrganizationMembership{
+		OrganizationID: "org_trusted_alpha",
+		UserID:         "usr_owner",
+		Status:         iam.MembershipStatusActive,
+		RolesJSON:      `["owner","admin"]`,
+		CreatedAt:      now.Add(time.Second),
+		UpdatedAt:      now.Add(time.Second),
+	}).Error; err != nil {
+		t.Fatalf("failed to create owner membership: %v", err)
+	}
+
+	resp := performJSONRequest(t, env.router, http.MethodGet, "/api/internal/organizations?status=active", nil, nil, map[string]string{
+		"X-Client-ID":     "one-api",
+		"X-Client-Secret": "secret",
+	})
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected trusted organizations status 200, got %d with body %s", resp.Code, resp.Body.String())
+	}
+
+	var body struct {
+		Organizations []map[string]any `json:"organizations"`
+		Total         int64            `json:"total"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("failed to decode trusted organizations response: %v", err)
+	}
+	if body.Total != 1 || len(body.Organizations) != 1 {
+		t.Fatalf("expected one organization, got %#v", body)
+	}
+	organization := body.Organizations[0]
+	if organization["organization_id"] != "org_trusted_alpha" || organization["owner_user_id"] != "usr_owner" {
+		t.Fatalf("unexpected organization owner payload: %#v", organization)
+	}
+	if organization["member_count"] != float64(2) {
+		t.Fatalf("expected member_count 2, got %#v", organization["member_count"])
 	}
 }
 

@@ -346,4 +346,5 @@ auth_trusted_clients:
     allowed_ips:
       - "*"
     scopes:
-      - "read:users" 
+      - "read:users"
+      - "read:organizations"

@@ -123,6 +123,7 @@ func (h *AuthHandler) RegisterRoutes(authGroup *gin.RouterGroup, cfg *config.Con
 	authGroup.GET("/browser-session", h.GetBrowserSession)
 
 	trustedClient := middleware.TrustedClient(cfg)
+	authGroup.GET("/internal/organizations", trustedClient, h.GetTrustedOrganizations)
 
 	// Email login related routes
 	if h.emailAuth != nil {
