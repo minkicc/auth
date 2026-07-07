@@ -347,4 +347,3 @@ auth_trusted_clients:
       - "*"
     scopes:
       - "read:users"
-      - "read:organizations"

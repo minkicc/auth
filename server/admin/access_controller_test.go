@@ -1,7 +1,11 @@
 package admin
 
 import (
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"io"
 	"log"
 	"net/http"
@@ -15,11 +19,13 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/go-redis/redis/v8"
+	"github.com/golang-jwt/jwt/v5"
 	"gorm.io/gorm"
 
 	"minki.cc/mkauth/server/auth"
 	"minki.cc/mkauth/server/config"
 	"minki.cc/mkauth/server/iam"
+	"minki.cc/mkauth/server/oidc"
 )
 
 func TestAccessControllerListsAndMutatesAdmins(t *testing.T) {
@@ -210,6 +216,171 @@ func TestAdminBootstrapUsesBrowserSessionAndAdminUserID(t *testing.T) {
 	if verifyBody.UserID != "usr_bootstrap_admin" || verifyBody.Username != "bootstrap-admin" || verifyBody.Nickname != "Bootstrap" {
 		t.Fatalf("unexpected verify body: %#v", verifyBody)
 	}
+}
+
+func TestAdminBearerTokenCanListOrganizations(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("failed to open sqlite: %v", err)
+	}
+	if err := db.AutoMigrate(&auth.User{}, &auth.AccountUser{}); err != nil {
+		t.Fatalf("failed to migrate auth tables: %v", err)
+	}
+	if err := iam.NewService(db).AutoMigrate(); err != nil {
+		t.Fatalf("failed to migrate iam tables: %v", err)
+	}
+	if err := db.Create(&auth.User{
+		UserID:       "usr_bearer_admin",
+		Password:     "hash",
+		TokenVersion: auth.DefaultTokenVersion,
+		Status:       auth.UserStatusActive,
+		Nickname:     "Bearer Admin",
+	}).Error; err != nil {
+		t.Fatalf("failed to create admin user: %v", err)
+	}
+	if err := db.Create(&auth.User{
+		UserID:       "usr_regular",
+		Password:     "hash",
+		TokenVersion: auth.DefaultTokenVersion,
+		Status:       auth.UserStatusActive,
+		Nickname:     "Regular",
+	}).Error; err != nil {
+		t.Fatalf("failed to create regular user: %v", err)
+	}
+	for _, accountUser := range []auth.AccountUser{
+		{Username: "bearer-admin", UserID: "usr_bearer_admin"},
+		{Username: "regular", UserID: "usr_regular"},
+	} {
+		if err := db.Create(&accountUser).Error; err != nil {
+			t.Fatalf("failed to create account user: %v", err)
+		}
+	}
+	if err := db.Create(&iam.Organization{
+		OrganizationID: "org_bearer_alpha",
+		Slug:           "bearer-alpha",
+		Name:           "Bearer Alpha",
+		DisplayName:    "Bearer Alpha",
+		Status:         iam.OrganizationStatusActive,
+		CreatedAt:      time.Now(),
+		UpdatedAt:      time.Now(),
+	}).Error; err != nil {
+		t.Fatalf("failed to create organization: %v", err)
+	}
+
+	redisServer, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("failed to start miniredis: %v", err)
+	}
+	defer redisServer.Close()
+	redisClient := redis.NewClient(&redis.Options{Addr: redisServer.Addr()})
+	redisStore := auth.NewRedisStoreFromClient(redisClient)
+	accountAuth := auth.NewAccountAuth(db, auth.AccountAuthConfig{Redis: auth.NewAccountRedisStore(redisClient)})
+
+	privateKey, privateKeyPEM := testOIDCPrivateKey(t)
+	provider, err := oidc.NewProvider(config.OIDCConfig{
+		Enabled:       true,
+		Issuer:        "https://auth.example.test",
+		KeyID:         "test-key",
+		PrivateKeyPEM: privateKeyPEM,
+		Clients: []config.OIDCClientConfig{
+			{
+				ClientID:    "chnnl_api",
+				Public:      true,
+				RequirePKCE: true,
+				GrantTypes:  []string{"authorization_code"},
+				RedirectURIs: []string{
+					"https://chnnl.example.test/oauth/oidc",
+				},
+				Scopes: []string{"openid", "profile", "email"},
+			},
+		},
+	}, db, redisStore, accountAuth)
+	if err != nil {
+		t.Fatalf("failed to create oidc provider: %v", err)
+	}
+
+	controller := NewAccessController(&config.AdminConfig{
+		UserIDs: []string{"usr_bearer_admin"},
+	}, db)
+	server := &AdminServer{
+		db:               db,
+		config:           &config.AdminConfig{SecretKey: "test-secret", SessionTTL: 30},
+		logger:           log.New(io.Discard, "", 0),
+		accessController: controller,
+		oidcProvider:     provider,
+	}
+
+	router := gin.New()
+	router.GET("/admin-api/organizations", server.authMiddleware(), server.handleListOrganizations)
+
+	adminToken := signAdminTestAccessToken(t, privateKey, "usr_bearer_admin")
+	req := httptest.NewRequest(http.MethodGet, "/admin-api/organizations", nil)
+	req.Header.Set("Authorization", "Bearer "+adminToken)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected admin bearer status 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	var body struct {
+		Organizations []map[string]any `json:"organizations"`
+		Total         int64            `json:"total"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("failed to decode organizations response: %v", err)
+	}
+	if body.Total != 1 || len(body.Organizations) != 1 || body.Organizations[0]["organization_id"] != "org_bearer_alpha" {
+		t.Fatalf("unexpected organizations response: %#v", body)
+	}
+
+	regularToken := signAdminTestAccessToken(t, privateKey, "usr_regular")
+	req = httptest.NewRequest(http.MethodGet, "/admin-api/organizations", nil)
+	req.Header.Set("Authorization", "Bearer "+regularToken)
+	resp = httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	if resp.Code != http.StatusForbidden {
+		t.Fatalf("expected regular bearer status 403, got %d: %s", resp.Code, resp.Body.String())
+	}
+}
+
+func testOIDCPrivateKey(t *testing.T) (*rsa.PrivateKey, string) {
+	t.Helper()
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("failed to generate private key: %v", err)
+	}
+	pemBytes := pem.EncodeToMemory(&pem.Block{
+		Type:  "RSA PRIVATE KEY",
+		Bytes: x509.MarshalPKCS1PrivateKey(privateKey),
+	})
+	return privateKey, string(pemBytes)
+}
+
+func signAdminTestAccessToken(t *testing.T, privateKey *rsa.PrivateKey, subject string) string {
+	t.Helper()
+	now := time.Now()
+	claims := oidc.AccessTokenClaims{
+		Scope:        "openid profile email",
+		ClientID:     "chnnl_api",
+		TokenType:    "access_token",
+		TokenVersion: auth.DefaultTokenVersion,
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    "https://auth.example.test",
+			Subject:   subject,
+			Audience:  jwt.ClaimStrings{"chnnl_api"},
+			IssuedAt:  jwt.NewNumericDate(now),
+			ExpiresAt: jwt.NewNumericDate(now.Add(time.Hour)),
+			ID:        subject + "-token",
+		},
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
+	token.Header["kid"] = "test-key"
+	signed, err := token.SignedString(privateKey)
+	if err != nil {
+		t.Fatalf("failed to sign access token: %v", err)
+	}
+	return signed
 }
 
 func TestAdminSessionIsRejectedAfterAdminAccessRevoked(t *testing.T) {
