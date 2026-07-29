@@ -90,6 +90,7 @@ func (a *AccountAuth) AutoMigrate() error {
 	if err := a.db.AutoMigrate(
 		&User{},
 		&AccountUser{},
+		&UserActiveScope{},
 	); err != nil {
 		return err
 	}

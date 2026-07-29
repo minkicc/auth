@@ -191,6 +191,8 @@ func (h *AuthHandler) RegisterRoutes(authGroup *gin.RouterGroup, cfg *config.Con
 	// User information related routes
 	authGroup.GET("/user", h.AuthRequired(), h.GetUserInfo)
 	authGroup.GET("/user/admin-access", h.AuthRequired(), h.GetCurrentUserAdminAccess)
+	authGroup.GET("/user/active-scope", h.AuthRequired(), h.GetCurrentUserActiveScope)
+	authGroup.PUT("/user/active-scope", h.AuthRequired(), h.RequireSameOriginForBrowserSession(), h.SetCurrentUserActiveScope)
 	authGroup.GET("/user/organizations", h.AuthRequired(), h.GetCurrentUserOrganizations)
 	authGroup.POST("/user/organizations", h.AuthRequired(), h.RequireSameOriginForBrowserSession(), h.CreateCurrentUserOrganization)
 	authGroup.GET("/user/organization/authorization", h.AuthRequired(), h.GetCurrentOrganizationAuthorization)

@@ -164,6 +164,15 @@ func (h *AuthHandler) resolveCurrentOrganizationContext(c *gin.Context, userID s
 		return organizationID, organizationSlug, nil
 	}
 
+	if activeScope, ok, err := h.loadUserActiveScope(db, userID); err != nil {
+		return "", "", err
+	} else if ok {
+		if activeScope.ScopeType == auth.UserActiveScopeTypePlatform {
+			return "", "", errOrganizationSelectionRequired
+		}
+		return h.lookupAuthorizedOrganizationCandidate(db, userID, firstNonEmpty(activeScope.OrganizationID, activeScope.OrganizationSlug))
+	}
+
 	var memberships []iam.OrganizationMembership
 	if err := db.Where("user_id = ? AND status = ?", userID, iam.MembershipStatusActive).
 		Order("created_at ASC").
