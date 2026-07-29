@@ -1022,6 +1022,92 @@ func TestCurrentUserOrganizationsEndpointReturnsMemberships(t *testing.T) {
 	}
 }
 
+func TestCurrentUserActiveScopeEndpointPersistsSelection(t *testing.T) {
+	env := newAuthTestEnv(t)
+	defer env.Close()
+
+	registerResp := performJSONRequest(t, env.router, http.MethodPost, "/api/account/register", map[string]string{
+		"username": "active_scope_user",
+		"password": "demo12345",
+	}, nil, nil)
+	if registerResp.Code != http.StatusOK {
+		t.Fatalf("expected register status 200, got %d with body %s", registerResp.Code, registerResp.Body.String())
+	}
+
+	sessionCookie := requireCookie(t, registerResp, auth.OIDCSessionCookieName)
+	body := decodeBodyMap(t, registerResp)
+	userID, ok := body["user_id"].(string)
+	if !ok || userID == "" {
+		t.Fatalf("expected user_id in register response, got %#v", body["user_id"])
+	}
+
+	now := time.Now()
+	if err := env.db.Create(&iam.Organization{
+		OrganizationID: "org_beta00000000000",
+		Slug:           "beta",
+		Name:           "Beta LLC",
+		DisplayName:    "Beta",
+		Status:         iam.OrganizationStatusActive,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}).Error; err != nil {
+		t.Fatalf("failed to create organization: %v", err)
+	}
+	if err := env.db.Create(&iam.OrganizationMembership{
+		OrganizationID: "org_beta00000000000",
+		UserID:         userID,
+		Status:         iam.MembershipStatusActive,
+		RolesJSON:      `["admin"]`,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}).Error; err != nil {
+		t.Fatalf("failed to create membership: %v", err)
+	}
+
+	sameOriginHeaders := map[string]string{"Origin": "http://127.0.0.1:8080"}
+	setEnterpriseResp := performJSONRequest(t, env.router, http.MethodPut, "/api/user/active-scope", map[string]string{
+		"scope_type":      "enterprise",
+		"organization_id": "org_beta00000000000",
+	}, sessionCookie, sameOriginHeaders)
+	if setEnterpriseResp.Code != http.StatusOK {
+		t.Fatalf("expected set enterprise status 200, got %d with body %s", setEnterpriseResp.Code, setEnterpriseResp.Body.String())
+	}
+
+	getResp := performJSONRequest(t, env.router, http.MethodGet, "/api/user/active-scope", nil, sessionCookie, nil)
+	if getResp.Code != http.StatusOK {
+		t.Fatalf("expected get active scope status 200, got %d with body %s", getResp.Code, getResp.Body.String())
+	}
+	getBody := decodeBodyMap(t, getResp)
+	if getBody["scope_type"] != "enterprise" || getBody["organization_id"] != "org_beta00000000000" || getBody["organization_name"] != "Beta" {
+		t.Fatalf("expected enterprise active scope, got %#v", getBody)
+	}
+
+	listResp := performJSONRequest(t, env.router, http.MethodGet, "/api/user/organizations", nil, sessionCookie, nil)
+	var listBody struct {
+		Organizations []map[string]any `json:"organizations"`
+	}
+	if err := json.Unmarshal(listResp.Body.Bytes(), &listBody); err != nil {
+		t.Fatalf("failed to decode organizations response: %v", err)
+	}
+	if len(listBody.Organizations) != 1 || listBody.Organizations[0]["current"] != true {
+		t.Fatalf("expected active organization to be current, got %#v", listBody.Organizations)
+	}
+
+	setPlatformResp := performJSONRequest(t, env.router, http.MethodPut, "/api/user/active-scope", map[string]string{
+		"scope_type": "platform",
+	}, sessionCookie, sameOriginHeaders)
+	if setPlatformResp.Code != http.StatusOK {
+		t.Fatalf("expected set platform status 200, got %d with body %s", setPlatformResp.Code, setPlatformResp.Body.String())
+	}
+	listResp = performJSONRequest(t, env.router, http.MethodGet, "/api/user/organizations", nil, sessionCookie, nil)
+	if err := json.Unmarshal(listResp.Body.Bytes(), &listBody); err != nil {
+		t.Fatalf("failed to decode organizations response: %v", err)
+	}
+	if len(listBody.Organizations) != 1 || listBody.Organizations[0]["current"] != false {
+		t.Fatalf("expected platform active scope to clear current organization, got %#v", listBody.Organizations)
+	}
+}
+
 func TestCreateCurrentUserOrganizationEndpoint(t *testing.T) {
 	env := newAuthTestEnv(t)
 	defer env.Close()

@@ -69,6 +69,22 @@ type AccountUser struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+const (
+	UserActiveScopeTypePlatform   = "platform"
+	UserActiveScopeTypeEnterprise = "enterprise"
+)
+
+// UserActiveScope stores the user's current platform/organization context.
+type UserActiveScope struct {
+	UserID           string    `json:"user_id" gorm:"primarykey;size:32"`
+	ScopeType        string    `json:"scope_type" gorm:"size:20;not null;default:'platform'"`
+	OrganizationID   string    `json:"organization_id,omitempty" gorm:"index;size:32"`
+	OrganizationSlug string    `json:"organization_slug,omitempty" gorm:"size:80"`
+	OrganizationName string    `json:"organization_name,omitempty" gorm:"size:120"`
+	CreatedAt        time.Time `json:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
+}
+
 // Email User Model
 type EmailUser struct {
 	UserID string `json:"user_id" gorm:"primarykey"` // User ID associated with the User table

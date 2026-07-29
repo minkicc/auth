@@ -231,10 +231,20 @@ func (h *AuthHandler) GetCurrentUserOrganizations(c *gin.Context) {
 		}
 	}
 
-	currentOrgID, _ := c.Get("org_id")
-	currentOrgIDStr, _ := currentOrgID.(string)
-	currentOrgSlug, _ := c.Get("org_slug")
-	currentOrgSlugStr, _ := currentOrgSlug.(string)
+	currentOrgIDStr := ""
+	currentOrgSlugStr := ""
+	if activeScope, ok, err := h.loadUserActiveScope(db, userIDStr); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	} else if ok && activeScope.ScopeType == auth.UserActiveScopeTypeEnterprise {
+		currentOrgIDStr = activeScope.OrganizationID
+		currentOrgSlugStr = activeScope.OrganizationSlug
+	} else if !ok {
+		currentOrgID, _ := c.Get("org_id")
+		currentOrgIDStr, _ = currentOrgID.(string)
+		currentOrgSlug, _ := c.Get("org_slug")
+		currentOrgSlugStr, _ = currentOrgSlug.(string)
+	}
 	iamService := iam.NewService(db)
 
 	views := make([]currentUserOrganizationView, 0, len(memberships))
