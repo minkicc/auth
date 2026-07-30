@@ -1127,6 +1127,117 @@ func TestAuthorizeSelectsOrganizationFromOrgHint(t *testing.T) {
 	}
 }
 
+func TestAuthorizeUsesCurrentEnterpriseActiveScope(t *testing.T) {
+	env := newIntegrationEnv(t)
+	defer env.Close()
+
+	user := env.createAccountUser(t, "demo")
+	env.createOrganizationMembershipRecord(t, user.UserID, "org_alpha0000000000", "alpha", []string{"viewer"})
+	env.createOrganizationMembershipRecord(t, user.UserID, "org_beta00000000000", "beta", []string{"admin"})
+	if err := env.db.Create(&auth.UserActiveScope{
+		UserID:           user.UserID,
+		ScopeType:        auth.UserActiveScopeTypeEnterprise,
+		OrganizationID:   "org_beta00000000000",
+		OrganizationSlug: "beta",
+		OrganizationName: "Beta",
+		CreatedAt:        time.Now(),
+		UpdatedAt:        time.Now(),
+	}).Error; err != nil {
+		t.Fatalf("failed to create active scope: %v", err)
+	}
+	sessionCookie := env.createBrowserSessionCookie(t, user.UserID)
+
+	authorizeURL := "/oauth2/authorize?client_id=demo-spa" +
+		"&redirect_uri=" + url.QueryEscape(testRedirectURI) +
+		"&response_type=code" +
+		"&scope=" + url.QueryEscape("openid profile") +
+		"&code_challenge=" + testCodeChallenge +
+		"&code_challenge_method=S256" +
+		"&state=active-enterprise" +
+		"&prompt=none"
+
+	authorizeResp := performRequest(t, env.router, http.MethodGet, authorizeURL, nil, sessionCookie)
+	if authorizeResp.Code != http.StatusFound {
+		t.Fatalf("expected authorize status 302, got %d with body %s", authorizeResp.Code, authorizeResp.Body.String())
+	}
+	redirectLocation, err := url.Parse(authorizeResp.Header().Get("Location"))
+	if err != nil {
+		t.Fatalf("failed to parse authorize redirect: %v", err)
+	}
+	code := redirectLocation.Query().Get("code")
+	if code == "" {
+		t.Fatalf("expected authorization code in redirect location %s", redirectLocation.String())
+	}
+
+	accessToken, idToken := exchangeAuthorizationCode(t, env, code)
+	accessClaims, err := env.provider.ParseAccessToken(accessToken)
+	if err != nil {
+		t.Fatalf("failed to parse access token: %v", err)
+	}
+	if accessClaims.OrgID != "org_beta00000000000" || accessClaims.OrgSlug != "beta" {
+		t.Fatalf("expected active beta organization in access token, got %#v", accessClaims)
+	}
+
+	idTokenClaims := env.parseIDToken(t, idToken)
+	if idTokenClaims.OrgID != "org_beta00000000000" || idTokenClaims.OrgSlug != "beta" {
+		t.Fatalf("expected active beta organization in id token, got %#v", idTokenClaims)
+	}
+}
+
+func TestAuthorizeUsesCurrentPlatformActiveScope(t *testing.T) {
+	env := newIntegrationEnv(t)
+	defer env.Close()
+
+	user := env.createAccountUser(t, "demo")
+	env.createOrganizationMembershipRecord(t, user.UserID, "org_alpha0000000000", "alpha", []string{"viewer"})
+	env.createOrganizationMembershipRecord(t, user.UserID, "org_beta00000000000", "beta", []string{"admin"})
+	if err := env.db.Create(&auth.UserActiveScope{
+		UserID:    user.UserID,
+		ScopeType: auth.UserActiveScopeTypePlatform,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}).Error; err != nil {
+		t.Fatalf("failed to create active scope: %v", err)
+	}
+	sessionCookie := env.createBrowserSessionCookie(t, user.UserID)
+
+	authorizeURL := "/oauth2/authorize?client_id=demo-spa" +
+		"&redirect_uri=" + url.QueryEscape(testRedirectURI) +
+		"&response_type=code" +
+		"&scope=" + url.QueryEscape("openid profile") +
+		"&code_challenge=" + testCodeChallenge +
+		"&code_challenge_method=S256" +
+		"&state=active-platform" +
+		"&prompt=none"
+
+	authorizeResp := performRequest(t, env.router, http.MethodGet, authorizeURL, nil, sessionCookie)
+	if authorizeResp.Code != http.StatusFound {
+		t.Fatalf("expected authorize status 302, got %d with body %s", authorizeResp.Code, authorizeResp.Body.String())
+	}
+	redirectLocation, err := url.Parse(authorizeResp.Header().Get("Location"))
+	if err != nil {
+		t.Fatalf("failed to parse authorize redirect: %v", err)
+	}
+	code := redirectLocation.Query().Get("code")
+	if code == "" {
+		t.Fatalf("expected authorization code in redirect location %s", redirectLocation.String())
+	}
+
+	accessToken, idToken := exchangeAuthorizationCode(t, env, code)
+	accessClaims, err := env.provider.ParseAccessToken(accessToken)
+	if err != nil {
+		t.Fatalf("failed to parse access token: %v", err)
+	}
+	if accessClaims.OrgID != "" || accessClaims.OrgSlug != "" {
+		t.Fatalf("expected platform access token without organization, got %#v", accessClaims)
+	}
+
+	idTokenClaims := env.parseIDToken(t, idToken)
+	if idTokenClaims.OrgID != "" || idTokenClaims.OrgSlug != "" {
+		t.Fatalf("expected platform id token without organization, got %#v", idTokenClaims)
+	}
+}
+
 func TestAuthorizeRejectsOrgHintWithoutMembership(t *testing.T) {
 	env := newIntegrationEnv(t)
 	defer env.Close()
