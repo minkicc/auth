@@ -122,7 +122,7 @@ func (h *AuthHandler) authenticateBrowserSession(c *gin.Context) bool {
 		return false
 	}
 
-	_, session, err := auth.ResolveBrowserSession(h.redisStore, h.sessionMgr, browserSessionID)
+	_, session, err := auth.RefreshBrowserSession(h.redisStore, h.sessionMgr, browserSessionID, auth.SessionExpiration)
 	if err != nil || session == nil {
 		h.clearBrowserSession(c)
 		return false

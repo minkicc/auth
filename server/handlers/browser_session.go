@@ -54,7 +54,7 @@ func (h *AuthHandler) GetBrowserSession(c *gin.Context) {
 		return
 	}
 
-	_, session, err := auth.ResolveBrowserSession(h.redisStore, h.sessionMgr, browserSessionID)
+	_, session, err := auth.RefreshBrowserSession(h.redisStore, h.sessionMgr, browserSessionID, auth.SessionExpiration)
 	if err != nil || session == nil {
 		h.clearBrowserSession(c)
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "browser session not found"})

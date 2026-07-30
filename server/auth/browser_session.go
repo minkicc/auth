@@ -41,6 +41,14 @@ func CreateBrowserSession(redis *RedisStore, session *Session) (string, error) {
 }
 
 func ResolveBrowserSession(redis *RedisStore, sessionMgr *SessionManager, browserSessionID string) (*BrowserSession, *Session, error) {
+	return resolveBrowserSession(redis, sessionMgr, browserSessionID, 0)
+}
+
+func RefreshBrowserSession(redis *RedisStore, sessionMgr *SessionManager, browserSessionID string, duration time.Duration) (*BrowserSession, *Session, error) {
+	return resolveBrowserSession(redis, sessionMgr, browserSessionID, duration)
+}
+
+func resolveBrowserSession(redis *RedisStore, sessionMgr *SessionManager, browserSessionID string, refreshDuration time.Duration) (*BrowserSession, *Session, error) {
 	if redis == nil || sessionMgr == nil || browserSessionID == "" {
 		return nil, nil, ErrBrowserSessionNotFound
 	}
@@ -56,6 +64,16 @@ func ResolveBrowserSession(redis *RedisStore, sessionMgr *SessionManager, browse
 	session, err := sessionMgr.GetSession(data.UserID, data.SessionID)
 	if err != nil || session == nil {
 		return nil, nil, ErrBrowserSessionNotFound
+	}
+
+	if refreshDuration > 0 {
+		if err := sessionMgr.RefreshSession(data.UserID, data.SessionID, refreshDuration); err != nil {
+			return nil, nil, err
+		}
+		session, err = sessionMgr.GetSession(data.UserID, data.SessionID)
+		if err != nil || session == nil {
+			return nil, nil, ErrBrowserSessionNotFound
+		}
 	}
 
 	if err := persistBrowserSession(redis, browserSessionID, data, time.Until(session.ExpiresAt)); err != nil {
