@@ -77,6 +77,21 @@ export interface CurrentUserOrganizationsResponse {
     platform_available: boolean
 }
 
+export interface CurrentUserActiveScope {
+    scope_type: 'platform' | 'enterprise' | string
+    scope_id?: string
+    scope_name?: string
+    organization_id?: string
+    organization_slug?: string
+    organization_name?: string
+    active_scope?: {
+        scope_type?: string
+        organization_id?: string
+        organization_slug?: string
+        organization_name?: string
+    }
+}
+
 export interface CurrentOrganizationAuthorization {
     organization_id: string
     organization_slug?: string
@@ -525,6 +540,16 @@ class ServerApi {
             organizations: response.data?.organizations || [],
             platform_available: !!response.data?.platform_available
         }
+    }
+
+    async fetchCurrentUserActiveScope(): Promise<CurrentUserActiveScope> {
+        const response = await axios.get('/user/active-scope')
+        return response.data || { scope_type: 'platform' }
+    }
+
+    async setCurrentUserActiveScope(payload: { scope_type: 'platform' | 'enterprise'; organization_id?: string }) {
+        const response = await axios.put('/user/active-scope', payload)
+        return response.data
     }
 
     async fetchCurrentOrganizationAuthorization(orgHint?: string): Promise<{ authorization: CurrentOrganizationAuthorization | null }> {

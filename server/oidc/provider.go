@@ -255,7 +255,8 @@ func (p *Provider) authorize(c *gin.Context) {
 		return
 	}
 
-	if !p.platformContextRequested(c) && p.requiresOrganizationSelection(client, user.UserID, c.Query("org_hint"), requestedScopes) {
+	orgHint, platformContextRequested := p.authorizeOrganizationContext(c, user.UserID)
+	if !platformContextRequested && p.requiresOrganizationSelection(client, user.UserID, orgHint, requestedScopes) {
 		if c.Query("prompt") == "none" {
 			p.redirectAuthorizeError(c, redirectURI, "interaction_required", c.Query("state"))
 			return
@@ -265,7 +266,7 @@ func (p *Provider) authorize(c *gin.Context) {
 		return
 	}
 
-	selectedOrgID, platformContext, ok := p.resolveAuthorizeOrganization(c, user.UserID, client, redirectURI, requestedScopes)
+	selectedOrgID, platformContext, ok := p.resolveAuthorizeOrganization(c, user.UserID, client, redirectURI, requestedScopes, orgHint, platformContextRequested)
 	if !ok {
 		return
 	}
@@ -1218,8 +1219,8 @@ func (p *Provider) validAuthorizeRequest(c *gin.Context) (config.OIDCClientConfi
 	return client, redirectURI, true
 }
 
-func (p *Provider) resolveAuthorizeOrganization(c *gin.Context, userID string, client config.OIDCClientConfig, redirectURI string, requestedScopes []string) (string, bool, bool) {
-	if p.platformContextRequested(c) {
+func (p *Provider) resolveAuthorizeOrganization(c *gin.Context, userID string, client config.OIDCClientConfig, redirectURI string, requestedScopes []string, orgHint string, platformContextRequested bool) (string, bool, bool) {
+	if platformContextRequested {
 		if p.clientUsesOrganizationPolicy(client, requestedScopes) {
 			p.redirectAuthorizeError(c, redirectURI, "access_denied", c.Query("state"))
 			return "", false, false
@@ -1227,7 +1228,7 @@ func (p *Provider) resolveAuthorizeOrganization(c *gin.Context, userID string, c
 		return "", true, true
 	}
 
-	orgHint := strings.TrimSpace(c.Query("org_hint"))
+	orgHint = strings.TrimSpace(orgHint)
 	if p.clientUsesOrganizationPolicy(client, requestedScopes) {
 		organizations, err := p.listAuthorizedOrganizations(userID, client, requestedScopes)
 		if err != nil {
@@ -1266,6 +1267,49 @@ func (p *Provider) resolveAuthorizeOrganization(c *gin.Context, userID string, c
 
 func (p *Provider) platformContextRequested(c *gin.Context) bool {
 	return strings.EqualFold(strings.TrimSpace(c.Query("organization_context")), platformOrganizationContext)
+}
+
+func (p *Provider) authorizeOrganizationContext(c *gin.Context, userID string) (string, bool) {
+	if p.platformContextRequested(c) {
+		return "", true
+	}
+	if orgHint := strings.TrimSpace(c.Query("org_hint")); orgHint != "" {
+		return orgHint, false
+	}
+	activeScope, ok := p.currentUserActiveScope(userID)
+	if !ok {
+		return "", false
+	}
+	switch activeScope.ScopeType {
+	case auth.UserActiveScopeTypePlatform:
+		return "", true
+	case auth.UserActiveScopeTypeEnterprise:
+		if activeScope.OrganizationID != "" {
+			return activeScope.OrganizationID, false
+		}
+		if activeScope.OrganizationSlug != "" {
+			return activeScope.OrganizationSlug, false
+		}
+	}
+	return "", false
+}
+
+func (p *Provider) currentUserActiveScope(userID string) (auth.UserActiveScope, bool) {
+	userID = strings.TrimSpace(userID)
+	if p.db == nil || userID == "" || !p.db.Migrator().HasTable(&auth.UserActiveScope{}) {
+		return auth.UserActiveScope{}, false
+	}
+	var activeScope auth.UserActiveScope
+	if err := p.db.Where("user_id = ?", userID).First(&activeScope).Error; err != nil {
+		return auth.UserActiveScope{}, false
+	}
+	activeScope.ScopeType = strings.ToLower(strings.TrimSpace(activeScope.ScopeType))
+	if activeScope.ScopeType == "" {
+		activeScope.ScopeType = auth.UserActiveScopeTypePlatform
+	}
+	activeScope.OrganizationID = strings.TrimSpace(activeScope.OrganizationID)
+	activeScope.OrganizationSlug = strings.TrimSpace(activeScope.OrganizationSlug)
+	return activeScope, true
 }
 
 func (p *Provider) requiresOrganizationSelection(client config.OIDCClientConfig, userID, orgHint string, requestedScopes []string) bool {

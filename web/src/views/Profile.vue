@@ -59,32 +59,36 @@
         </div>
       </div>
 
-      <div v-if="organizationAuthorization || organizationSelectionOptions.length > 0 || organizationAuthorizationError" class="profile-section">
+      <div v-if="identitySelectionOptions.length > 0 || organizationAuthorization || organizationAuthorizationError" class="profile-section">
         <div class="section-header">
           <h2>{{ $t('profile.organizationAuthorization') }}</h2>
-          <button v-if="organizationSelectionOptions.length > 1" class="secondary-btn compact-btn" @click="loadOrganizationAuthorization(selectedOrganizationHint)">
+          <button v-if="identitySelectionOptions.length > 1" class="secondary-btn compact-btn" @click="refreshIdentityContext">
             {{ $t('common.refresh') }}
           </button>
         </div>
 
-        <p v-if="organizationSelectionOptions.length > 1" class="section-copy">
+        <p v-if="identitySelectionOptions.length > 1" class="section-copy">
           {{ $t('profile.organizationAuthorizationHint') }}
         </p>
 
-        <div v-if="organizationSelectionOptions.length > 1" class="selection-chips">
+        <div v-if="identitySelectionOptions.length > 0" class="selection-chips">
           <button
-            v-for="organization in organizationSelectionOptions"
-            :key="organization.organization_id"
+            v-for="option in identitySelectionOptions"
+            :key="option.key"
             type="button"
             class="selection-chip"
-            :class="{ active: selectedOrganizationHint === (organization.slug || organization.organization_id) }"
-            @click="selectOrganizationAuthorization(organization.slug || organization.organization_id)"
+            :class="{ active: option.current }"
+            :disabled="!!switchingScopeKey"
+            @click="selectActiveScope(option)"
           >
-            {{ organization.display_name || organization.name || organization.slug || organization.organization_id }}
+            {{ option.label }}
           </button>
         </div>
 
         <p v-if="organizationAuthorizationError" class="section-error">{{ organizationAuthorizationError }}</p>
+        <p v-if="activePlatformSelected && !organizationAuthorizationError" class="section-copy">
+          {{ $t('profile.platformAuthorizationHint') }}
+        </p>
 
         <div v-if="organizationAuthorization" class="authorization-grid">
           <div class="profile-field">
@@ -129,8 +133,9 @@
 
 <script lang="ts" setup>
 import { computed, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
-import { getApiErrorMessage, serverApi } from '@/api/serverApi'
+import { getApiErrorMessage, serverApi, type CurrentUserActiveScope, type CurrentUserOrganization, type CurrentUserOrganizationsResponse } from '@/api/serverApi'
 import { context } from '@/context'
 
 interface ProfileUser {
@@ -155,22 +160,126 @@ interface ProfileAdminAccess {
   sources?: string[]
 }
 
+interface ProfileIdentityOption {
+  key: string
+  type: 'platform' | 'organization'
+  label: string
+  current: boolean
+  organization?: CurrentUserOrganization
+}
+
 const router = useRouter()
+const { t } = useI18n()
 const loading = ref(true)
 const error = ref('')
 const user = ref<ProfileUser | null>(null)
 const sessionExpiresAt = ref('-')
 const organizationAuthorization = ref<ProfileOrganizationAuthorization | null>(null)
 const organizationAuthorizationError = ref('')
-const organizationSelectionOptions = ref<Array<{ organization_id: string; slug?: string; name?: string; display_name?: string }>>([])
+const organizationSelectionOptions = ref<CurrentUserOrganization[]>([])
+const platformAvailable = ref(false)
 const selectedOrganizationHint = ref('')
+const activeScopeKey = ref('')
+const switchingScopeKey = ref('')
 const adminAccess = ref<ProfileAdminAccess | null>(null)
 const canOpenAdmin = computed(() => Boolean(adminAccess.value?.enabled && adminAccess.value?.is_admin && adminAccess.value?.entry_url))
+const platformSelectionKey = '__platform__'
+
+const identitySelectionOptions = computed<ProfileIdentityOption[]>(() => {
+  const options: ProfileIdentityOption[] = []
+  if (platformAvailable.value) {
+    options.push({
+      key: platformSelectionKey,
+      type: 'platform',
+      label: t('profile.platformIdentity'),
+      current: activeScopeKey.value === platformSelectionKey
+    })
+  }
+  for (const organization of organizationSelectionOptions.value) {
+    const key = organizationScopeKey(organization)
+    options.push({
+      key,
+      type: 'organization',
+      label: organizationLabel(organization),
+      current: activeScopeKey.value === key,
+      organization
+    })
+  }
+  return options
+})
+const activePlatformSelected = computed(() => activeScopeKey.value === platformSelectionKey)
 
 const initials = computed(() => {
   const base = user.value?.nickname || user.value?.user_id || 'U'
   return base.slice(0, 1).toUpperCase()
 })
+
+const organizationLabel = (organization: CurrentUserOrganization) => {
+  return organization.display_name || organization.name || organization.slug || organization.organization_id
+}
+
+const organizationHint = (organization: CurrentUserOrganization) => {
+  return organization.slug || organization.organization_id || ''
+}
+
+const organizationScopeKey = (organization: CurrentUserOrganization) => {
+  return `org:${organization.organization_id}`
+}
+
+const activeScopeOrganizationID = (scope: CurrentUserActiveScope | null) => {
+  return scope?.organization_id || scope?.scope_id || scope?.active_scope?.organization_id || ''
+}
+
+const activeScopeOrganizationSlug = (scope: CurrentUserActiveScope | null) => {
+  return scope?.organization_slug || scope?.active_scope?.organization_slug || ''
+}
+
+const applyIdentityContext = (organizationsResponse: CurrentUserOrganizationsResponse, activeScope: CurrentUserActiveScope | null) => {
+  organizationSelectionOptions.value = organizationsResponse.organizations || []
+  platformAvailable.value = !!organizationsResponse.platform_available
+
+  const scopeType = (activeScope?.scope_type || activeScope?.active_scope?.scope_type || '').trim().toLowerCase()
+  const activeOrgID = activeScopeOrganizationID(activeScope)
+  const activeOrgSlug = activeScopeOrganizationSlug(activeScope)
+  const activeOrganization = organizationSelectionOptions.value.find((organization) => {
+    if (activeOrgID && organization.organization_id === activeOrgID) return true
+    return !!activeOrgSlug && organization.slug === activeOrgSlug
+  }) || organizationSelectionOptions.value.find((organization) => organization.current)
+
+  if (scopeType === 'enterprise' && activeOrganization) {
+    activeScopeKey.value = organizationScopeKey(activeOrganization)
+    selectedOrganizationHint.value = organizationHint(activeOrganization)
+    return
+  }
+  if (scopeType === 'platform') {
+    activeScopeKey.value = platformSelectionKey
+    selectedOrganizationHint.value = ''
+    return
+  }
+  if (activeOrganization) {
+    activeScopeKey.value = organizationScopeKey(activeOrganization)
+    selectedOrganizationHint.value = organizationHint(activeOrganization)
+    return
+  }
+  if (platformAvailable.value) {
+    activeScopeKey.value = platformSelectionKey
+    selectedOrganizationHint.value = ''
+    return
+  }
+  activeScopeKey.value = ''
+  selectedOrganizationHint.value = ''
+}
+
+const loadSelectedScopeAuthorization = async () => {
+  if (activeScopeKey.value === platformSelectionKey) {
+    organizationAuthorization.value = null
+    organizationAuthorizationError.value = ''
+    return
+  }
+  if (selectedOrganizationHint.value) {
+    await loadOrganizationAuthorization(selectedOrganizationHint.value)
+  }
+}
 
 const goToLogin = async () => {
   await router.push('/login')
@@ -189,11 +298,8 @@ const loadOrganizationAuthorization = async (orgHint?: string) => {
     const apiError = err?.response?.data?.error
     if (apiError === 'organization_selection_required') {
       const response = await serverApi.fetchCurrentUserOrganizations()
-      organizationSelectionOptions.value = response.organizations || []
+      applyIdentityContext(response, await serverApi.fetchCurrentUserActiveScope().catch(() => null))
       organizationAuthorizationError.value = ''
-      if (!selectedOrganizationHint.value && organizationSelectionOptions.value.length > 0) {
-        selectedOrganizationHint.value = organizationSelectionOptions.value[0].slug || organizationSelectionOptions.value[0].organization_id || ''
-      }
       return
     }
     if (apiError === 'organization_not_found') {
@@ -205,9 +311,34 @@ const loadOrganizationAuthorization = async (orgHint?: string) => {
   }
 }
 
-const selectOrganizationAuthorization = async (orgHint: string) => {
-  selectedOrganizationHint.value = orgHint
-  await loadOrganizationAuthorization(orgHint)
+const refreshIdentityContext = async () => {
+  const [organizations, activeScope] = await Promise.all([
+    serverApi.fetchCurrentUserOrganizations(),
+    serverApi.fetchCurrentUserActiveScope().catch(() => null)
+  ])
+  applyIdentityContext(organizations, activeScope)
+  await loadSelectedScopeAuthorization()
+}
+
+const selectActiveScope = async (option: ProfileIdentityOption) => {
+  if (option.current || switchingScopeKey.value) return
+  switchingScopeKey.value = option.key
+  organizationAuthorizationError.value = ''
+  try {
+    if (option.type === 'platform') {
+      await serverApi.setCurrentUserActiveScope({ scope_type: 'platform' })
+    } else if (option.organization?.organization_id) {
+      await serverApi.setCurrentUserActiveScope({
+        scope_type: 'enterprise',
+        organization_id: option.organization.organization_id
+      })
+    }
+    await refreshIdentityContext()
+  } catch (err: any) {
+    organizationAuthorizationError.value = getApiErrorMessage(err, t('profile.activeScopeUpdateFailed'))
+  } finally {
+    switchingScopeKey.value = ''
+  }
 }
 
 const loadProfile = async () => {
@@ -215,10 +346,12 @@ const loadProfile = async () => {
     loading.value = true
     error.value = ''
 
-    const [currentUser, session, currentAdminAccess] = await Promise.all([
+    const [currentUser, session, currentAdminAccess, organizations, activeScope] = await Promise.all([
       serverApi.fetchCurrentUser(),
       serverApi.fetchBrowserSession(),
       serverApi.fetchCurrentUserAdminAccess().catch(() => ({ enabled: false, is_admin: false })),
+      serverApi.fetchCurrentUserOrganizations(),
+      serverApi.fetchCurrentUserActiveScope().catch(() => null),
     ])
 
     context.setAuthenticated(true)
@@ -227,9 +360,8 @@ const loadProfile = async () => {
     sessionExpiresAt.value = session?.expires_at
       ? new Date(session.expires_at).toLocaleString()
       : '-'
-    organizationSelectionOptions.value = []
-    selectedOrganizationHint.value = ''
-    await loadOrganizationAuthorization()
+    applyIdentityContext(organizations, activeScope)
+    await loadSelectedScopeAuthorization()
   } catch (err: any) {
     if (err?.response?.status === 401) {
       context.setAuthenticated(false)
@@ -452,6 +584,12 @@ onMounted(async () => {
 
 .selection-chip:hover {
   transform: translateY(-1px);
+}
+
+.selection-chip:disabled {
+  cursor: wait;
+  opacity: 0.72;
+  transform: none;
 }
 
 .selection-chip.active {
