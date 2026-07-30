@@ -638,6 +638,13 @@ func TestAuthorizeReusesBrowserSessionAndTokenExchangeSucceeds(t *testing.T) {
 	}
 	env.provider.SetHookRegistry(hookRegistry)
 	sessionCookie := env.createBrowserSessionCookie(t, user.UserID)
+	_, session, err := auth.ResolveBrowserSession(env.provider.redis, env.provider.sessionMgr, sessionCookie.Value)
+	if err != nil {
+		t.Fatalf("failed to resolve browser session: %v", err)
+	}
+	if err := env.provider.sessionMgr.RefreshSession(session.UserID, session.ID, 5*time.Minute); err != nil {
+		t.Fatalf("failed to shorten browser session: %v", err)
+	}
 
 	authorizeURL := "/oauth2/authorize?client_id=demo-spa" +
 		"&redirect_uri=" + url.QueryEscape(testRedirectURI) +
@@ -655,6 +662,13 @@ func TestAuthorizeReusesBrowserSessionAndTokenExchangeSucceeds(t *testing.T) {
 	refreshedCookie := responseCookie(authorizeResp, auth.OIDCSessionCookieName)
 	if refreshedCookie == nil || refreshedCookie.Value != sessionCookie.Value {
 		t.Fatalf("expected authorize to refresh browser session cookie")
+	}
+	_, refreshedSession, err := auth.ResolveBrowserSession(env.provider.redis, env.provider.sessionMgr, sessionCookie.Value)
+	if err != nil {
+		t.Fatalf("failed to resolve refreshed browser session: %v", err)
+	}
+	if remaining := time.Until(refreshedSession.ExpiresAt); remaining < 6*24*time.Hour {
+		t.Fatalf("expected authorize to slide browser session near full expiration, remaining %s", remaining)
 	}
 
 	location := authorizeResp.Header().Get("Location")

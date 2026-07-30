@@ -1142,7 +1142,7 @@ func (p *Provider) currentUser(c *gin.Context) (*auth.User, error) {
 	if err != nil || browserSessionID == "" {
 		return nil, errors.New("not authenticated")
 	}
-	_, session, err := auth.ResolveBrowserSession(p.redis, p.sessionMgr, browserSessionID)
+	_, session, err := auth.RefreshBrowserSession(p.redis, p.sessionMgr, browserSessionID, auth.SessionExpiration)
 	if err != nil || session == nil {
 		p.clearBrowserSession(c)
 		return nil, errors.New("invalid browser session")

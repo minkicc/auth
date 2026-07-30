@@ -905,6 +905,41 @@ func TestBrowserSessionEndpointReturnsAuthenticatedUser(t *testing.T) {
 	}
 }
 
+func TestBrowserSessionEndpointSlidesSessionExpiration(t *testing.T) {
+	env := newAuthTestEnv(t)
+	defer env.Close()
+
+	registerResp := performJSONRequest(t, env.router, http.MethodPost, "/api/account/register", map[string]string{
+		"username": "sliding_session_user",
+		"password": "demo12345",
+	}, nil, nil)
+	if registerResp.Code != http.StatusOK {
+		t.Fatalf("expected register status 200, got %d with body %s", registerResp.Code, registerResp.Body.String())
+	}
+
+	sessionCookie := requireCookie(t, registerResp, auth.OIDCSessionCookieName)
+	_, session, err := auth.ResolveBrowserSession(env.handler.redisStore, env.handler.sessionMgr, sessionCookie.Value)
+	if err != nil {
+		t.Fatalf("failed to resolve browser session: %v", err)
+	}
+	if err := env.handler.sessionMgr.RefreshSession(session.UserID, session.ID, 5*time.Minute); err != nil {
+		t.Fatalf("failed to shorten session: %v", err)
+	}
+
+	resp := performJSONRequest(t, env.router, http.MethodGet, "/api/browser-session", nil, sessionCookie, nil)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected browser session status 200, got %d with body %s", resp.Code, resp.Body.String())
+	}
+
+	_, refreshedSession, err := auth.ResolveBrowserSession(env.handler.redisStore, env.handler.sessionMgr, sessionCookie.Value)
+	if err != nil {
+		t.Fatalf("failed to resolve refreshed browser session: %v", err)
+	}
+	if remaining := time.Until(refreshedSession.ExpiresAt); remaining < 6*24*time.Hour {
+		t.Fatalf("expected browser session to slide near full expiration, remaining %s", remaining)
+	}
+}
+
 func TestCurrentUserOrganizationsEndpointReturnsMemberships(t *testing.T) {
 	env := newAuthTestEnv(t)
 	defer env.Close()
