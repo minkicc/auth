@@ -7,6 +7,9 @@ admin-web/node_modules
 web/dist
 admin-web/dist
 server/config/config.yaml
+quickstart/.env
+quickstart/*.pem
+quickstart/*_data
 quickstart/mysql_data
 quickstart/redis_data
 quickstart/minio_data

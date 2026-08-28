@@ -17,6 +17,10 @@ const (
 	grantTypeAuthorizationCode = "authorization_code"
 	grantTypeClientCredentials = "client_credentials"
 	grantTypeRefreshToken      = "refresh_token"
+	// grantTypePhoneCode is a trusted server-side extension. It is intentionally
+	// unavailable to public browser clients; the business backend completes the
+	// phone verification and receives standard OIDC tokens afterward.
+	grantTypePhoneCode = "phone_code"
 
 	serviceAccountSubjectPrefix          = "svc:"
 	accessTokenSubjectTypeServiceAccount = "service_account"
@@ -66,12 +70,12 @@ func ValidateClientConfig(client config.OIDCClientConfig) error {
 	}
 	for _, grantType := range client.GrantTypes {
 		switch grantType {
-		case grantTypeAuthorizationCode, grantTypeClientCredentials, grantTypeRefreshToken:
+		case grantTypeAuthorizationCode, grantTypeClientCredentials, grantTypeRefreshToken, grantTypePhoneCode:
 		default:
 			return fmt.Errorf("client %s has unsupported grant_type %q", client.ClientID, grantType)
 		}
 	}
-	if !clientSupportsGrant(client, grantTypeAuthorizationCode) && !clientSupportsGrant(client, grantTypeClientCredentials) {
+	if !clientSupportsGrant(client, grantTypeAuthorizationCode) && !clientSupportsGrant(client, grantTypeClientCredentials) && !clientSupportsGrant(client, grantTypePhoneCode) {
 		return fmt.Errorf("client %s must define at least one supported grant_type", client.ClientID)
 	}
 	if clientSupportsGrant(client, grantTypeRefreshToken) && !clientSupportsGrant(client, grantTypeAuthorizationCode) {
@@ -92,7 +96,13 @@ func ValidateClientConfig(client config.OIDCClientConfig) error {
 	if client.Public && clientSupportsGrant(client, grantTypeClientCredentials) {
 		return fmt.Errorf("public client %s cannot use client_credentials", client.ClientID)
 	}
+	if client.Public && clientSupportsGrant(client, grantTypePhoneCode) {
+		return fmt.Errorf("public client %s cannot use phone_code", client.ClientID)
+	}
 	allowedScopes := effectiveAllowedScopes(client)
+	if clientSupportsGrant(client, grantTypePhoneCode) && !containsString(allowedScopes, "openid") {
+		return fmt.Errorf("phone_code client %s must allow openid scope", client.ClientID)
+	}
 	allowedScopeSet := make(map[string]struct{}, len(allowedScopes))
 	for _, scope := range allowedScopes {
 		allowedScopeSet[scope] = struct{}{}
@@ -196,8 +206,10 @@ func grantTypeSortKey(value string) string {
 		return "0:" + value
 	case grantTypeClientCredentials:
 		return "1:" + value
-	case grantTypeRefreshToken:
+	case grantTypePhoneCode:
 		return "2:" + value
+	case grantTypeRefreshToken:
+		return "3:" + value
 	default:
 		return "9:" + value
 	}

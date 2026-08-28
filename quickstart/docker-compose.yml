@@ -4,17 +4,17 @@ services:
     container_name: auth-mysql
     restart: always
     environment:
-      MYSQL_ROOT_PASSWORD: CHANGE_ME_mysql_root
-      MYSQL_DATABASE: auth
-      MYSQL_USER: auth
-      MYSQL_PASSWORD: CHANGE_ME_mysql_user
+      MYSQL_ROOT_PASSWORD: "${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in quickstart/.env}"
+      MYSQL_DATABASE: "${MYSQL_DATABASE:-auth}"
+      MYSQL_USER: "${MYSQL_USER:-auth}"
+      MYSQL_PASSWORD: "${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in quickstart/.env}"
     ports:
-      - "3306:3306"
+      - "127.0.0.1:3306:3306"
     volumes:
       - mysql_data:/var/lib/mysql
     command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-ppassword"]
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root -p$${MYSQL_ROOT_PASSWORD}"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -24,7 +24,7 @@ services:
     container_name: auth-redis
     restart: always
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis_data:/data
     command: redis-server --appendonly yes
@@ -44,8 +44,12 @@ services:
     restart: always
     environment:
       TZ: UTC
-      MINIO_ROOT_USER: trusted-client
-      MINIO_ROOT_PASSWORD: CHANGE_ME_minio_root
+      MINIO_ROOT_USER: "${MINIO_ROOT_USER:?Set MINIO_ROOT_USER in quickstart/.env}"
+      MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in quickstart/.env}"
+      MINIO_ATTACH_ACCESS_KEY: "${MINIO_ATTACH_ACCESS_KEY:?Set MINIO_ATTACH_ACCESS_KEY in quickstart/.env}"
+      MINIO_ATTACH_SECRET_KEY: "${MINIO_ATTACH_SECRET_KEY:?Set MINIO_ATTACH_SECRET_KEY in quickstart/.env}"
+      MINIO_STS_ACCESS_KEY: "${MINIO_STS_ACCESS_KEY:-auth-sts}"
+      MINIO_STS_SECRET_KEY: "${MINIO_STS_SECRET_KEY:?Set MINIO_STS_SECRET_KEY in quickstart/.env}"
       MINIO_REGION: us-east-1
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
@@ -56,8 +60,8 @@ services:
       - minio_data:/data
       - ./minio-init.sh:/usr/bin/minio-init.sh
     ports:
-      - "9002:9000" # 测试用
-      - "9003:9001"
+      - "127.0.0.1:9002:9000" # 测试用
+      - "127.0.0.1:9003:9001"
 
   auth-server:
     build:
@@ -72,11 +76,21 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+    environment:
+      AUTH_PUBLIC_URL: "${AUTH_PUBLIC_URL:-http://127.0.0.1:8080}"
+      MYSQL_USER: "${MYSQL_USER:-auth}"
+      MYSQL_DATABASE: "${MYSQL_DATABASE:-auth}"
+      MYSQL_PASSWORD: "${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in quickstart/.env}"
+      MINIO_ATTACH_ACCESS_KEY: "${MINIO_ATTACH_ACCESS_KEY:?Set MINIO_ATTACH_ACCESS_KEY in quickstart/.env}"
+      MINIO_ATTACH_SECRET_KEY: "${MINIO_ATTACH_SECRET_KEY:?Set MINIO_ATTACH_SECRET_KEY in quickstart/.env}"
+      MINIO_STS_ACCESS_KEY: "${MINIO_STS_ACCESS_KEY:-auth-sts}"
+      MINIO_STS_SECRET_KEY: "${MINIO_STS_SECRET_KEY:?Set MINIO_STS_SECRET_KEY in quickstart/.env}"
+      AUTH_DEMO_BACKEND_SECRET: "${AUTH_DEMO_BACKEND_SECRET:-}"
     volumes:
       - ./config.yaml:/app/config/config.yaml
-      - ./oidc-private-key.pem:/app/config/oidc-private-key.pem:ro
+      - auth_data:/app/data
     ports:
-      - "8080:80"
+      - "127.0.0.1:8080:80"
 
   oidc-demo:
     image: nginx:alpine
@@ -85,9 +99,10 @@ services:
     volumes:
       - ./oidc-demo:/usr/share/nginx/html:ro
     ports:
-      - "3000:80"
+      - "127.0.0.1:3000:80"
 
 volumes:
   mysql_data:
   redis_data:
   minio_data:
+  auth_data:

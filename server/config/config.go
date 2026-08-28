@@ -491,7 +491,7 @@ func LoadConfig(path string) (*Config, error) {
 	}
 
 	config := &Config{}
-	if err := yaml.Unmarshal(file, config); err != nil {
+	if err := yaml.Unmarshal([]byte(os.ExpandEnv(string(file))), config); err != nil {
 		return nil, err
 	}
 

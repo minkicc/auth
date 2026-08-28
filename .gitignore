@@ -5,3 +5,6 @@ package-lock.json
 !admin-web/package-lock.json
 server/server*
 /plugins/
+quickstart/.env
+quickstart/*.pem
+quickstart/*_data

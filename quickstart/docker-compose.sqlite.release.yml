@@ -4,7 +4,7 @@ services:
     container_name: auth-redis
     restart: always
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis_data:/data
     command: redis-server --appendonly yes
@@ -14,29 +14,6 @@ services:
       timeout: 5s
       retries: 5
 
-  minio:
-    image: quay.io/minio/minio
-    entrypoint: sh
-    command: -c "minio server /data --console-address ':9001' & sleep 5 && /usr/bin/minio-init.sh && tail -f /dev/null"
-    container_name: minio
-    restart: always
-    environment:
-      TZ: UTC
-      MINIO_ROOT_USER: trusted-client
-      MINIO_ROOT_PASSWORD: CHANGE_ME_minio_root
-      MINIO_REGION: us-east-1
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-    volumes:
-      - minio_data:/data
-      - ./minio-init.sh:/usr/bin/minio-init.sh
-    ports:
-      - "9002:9000"
-      - "9003:9001"
-
   auth-server:
     image: ${AUTH_IMAGE:-ghcr.io/example/auth:latest}
     pull_policy: always
@@ -45,14 +22,14 @@ services:
     depends_on:
       redis:
         condition: service_healthy
-      minio:
-        condition: service_healthy
+    environment:
+      AUTH_PUBLIC_URL: "${AUTH_PUBLIC_URL:-http://127.0.0.1:8080}"
+      AUTH_DEMO_BACKEND_SECRET: "${AUTH_DEMO_BACKEND_SECRET:-}"
     volumes:
       - ./config.sqlite.yaml:/app/config/config.yaml
-      - ./oidc-private-key.pem:/app/config/oidc-private-key.pem:ro
       - sqlite_data:/app/data
     ports:
-      - "8080:80"
+      - "127.0.0.1:8080:80"
 
   oidc-demo:
     image: nginx:alpine
@@ -61,9 +38,8 @@ services:
     volumes:
       - ./oidc-demo:/usr/share/nginx/html:ro
     ports:
-      - "3000:80"
+      - "127.0.0.1:3000:80"
 
 volumes:
   redis_data:
-  minio_data:
   sqlite_data:

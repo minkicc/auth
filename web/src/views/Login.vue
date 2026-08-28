@@ -368,6 +368,10 @@ const invitationCode = computed(() => {
   const raw = route.query.invitation_code || route.query.invite_code
   return Array.isArray(raw) ? (raw[0] || '') : (raw || '')
 })
+const preferredLoginMethod = computed(() => {
+  const raw = Array.isArray(route.query.login_method) ? route.query.login_method[0] : route.query.login_method
+  return raw === 'phone' || raw === 'weixin' ? raw : ''
+})
 
 
 // 计算属性
@@ -608,6 +612,11 @@ onMounted(async () => {
 
     await loadEnterpriseOIDCProviders()
 
+    if (preferredLoginMethod.value === 'weixin' && hasWeixinLogin) {
+      await handleWechatLogin()
+      return
+    }
+
     const loginHint = serverApi.loginHint.trim()
     if (hasEnterpriseOIDCLogin && canUseEnterpriseLoginHint(loginHint)) {
       enterpriseEmail.value = loginHint
@@ -632,7 +641,10 @@ onMounted(async () => {
     
     shouldShowLoginForm.value = true
     // 设置默认登录和注册类型
-    if (hasProvider('account')) {
+    if (preferredLoginMethod.value === 'phone' && hasProvider('phone')) {
+      loginType.value = 'phone'
+      registerType.value = 'phone'
+    } else if (hasProvider('account')) {
       loginType.value = 'account'
       registerType.value = 'account'
     } else if (hasProvider('email')) {

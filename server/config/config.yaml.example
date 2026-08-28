@@ -258,8 +258,9 @@ plugins:
       fail_open: false
 
 storage:
-  # provider: minio / s3 / r2 / oss
+  # provider: local / minio / s3 / r2 / oss
   provider: "minio"
+  # localPath: "data/storage"
   endpoint: "YOUR_MINIO_OR_R2_ENDPOINT"
   region: "YOUR_REGION_OR_AUTO_FOR_R2"
   accessKeyID: "YOUR_ACCESS_KEY_ID"

@@ -1,9 +1,12 @@
 FROM golang:1.23-alpine3.20 AS builder
 # FROM builder-image:latest as builder
 
+ARG GOPROXY=https://proxy.golang.org,direct
+
 ENV GO111MODULE=on \
     CGO_ENABLED=0 \
-    GOOS=linux
+    GOOS=linux \
+    GOPROXY=${GOPROXY}
     # GOARCH=amd64 \
     # GOPROXY=https://goproxy.cn,direct
 

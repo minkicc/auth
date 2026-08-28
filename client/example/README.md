@@ -13,30 +13,30 @@
 
 ## 默认配置
 
-示例默认会读取下面这些环境变量；如果没有设置，就使用内置开发默认值：
+示例会读取下面这些环境变量。`AUTH_CLIENT_SECRET` 没有内置默认值，避免把可复制的客户端密钥带进公开代码：
 
 ```text
 AUTH_ISSUER=http://127.0.0.1:8080
 AUTH_CLIENT_ID=demo-backend
-AUTH_CLIENT_SECRET=demo-backend-secret
+AUTH_CLIENT_SECRET=<the-secret-you-configured-for-your-confidential-client>
 AUTH_REDIRECT_URL=http://127.0.0.1:8082/auth/callback
 LISTEN_ADDR=:8082
 ```
 
 ## 推荐配合 quickstart 运行
 
-先启动 Auth：
+先启动 Auth。quickstart 默认只包含 public PKCE demo；如果要运行本 BFF 示例，需要先在 Auth 的 OIDC 配置中增加一个 confidential client，并把回调地址设为 `http://127.0.0.1:8082/auth/callback`：
 
 ```bash
 cd quickstart
 docker compose up -d --build
 ```
 
-再启动这个示例：
+然后用同一个 client secret 启动这个示例：
 
 ```bash
 cd client
-go run ./example
+AUTH_CLIENT_SECRET='<your-client-secret>' go run ./example
 ```
 
 然后打开：
@@ -47,7 +47,6 @@ http://127.0.0.1:8082
 
 ## 说明
 
-- quickstart 已预置了 `demo-backend` 这个 confidential client。
 - 这个示例里的 session 是内存实现，只适合开发和演示。
 - 生产环境建议把 session 放到 Redis 等共享存储，并启用 HTTPS。
 

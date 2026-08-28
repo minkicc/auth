@@ -27,6 +27,9 @@ func NewStorageClient(config *Config) (*StorageClient, error) {
 	var err error
 	var bucketConfig BucketConfig
 	switch config.Provider {
+	case LOCAL:
+		client, err = NewLocalClient(&config.ClientConfig)
+		bucketConfig = config.BucketConfig
 	case MINIO:
 		client, err = NewMinioClient(&config.ClientConfig)
 		bucketConfig = config.BucketConfig
@@ -40,7 +43,7 @@ func NewStorageClient(config *Config) (*StorageClient, error) {
 		client, err = NewOSSClient(&config.ClientConfig)
 		bucketConfig = config.BucketConfig
 	default:
-		return nil, errors.New("不支持的provider")
+		return nil, errors.New("unsupported storage provider")
 	}
 
 	if err != nil {

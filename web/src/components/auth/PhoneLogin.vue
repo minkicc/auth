@@ -87,7 +87,7 @@
 </template>
 
 <script lang="ts" setup>
-import { reactive, ref, defineEmits } from 'vue'
+import { onMounted, reactive, ref, defineEmits } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { serverApi } from '@/api/serverApi';
 
@@ -128,6 +128,14 @@ let cooldownTimer: number | null = null
 
 // 验证码发送状态
 const isSendingCode = ref(false)
+
+onMounted(() => {
+  const hinted = serverApi.loginHint.replace(/[\s()-]/g, '').replace(/^\+86/, '')
+  if (!/^1[3-9]\d{9}$/.test(hinted)) return
+  passwordForm.phone = hinted
+  codeForm.phone = hinted
+  phoneLoginMethod.value = 'code'
+})
 
 
 // 验证手机号格式

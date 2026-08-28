@@ -69,6 +69,8 @@ auth/
 
 ```bash
 cd quickstart
+cp .env.example .env
+# 填写 .env 中必需的 MySQL/MinIO 配置后再继续。
 docker compose up -d --build
 ```
 
@@ -77,6 +79,13 @@ docker compose up -d --build
 ```bash
 cd quickstart
 docker compose -f docker-compose.release.yml up -d
+```
+
+如果只是本地快速体验，可以使用不依赖 MySQL/MinIO 的 SQLite 配置：
+
+```bash
+cd quickstart
+docker compose -f docker-compose.sqlite.yml up -d --build
 ```
 
 默认会启动：
@@ -88,10 +97,12 @@ docker compose -f docker-compose.release.yml up -d
 - MinIO API: `http://127.0.0.1:9002`
 - MinIO Console: `http://127.0.0.1:9003`
 
+SQLite 快速启动不会启动 MinIO。数据库、头像文件和自动生成并持久化的 OIDC 签名私钥都保存在 `sqlite_data` 卷中。如果认证服务不是通过 `http://127.0.0.1:8080` 访问，请设置 `AUTH_PUBLIC_URL`。
+
 说明：
 - `quickstart/config.yaml` 默认只启用了 `account` 登录。
 - `quickstart/config.yaml` 也默认启用了 OIDC，并预置了给 demo 使用的公共客户端 `demo-spa`。
-- `quickstart/config.yaml` 还预置了一个 confidential client `demo-backend`，可直接配合 [client/example](client/example/README.md) 里的 Go 后端回调示例使用。
+- [client/example](client/example/README.md) 里的 Go 后端回调示例需要单独创建 confidential OIDC client，并显式提供 client secret。
 - `quickstart/config.yaml` 里默认关闭了管理后台：`auth_admin.enabled: false`。
 - `quickstart/docker-compose.yml` 会直接构建当前仓库代码，因此 quickstart 与这条分支保持一致。
 - `quickstart/docker-compose.sqlite.yml` 也会直接构建当前仓库代码，但数据库改成了 SQLite，适合本地最小启动。
@@ -242,7 +253,7 @@ db:
   # driver: "sqlite"
   # sqlite_path: "data/auth.sqlite3"
   user: "root"
-  password: "CHANGE_ME"
+  password: "YOUR_DB_PASSWORD"
   host: "localhost"
   port: 3306
   database: "auth"
@@ -508,7 +519,8 @@ SCIM Groups 会把企业目录组映射到 `organization_groups` 和组织内的
 
 ```yaml
 storage:
-  provider: "minio" # minio / s3 / r2 / oss
+  provider: "minio" # local / minio / s3 / r2 / oss
+  # localPath: "data/storage"
   endpoint: "localhost:9000"
   region: "us-east-1"
   accessKeyID: "your-access-key"

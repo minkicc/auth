@@ -13,23 +13,18 @@ registration:
   bootstrap_invitation_code: ""
 
 storage:
-  provider: "minio"
-  endpoint: "minio:9000"
-  region: "us-east-1"
-  accessKeyID: "CHANGE_ME_minio_access"
-  secretAccessKey: "CHANGE_ME_minio_secret"
-  stsAccessKeyID: "user"
-  stsSecretAccessKey: "CHANGE_ME_minio_sts_secret"
-  attatchBucket: "attatch"
+  provider: "local"
+  localPath: "/app/data/storage"
+  attatchBucket: "attachments"
 
 storage_public_url:
-  attatch: "http://127.0.0.1:9002/attatch"
+  attatch: "${AUTH_PUBLIC_URL}/storage"
 
 oidc:
   enabled: true
-  issuer: ""
+  issuer: "${AUTH_PUBLIC_URL}"
   key_id: "auth-quickstart"
-  private_key_file: "/app/config/oidc-private-key.pem"
+  private_key_file: "/app/data/oidc-private-key.pem"
   code_ttl_seconds: 300
   access_token_ttl_seconds: 900
   id_token_ttl_seconds: 900
@@ -45,18 +40,7 @@ oidc:
         - "openid"
         - "profile"
         - "email"
-    - client_id: "demo-backend"
-      client_secret: "demo-backend-secret"
-      public: false
-      require_pkce: true
-      redirect_uris:
-        - "http://127.0.0.1:8082/auth/callback"
-        - "http://localhost:8082/auth/callback"
-      scopes:
-        - "openid"
-        - "profile"
-        - "email"
-    - client_id: "one_api"
+    - client_id: "demo-oidc"
       public: true
       require_pkce: true
       grant_types:
@@ -99,7 +83,5 @@ auth:
     - "account"
 
 auth_admin:
-  enabled: true
-  secret_key: "quickstart-admin-session-secret"
-  user_ids:
-    - "usr_admin0000000000000000001a"
+  enabled: false
+  user_ids: []

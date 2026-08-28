@@ -6,7 +6,7 @@
 
 - MySQL 8
 - Redis 7
-- MinIO
+- Local file storage in SQLite quickstarts; MinIO in MySQL quickstarts
 - Auth 服务
 - OIDC demo SPA
 
@@ -18,6 +18,8 @@
 
 ```bash
 cd quickstart
+cp .env.example .env
+# Replace the CHANGE_ME values in .env before continuing.
 docker compose up -d --build
 ```
 
@@ -42,6 +44,8 @@ docker compose -f docker-compose.sqlite.yml up -d --build
 
 ```bash
 cd quickstart
+cp .env.example .env
+# Replace the CHANGE_ME values in .env before continuing.
 docker compose -f docker-compose.release.yml up -d
 ```
 
@@ -86,21 +90,22 @@ docker login ghcr.io
 - OIDC demo: `http://127.0.0.1:3000`
 - 用户入口: `http://127.0.0.1:8080`
 - 管理后台: `http://127.0.0.1:8080/admin`
-- MinIO API: `http://127.0.0.1:9002`
-- MinIO Console: `http://127.0.0.1:9003`
+- MinIO API for MySQL quickstarts: `http://127.0.0.1:9002`
+- MinIO Console for MySQL quickstarts: `http://127.0.0.1:9003`
+
+这些端口只绑定到本机回环地址；如果要提供给局域网或公网访问，请在反向代理中配置 TLS、访问控制和实际域名，不要直接把数据库或 MinIO 端口暴露出去。
 
 ## 默认行为
 
 `quickstart/config.yaml` 默认配置为：
 - 仅启用 `account` 登录
 - 默认启用 OIDC，并内置一个公共客户端 `demo-spa`
-- 还内置了一个 confidential client `demo-backend`，供 Go 后端回调示例使用
 - 管理后台关闭
 - 存储后端使用 MinIO
 - OIDC demo 的回调地址已经预先配置为 `http://127.0.0.1:3000/`
-- `quickstart/oidc-private-key.pem` 只是为了本地演示方便而提交的开发私钥，生产环境请务必替换
+- OIDC 签名私钥在首次启动时自动生成，并保存在 `/app/data` 卷中
 
-`quickstart/config.sqlite.yaml` 与上面保持一致，只是数据库改成了 SQLite，并把数据文件落到容器内的 `/app/data/auth.sqlite3`。
+`quickstart/config.sqlite.yaml` 使用 SQLite 和本地文件存储。数据库、头像文件和自动生成的 OIDC 签名私钥都持久化在容器的 `/app/data` 卷中，不再需要 MinIO。
 
 ## 先体验一遍 OIDC 登录
 
@@ -117,11 +122,29 @@ docker login ghcr.io
 
 ## 运行 Go 后端回调示例
 
-仓库还带了一个 Go 版 BFF / backend callback 示例，默认配置已经和 quickstart 对齐：
+仓库还带了一个 Go 版 BFF / backend callback 示例。quickstart 不再预置 confidential client；需要使用该示例时，先生成一个随机 secret，并在 `quickstart/config.yaml` 或 `quickstart/config.sqlite.yaml` 的 `oidc.clients` 下增加：
+
+```yaml
+    - name: "Demo Backend"
+      client_id: "demo-backend"
+      client_secret: "${AUTH_DEMO_BACKEND_SECRET}"
+      public: false
+      require_pkce: true
+      redirect_uris:
+        - "http://127.0.0.1:8082/auth/callback"
+        - "http://localhost:8082/auth/callback"
+      scopes:
+        - "openid"
+        - "profile"
+        - "email"
+```
+
+MySQL quickstart 会从 `quickstart/.env` 读取 `AUTH_DEMO_BACKEND_SECRET`；SQLite quickstart 可以在启动前导出同名环境变量。
 
 ```bash
+export AUTH_DEMO_BACKEND_SECRET="$(openssl rand -hex 32)"
 cd client
-go run ./example
+AUTH_CLIENT_SECRET="$AUTH_DEMO_BACKEND_SECRET" go run ./example
 ```
 
 启动后访问：
@@ -135,7 +158,7 @@ http://127.0.0.1:8082
 ```text
 AUTH_ISSUER=http://127.0.0.1:8080
 AUTH_CLIENT_ID=demo-backend
-AUTH_CLIENT_SECRET=demo-backend-secret
+AUTH_CLIENT_SECRET=<the-secret-you-configured-for-your-confidential-client>
 AUTH_REDIRECT_URL=http://127.0.0.1:8082/auth/callback
 ```
 
@@ -216,5 +239,5 @@ auth:
 - `quickstart/docker-compose.release.yml` 会直接拉取 `ghcr.io/example/auth` 镜像，并依赖 MySQL，更适合发给其他用户或部署环境使用。
 - `quickstart/docker-compose.sqlite.release.yml` 会直接拉取 `ghcr.io/example/auth` 镜像，但数据库改成了 SQLite，适合给其他用户做最小体验。
 - `quickstart/docker-compose.yml` 和 `quickstart/docker-compose.release.yml` 会等待 MySQL、Redis、MinIO 健康后再启动 `auth-server`。
-- `quickstart/docker-compose.sqlite.yml` 会等待 Redis、MinIO 健康后再启动 `auth-server`，数据库则直接使用 SQLite 文件。
-- `quickstart/docker-compose.sqlite.release.yml` 会等待 Redis、MinIO 健康后再启动 `auth-server`，数据库则直接使用 SQLite 文件。
+- `quickstart/docker-compose.sqlite.yml` 和 `quickstart/docker-compose.sqlite.release.yml` 只依赖 Redis；数据库使用 SQLite，头像使用本地文件存储。
+- MySQL quickstart 需要先复制 `quickstart/.env.example` 为 `quickstart/.env` 并填写随机凭据；这些凭据不会写入 Git。

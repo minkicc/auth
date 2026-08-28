@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -165,6 +166,82 @@ func (p *Provider) SetHookRegistry(hooks *iam.HookRegistry) {
 	}
 }
 
+// AuthenticateConfidentialClient validates credentials used by trusted
+// server-to-server integrations. Public browser clients must not use this
+// flow because it accepts user credentials outside the hosted auth page.
+func (p *Provider) AuthenticateConfidentialClient(clientID, clientSecret string) (config.OIDCClientConfig, bool) {
+	clientID = strings.TrimSpace(clientID)
+	if clientID == "" || p == nil {
+		return config.OIDCClientConfig{}, false
+	}
+	client, ok := p.findClient(clientID)
+	if !ok || client.Public || !matchSecret(client.ClientSecret, strings.TrimSpace(clientSecret)) {
+		return config.OIDCClientConfig{}, false
+	}
+	return client, true
+}
+
+// IssueUserTokens issues an OIDC token response for an already authenticated
+// user. It is used by trusted backend adapters after they complete a provider
+// specific login transaction; it does not expose auth session cookies.
+func (p *Provider) IssueUserTokens(c *gin.Context, user *auth.User, client config.OIDCClientConfig, scope string) (gin.H, error) {
+	if p == nil || user == nil || client.ClientID == "" {
+		return nil, fmt.Errorf("invalid token request")
+	}
+	if !clientSupportsGrant(client, grantTypeAuthorizationCode) && !containsString(client.GrantTypes, "phone_code") {
+		return nil, fmt.Errorf("unsupported grant")
+	}
+	if err := auth.EnsureUserCanAuthenticate(user); err != nil {
+		return nil, err
+	}
+	grantedScopes, err := constrainUserTokenScopes(client, strings.Fields(scope))
+	if err != nil {
+		return nil, err
+	}
+	scope = strings.Join(grantedScopes, " ")
+	orgClaims := organizationClaims{}
+	accessToken, expiresIn, err := p.signAccessToken(c, user, client, scope, orgClaims)
+	if err != nil {
+		return nil, err
+	}
+	idToken, err := p.signIDToken(c, user, client, scope, "", orgClaims)
+	if err != nil {
+		return nil, err
+	}
+	response := gin.H{
+		"access_token": accessToken,
+		"id_token":     idToken,
+		"token_type":   "Bearer",
+		"expires_in":   int(expiresIn.Seconds()),
+		"scope":        scope,
+	}
+	if clientSupportsGrant(client, grantTypeRefreshToken) {
+		refreshToken, err := p.issueRefreshToken(user, client, scope, "", true)
+		if err != nil {
+			return nil, err
+		}
+		if refreshToken != "" {
+			response["refresh_token"] = refreshToken
+		}
+	}
+	return response, nil
+}
+
+func constrainUserTokenScopes(client config.OIDCClientConfig, requested []string) ([]string, error) {
+	allowedScopes := effectiveAllowedScopes(client)
+	requestedScopes := normalizeRequestedScopes(requested)
+	grantedScopes := make([]string, 0, len(requestedScopes))
+	for _, scope := range requestedScopes {
+		if containsString(allowedScopes, scope) {
+			grantedScopes = append(grantedScopes, scope)
+		}
+	}
+	if !containsString(grantedScopes, "openid") {
+		return nil, fmt.Errorf("openid scope is required")
+	}
+	return grantedScopes, nil
+}
+
 func (p *Provider) RegisterRoutes(r *gin.Engine) {
 	r.GET("/.well-known/openid-configuration", p.discovery)
 	r.GET("/oauth2/jwks", p.jwks)
@@ -244,6 +321,9 @@ func (p *Provider) authorize(c *gin.Context) {
 		loginURL := "/login?client_id=" + url.QueryEscape(client.ClientID) + "&redirect_uri=" + url.QueryEscape(p.currentRequestURL(c))
 		if loginHint := strings.TrimSpace(c.Query("login_hint")); loginHint != "" {
 			loginURL += "&login_hint=" + url.QueryEscape(loginHint)
+		}
+		if loginMethod := strings.ToLower(strings.TrimSpace(c.Query("login_method"))); loginMethod == "phone" || loginMethod == "weixin" {
+			loginURL += "&login_method=" + url.QueryEscape(loginMethod)
 		}
 		if domainHint := strings.TrimSpace(c.Query("domain_hint")); domainHint != "" {
 			loginURL += "&domain_hint=" + url.QueryEscape(domainHint)
@@ -1612,10 +1692,17 @@ func newTokenSigner(cfg config.OIDCConfig) (*tokenSigner, error) {
 	keyPEM := strings.TrimSpace(cfg.PrivateKeyPEM)
 	if keyPEM == "" && cfg.PrivateKeyFile != "" {
 		content, err := os.ReadFile(cfg.PrivateKeyFile)
-		if err != nil {
+		if err == nil {
+			keyPEM = string(content)
+		} else if !os.IsNotExist(err) {
 			return nil, err
+		} else {
+			key, err := generateAndPersistPrivateKey(cfg.PrivateKeyFile)
+			if err != nil {
+				return nil, err
+			}
+			return &tokenSigner{privateKey: key, publicKey: &key.PublicKey, keyID: defaultString(cfg.KeyID, "auth")}, nil
 		}
-		keyPEM = string(content)
 	}
 	if keyPEM == "" {
 		key, err := rsa.GenerateKey(rand.Reader, 2048)
@@ -1642,6 +1729,51 @@ func newTokenSigner(cfg config.OIDCConfig) (*tokenSigner, error) {
 		return nil, fmt.Errorf("oidc private key must be RSA")
 	}
 	return &tokenSigner{privateKey: rsaKey, publicKey: &rsaKey.PublicKey, keyID: defaultString(cfg.KeyID, "auth")}, nil
+}
+
+func generateAndPersistPrivateKey(filePath string) (*rsa.PrivateKey, error) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return nil, err
+	}
+	encoded, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(filepath.Dir(filePath), 0o700); err != nil {
+		return nil, fmt.Errorf("create oidc key directory: %w", err)
+	}
+	file, err := os.OpenFile(filePath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if os.IsExist(err) {
+		content, readErr := os.ReadFile(filePath)
+		if readErr != nil {
+			return nil, readErr
+		}
+		block, _ := pem.Decode(content)
+		if block == nil {
+			return nil, errors.New("failed to decode oidc private key")
+		}
+		parsed, parseErr := x509.ParsePKCS8PrivateKey(block.Bytes)
+		if parseErr != nil {
+			return nil, parseErr
+		}
+		existingKey, ok := parsed.(*rsa.PrivateKey)
+		if !ok {
+			return nil, errors.New("oidc private key must be RSA")
+		}
+		return existingKey, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("create oidc private key: %w", err)
+	}
+	defer file.Close()
+	if err := pem.Encode(file, &pem.Block{Type: "PRIVATE KEY", Bytes: encoded}); err != nil {
+		return nil, fmt.Errorf("write oidc private key: %w", err)
+	}
+	if err := file.Sync(); err != nil {
+		return nil, fmt.Errorf("sync oidc private key: %w", err)
+	}
+	return key, nil
 }
 
 func (s *tokenSigner) sign(claims jwt.Claims) (string, error) {

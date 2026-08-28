@@ -7,7 +7,9 @@ package handlers
 
 import (
 	"log"
+	"net/http"
 	"os"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"example.com/auth/server/admin"
@@ -168,6 +170,10 @@ func (h *AuthHandler) RegisterRoutes(authGroup *gin.RouterGroup, cfg *config.Con
 
 	// Phone login related routes
 	if h.phoneAuth != nil {
+		// Trusted backend login transactions. These endpoints never create a
+		// browser cookie and require a confidential OIDC client credential.
+		authGroup.POST("/client/phone/send-login-code", h.ClientPhoneSendLoginCode)
+		authGroup.POST("/client/phone/code-login", h.ClientPhoneCodeLogin)
 		// Phone pre-registration - send verification code
 		authGroup.POST("/phone/preregister", h.PhonePreregister)
 		// Verify phone number and complete registration
@@ -208,6 +214,33 @@ func (h *AuthHandler) RegisterRoutes(authGroup *gin.RouterGroup, cfg *config.Con
 	authGroup.GET("/sessions", h.AuthRequired(), h.GetUserSessions)
 	authGroup.DELETE("/sessions/:session_id", h.AuthRequired(), h.RequireSameOriginForBrowserSession(), h.TerminateUserSession)
 	authGroup.DELETE("/sessions", h.AuthRequired(), h.RequireSameOriginForBrowserSession(), h.TerminateAllUserSessions)
+}
+
+func (h *AuthHandler) RegisterStorageRoutes(router *gin.Engine) {
+	if h == nil || h.storage == nil || h.storage.Bucket == nil || router == nil {
+		return
+	}
+	storageConfig := h.storage.Bucket.GetConfig()
+	if storageConfig == nil || storageConfig.Provider != storage.LOCAL {
+		return
+	}
+	router.GET("/storage/*objectPath", h.getLocalStorageObject)
+}
+
+func (h *AuthHandler) getLocalStorageObject(c *gin.Context) {
+	objectPath := strings.TrimPrefix(c.Param("objectPath"), "/")
+	if !strings.HasPrefix(objectPath, "avatars/") {
+		c.Status(http.StatusNotFound)
+		return
+	}
+	content, err := h.storage.Bucket.GetObject(objectPath)
+	if err != nil {
+		c.Status(http.StatusNotFound)
+		return
+	}
+	c.Header("Cache-Control", "public, max-age=86400")
+	c.Header("X-Content-Type-Options", "nosniff")
+	c.Data(http.StatusOK, http.DetectContentType(content), content)
 }
 
 // GetSupportedProviders Get supported login methods

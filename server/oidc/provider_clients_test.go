@@ -112,6 +112,35 @@ func TestProviderReloadLoadsDatabaseClients(t *testing.T) {
 	}
 }
 
+func TestPhoneCodeGrantRequiresConfidentialClient(t *testing.T) {
+	client := config.OIDCClientConfig{
+		ClientID:     "k12-student",
+		ClientSecret: "server-only-secret",
+		GrantTypes:   []string{"phone_code"},
+		Scopes:       []string{"openid"},
+	}
+	if err := ValidateClientConfig(client); err != nil {
+		t.Fatalf("expected phone_code confidential client to be valid: %v", err)
+	}
+
+	client.Public = true
+	if err := ValidateClientConfig(client); err == nil || !strings.Contains(err.Error(), "cannot use phone_code") {
+		t.Fatalf("expected public phone_code client rejection, got %v", err)
+	}
+}
+
+func TestPhoneCodeGrantRequiresOpenIDScope(t *testing.T) {
+	client := config.OIDCClientConfig{
+		ClientID:     "k12-student",
+		ClientSecret: "server-only-secret",
+		GrantTypes:   []string{"phone_code"},
+		Scopes:       []string{"profile", "email"},
+	}
+	if err := ValidateClientConfig(client); err == nil || !strings.Contains(err.Error(), "must allow openid") {
+		t.Fatalf("expected phone_code client without openid to be rejected, got %v", err)
+	}
+}
+
 func TestClientRecordFromConfigNormalizesValues(t *testing.T) {
 	codec, err := secureconfig.New("provider-client-test-key")
 	if err != nil {

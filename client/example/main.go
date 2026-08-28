@@ -29,7 +29,7 @@ import (
 const (
 	defaultIssuer       = "http://127.0.0.1:8080"
 	defaultClientID     = "demo-backend"
-	defaultClientSecret = "demo-backend-secret"
+	defaultClientSecret = ""
 	defaultRedirectURL  = "http://127.0.0.1:8082/auth/callback"
 	defaultListenAddr   = ":8082"
 	sessionCookieName   = "auth_example_session"
@@ -366,6 +366,9 @@ end_session_endpoint: {{ .Discovery.EndSessionEndpoint }}</pre>
 
 func main() {
 	cfg := loadConfig()
+	if strings.TrimSpace(cfg.ClientSecret) == "" {
+		log.Fatal("AUTH_CLIENT_SECRET is required; configure a confidential OIDC client first")
+	}
 	app, err := newExampleApp(context.Background(), cfg)
 	if err != nil {
 		log.Fatalf("failed to initialize example app: %v", err)

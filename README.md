@@ -69,6 +69,8 @@ auth/
 
 ```bash
 cd quickstart
+cp .env.example .env
+# Fill the required MySQL/MinIO values in .env before continuing.
 docker compose up -d --build
 ```
 
@@ -77,6 +79,13 @@ If you want to use a prebuilt image instead of building locally:
 ```bash
 cd quickstart
 docker compose -f docker-compose.release.yml up -d
+```
+
+For the smallest local stack, use the SQLite quickstart instead:
+
+```bash
+cd quickstart
+docker compose -f docker-compose.sqlite.yml up -d --build
 ```
 
 Default endpoints:
@@ -88,10 +97,12 @@ Default endpoints:
 - MinIO API: `http://127.0.0.1:9002`
 - MinIO Console: `http://127.0.0.1:9003`
 
+The SQLite quickstarts do not start MinIO. They store the database, avatars, and an automatically generated persistent OIDC signing key in the `sqlite_data` volume. Set `AUTH_PUBLIC_URL` when the auth service is not reached at `http://127.0.0.1:8080`.
+
 Notes:
 - `quickstart/config.yaml` enables `account` login only by default.
 - `quickstart/config.yaml` also enables OIDC and preconfigures a public client named `demo-spa` for the bundled PKCE demo.
-- `quickstart/config.yaml` also preconfigures a confidential client named `demo-backend` for the Go backend callback example under [client/example](client/example/README.md).
+- The Go backend callback example under [client/example](client/example/README.md) requires you to create a confidential OIDC client and provide its secret explicitly.
 - `auth_admin.enabled` is `false` in the quickstart config.
 - `quickstart/docker-compose.yml` builds the current checkout so the quickstart always matches this branch.
 - `quickstart/docker-compose.sqlite.yml` builds the current checkout too, but uses SQLite instead of MySQL for a smaller local stack.
@@ -236,7 +247,7 @@ db:
   # driver: "sqlite"
   # sqlite_path: "data/auth.sqlite3"
   user: "root"
-  password: "CHANGE_ME"
+  password: "YOUR_DB_PASSWORD"
   host: "localhost"
   port: 3306
   database: "auth"
@@ -506,7 +517,8 @@ SCIM Groups map enterprise directory groups into `organization_groups` and light
 
 ```yaml
 storage:
-  provider: "minio" # minio / s3 / r2 / oss
+  provider: "minio" # local / minio / s3 / r2 / oss
+  # localPath: "data/storage"
   endpoint: "localhost:9000"
   region: "us-east-1"
   accessKeyID: "your-access-key"

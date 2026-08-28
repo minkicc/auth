@@ -1,4 +1,5 @@
 #!/bin/bash
+set -eu
 
 # 等待 MinIO 服务启动
 until curl -s http://localhost:9000/minio/health/live > /dev/null; do
@@ -40,7 +41,8 @@ cat > /tmp/policy.json << EOF
                 "s3:GetObject"
             ],
             "Resource": [
-                "arn:aws:s3:::*"
+                "arn:aws:s3:::attatch",
+                "arn:aws:s3:::attatch/*"
             ]
         }
     ]
@@ -54,17 +56,17 @@ mc anonymous set-json /tmp/policy.json myminio/attatch
 rm -f /tmp/policy.json
 
 # 创建用户和访问密钥（如果不存在）
-if ! mc admin user info myminio user > /dev/null 2>&1; then
-    mc admin user add myminio user CHANGE_ME_minio_sts_secret
-    mc admin policy attach myminio readonly --user user
+if ! mc admin user info myminio "$MINIO_STS_ACCESS_KEY" > /dev/null 2>&1; then
+    mc admin user add myminio "$MINIO_STS_ACCESS_KEY" "$MINIO_STS_SECRET_KEY"
+    mc admin policy attach myminio readonly --user "$MINIO_STS_ACCESS_KEY"
     echo "Created user and attached policy"
 else
     echo "User already exists"
 fi
 
 # 尝试创建服务账户，忽略错误
-mc admin user svcacct add myminio $MINIO_ROOT_USER \
-    --access-key "CHANGE_ME_minio_access" \
-    --secret-key "CHANGE_ME_minio_secret" 2>/dev/null || true
+mc admin user svcacct add myminio "$MINIO_ROOT_USER" \
+    --access-key "$MINIO_ATTACH_ACCESS_KEY" \
+    --secret-key "$MINIO_ATTACH_SECRET_KEY" 2>/dev/null || true
 
-echo "MinIO initialization completed!" 
+echo "MinIO initialization completed!"

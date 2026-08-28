@@ -1,9 +1,9 @@
 db:
-  user: "root"
-  password: "CHANGE_ME"
+  user: "${MYSQL_USER}"
+  password: "${MYSQL_PASSWORD}"
   host: "mysql"
   port: 3306
-  database: "auth"
+  database: "${MYSQL_DATABASE}"
   charset: "utf8mb4"
 
 redis:
@@ -30,10 +30,10 @@ storage:
   provider: "minio"
   endpoint: "minio:9000"
   region: "us-east-1"
-  accessKeyID: "CHANGE_ME_minio_access"
-  secretAccessKey: "CHANGE_ME_minio_secret"
-  stsAccessKeyID: "user"
-  stsSecretAccessKey: "CHANGE_ME_minio_sts_secret"
+  accessKeyID: "${MINIO_ATTACH_ACCESS_KEY}"
+  secretAccessKey: "${MINIO_ATTACH_SECRET_KEY}"
+  stsAccessKeyID: "${MINIO_STS_ACCESS_KEY}"
+  stsSecretAccessKey: "${MINIO_STS_SECRET_KEY}"
   attatchBucket: "attatch"
 
 storage_public_url:
@@ -41,9 +41,9 @@ storage_public_url:
 
 oidc:
   enabled: true
-  issuer: ""
+  issuer: "${AUTH_PUBLIC_URL}"
   key_id: "auth-quickstart"
-  private_key_file: "/app/config/oidc-private-key.pem"
+  private_key_file: "/app/data/oidc-private-key.pem"
   code_ttl_seconds: 300
   access_token_ttl_seconds: 900
   id_token_ttl_seconds: 900
@@ -59,35 +59,6 @@ oidc:
         - "openid"
         - "profile"
         - "email"
-    - name: "Demo Backend"
-      client_id: "demo-backend"
-      client_secret: "demo-backend-secret"
-      public: false
-      require_pkce: true
-      redirect_uris:
-        - "http://127.0.0.1:8082/auth/callback"
-        - "http://localhost:8082/auth/callback"
-      scopes:
-        - "openid"
-        - "profile"
-        - "email"
-      # Example organization policy for B2B apps:
-      # require_organization: true
-      # allowed_organizations:
-      #   - "acme"
-      # required_org_roles:
-      #   - "admin"
-      # required_org_roles_all:
-      #   - "security"
-      # required_org_groups:
-      #   - "Engineering Team"
-      # required_org_groups_all:
-      #   - "Employees"
-      # scope_policies:
-      #   email:
-      #     required_org_roles_all:
-      #       - "security"
-
 auth:
   enabled_providers:
     - "account"

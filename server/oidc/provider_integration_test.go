@@ -903,7 +903,8 @@ func TestAuthorizeRedirectsToLoginWithLoginHint(t *testing.T) {
 		"&code_challenge=" + testCodeChallenge +
 		"&code_challenge_method=S256" +
 		"&state=hint-state" +
-		"&login_hint=" + url.QueryEscape("user@example.com")
+		"&login_hint=" + url.QueryEscape("user@example.com") +
+		"&login_method=phone"
 
 	authorizeResp := performRequest(t, env.router, http.MethodGet, authorizeURL, nil, nil)
 	if authorizeResp.Code != http.StatusFound {
@@ -924,6 +925,9 @@ func TestAuthorizeRedirectsToLoginWithLoginHint(t *testing.T) {
 	if loginLocation.Query().Get("login_hint") != "user@example.com" {
 		t.Fatalf("expected login_hint to round-trip, got %q", loginLocation.Query().Get("login_hint"))
 	}
+	if loginLocation.Query().Get("login_method") != "phone" {
+		t.Fatalf("expected login_method to round-trip, got %q", loginLocation.Query().Get("login_method"))
+	}
 
 	redirectValue := loginLocation.Query().Get("redirect_uri")
 	if redirectValue == "" {
@@ -935,6 +939,9 @@ func TestAuthorizeRedirectsToLoginWithLoginHint(t *testing.T) {
 	}
 	if redirectURL.Query().Get("login_hint") != "user@example.com" {
 		t.Fatalf("expected nested authorize redirect_uri to retain login_hint, got %q", redirectURL.Query().Get("login_hint"))
+	}
+	if redirectURL.Query().Get("login_method") != "phone" {
+		t.Fatalf("expected nested authorize redirect_uri to retain login_method, got %q", redirectURL.Query().Get("login_method"))
 	}
 }
 

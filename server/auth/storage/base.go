@@ -14,6 +14,7 @@ import (
 type Provider string
 
 const (
+	LOCAL Provider = "local"
 	MINIO Provider = "minio"
 	S3    Provider = "s3"
 	R2    Provider = "r2"
@@ -26,6 +27,7 @@ type Client interface {
 
 type ClientConfig struct {
 	Provider        Provider `yaml:"provider" json:"provider"`
+	LocalPath       string   `yaml:"localPath" json:"localPath"`
 	Endpoint        string   `yaml:"endpoint" json:"endpoint"`
 	Region          string   `yaml:"region" json:"region"`
 	AccessKeyID     string   `yaml:"accessKeyID" json:"accessKeyID"`
