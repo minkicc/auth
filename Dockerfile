@@ -1,5 +1,4 @@
 FROM golang:1.23-alpine3.20 AS builder
-# FROM builder-image:latest as builder
 
 ARG GOPROXY=https://proxy.golang.org,direct
 
@@ -7,11 +6,8 @@ ENV GO111MODULE=on \
     CGO_ENABLED=0 \
     GOOS=linux \
     GOPROXY=${GOPROXY}
-    # GOARCH=amd64 \
-    # GOPROXY=https://goproxy.cn,direct
 
 RUN set -ex \
-    # && sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories \
     && apk --update add tzdata \
     && cp /usr/share/zoneinfo/UTC /etc/localtime \
     && apk --no-cache add ca-certificates
@@ -48,7 +44,6 @@ WORKDIR /app
 
 ENV TZ=UTC
 RUN set -ex \
-    # && sed -i 's/dl-cdn.alpinelinux.org/mirrors.ustc.edu.cn/g' /etc/apk/repositories \
     && apk upgrade --no-cache --available \
     && apk add --no-cache fontconfig
 

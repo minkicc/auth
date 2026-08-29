@@ -39,8 +39,6 @@ services:
     entrypoint: sh
     command: -c "minio server /data --console-address ':9001' & sleep 5 && /usr/bin/minio-init.sh && tail -f /dev/null"
     container_name: minio
-    # networks:
-    #   trusted-client:
     restart: always
     environment:
       TZ: UTC
