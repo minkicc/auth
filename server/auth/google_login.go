@@ -1,10 +1,8 @@
 /*
- * Copyright (c) 2025 Open Source Contributors (https://example.com)
  * Licensed under the MIT License.
  */
 
 /*
- * Copyright (c) 2023-2024 Open Source Contributors (https://example.com)
  * Licensed under the MIT License.
  */
 
