@@ -10,7 +10,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/gin-gonic/gin"
 	"cc.minki/auth/server/admin"
 	"cc.minki/auth/server/auth"
 	"cc.minki/auth/server/auth/storage"
@@ -19,6 +18,7 @@ import (
 	"cc.minki/auth/server/middleware"
 	"cc.minki/auth/server/oidc"
 	"cc.minki/auth/server/plugins"
+	"github.com/gin-gonic/gin"
 )
 
 // AuthHandler Authentication handler
@@ -173,6 +173,7 @@ func (h *AuthHandler) RegisterRoutes(authGroup *gin.RouterGroup, cfg *config.Con
 		// browser cookie and require a confidential OIDC client credential.
 		authGroup.POST("/client/phone/send-login-code", h.ClientPhoneSendLoginCode)
 		authGroup.POST("/client/phone/code-login", h.ClientPhoneCodeLogin)
+		authGroup.POST("/client/weixin/unionid-login", h.ClientWeixinUnionIDLogin)
 		// Phone pre-registration - send verification code
 		authGroup.POST("/phone/preregister", h.PhonePreregister)
 		// Verify phone number and complete registration

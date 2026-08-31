@@ -4,11 +4,12 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
-	"github.com/gin-gonic/gin"
 	"cc.minki/auth/server/auth"
 	"cc.minki/auth/server/config"
 	"cc.minki/auth/server/iam"
+	"github.com/gin-gonic/gin"
 )
 
 type clientPhoneLoginRequest struct {
@@ -20,7 +21,18 @@ type clientPhoneSendCodeRequest struct {
 	Phone string `json:"phone" binding:"required"`
 }
 
+type clientWeixinUnionIDLoginRequest struct {
+	UnionID   string `json:"union_id" binding:"required"`
+	OpenID    string `json:"open_id"`
+	Nickname  string `json:"nickname"`
+	AvatarURL string `json:"avatar_url"`
+}
+
 func (h *AuthHandler) authenticateConfidentialClient(c *gin.Context) (oidcClient config.OIDCClientConfig, ok bool) {
+	return h.authenticateConfidentialClientWithGrant(c, "phone_code")
+}
+
+func (h *AuthHandler) authenticateConfidentialClientWithGrant(c *gin.Context, grant string) (oidcClient config.OIDCClientConfig, ok bool) {
 	if h == nil || h.oidcProvider == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "oidc is not enabled"})
 		return config.OIDCClientConfig{}, false
@@ -31,11 +43,74 @@ func (h *AuthHandler) authenticateConfidentialClient(c *gin.Context) (oidcClient
 		clientSecret = c.PostForm("client_secret")
 	}
 	client, valid := h.oidcProvider.AuthenticateConfidentialClient(clientID, clientSecret)
-	if !valid || !hasGrant(client.GrantTypes, "phone_code") {
+	if !valid || !hasGrant(client.GrantTypes, grant) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid_client"})
 		return config.OIDCClientConfig{}, false
 	}
 	return client, true
+}
+
+// ClientWeixinUnionIDLogin exchanges a server-verified WeChat UnionID for
+// standard OIDC tokens. The WeChat app secret stays in the K12 backend; Auth
+// only trusts this endpoint when called by a configured confidential client.
+func (h *AuthHandler) ClientWeixinUnionIDLogin(c *gin.Context) {
+	client, ok := h.authenticateConfidentialClientWithGrant(c, "phone_code")
+	if !ok {
+		return
+	}
+	if h.weixinLogin == nil || h.oidcProvider == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "weixin login is not enabled"})
+		return
+	}
+	var req clientWeixinUnionIDLoginRequest
+	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.UnionID) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		return
+	}
+	info := &auth.WeixinUserInfo{
+		UnionID:    strings.TrimSpace(req.UnionID),
+		OpenID:     strings.TrimSpace(req.OpenID),
+		Nickname:   strings.TrimSpace(req.Nickname),
+		HeadImgURL: strings.TrimSpace(req.AvatarURL),
+	}
+	user, err := h.weixinLogin.GetUserByWeixinID(info.UnionID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "weixin login failed"})
+		return
+	}
+	created := user == nil
+	if created {
+		if h.rejectRegistrationIfDisabled(c, "weixin") {
+			return
+		}
+		redemption, invitationOK := h.beginRegistrationInvitation(c, "weixin", info.UnionID, "", client.ClientID, "")
+		if !invitationOK {
+			return
+		}
+		user, err = h.weixinLogin.CreateUserFromWeixin(info)
+		if err != nil {
+			h.cancelRegistrationInvitation(redemption)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "weixin login failed"})
+			return
+		}
+		if !h.completeRegistrationInvitation(c, redemption, user.UserID) {
+			return
+		}
+	} else if err := auth.EnsureUserCanAuthenticate(user); err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": "account is not available"})
+		return
+	}
+	if !created {
+		_ = h.accountAuth.DB().Model(&auth.User{}).Where("user_id = ?", user.UserID).Update("last_login", time.Now()).Error
+	}
+	tokens, err := h.oidcProvider.IssueUserTokens(c, user, client, "openid profile email")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to issue login token"})
+		return
+	}
+	c.Header("Cache-Control", "no-store")
+	c.Header("Pragma", "no-cache")
+	c.JSON(http.StatusOK, tokens)
 }
 
 func hasGrant(grants []string, wanted string) bool {
