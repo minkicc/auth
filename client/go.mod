@@ -1,4 +1,4 @@
-module example.com/auth/client
+module cc.minki/auth/client
 
 go 1.24.1
 

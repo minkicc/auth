@@ -7,8 +7,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"example.com/auth/server/auth"
-	"example.com/auth/server/config"
+	"cc.minki/auth/server/auth"
+	"cc.minki/auth/server/config"
 )
 
 func TestHTTPActionHookMergesClaimsAndMetadata(t *testing.T) {

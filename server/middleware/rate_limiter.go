@@ -16,7 +16,7 @@ import (
 
 	"github.com/go-redis/redis/v8"
 
-	"example.com/auth/server/common"
+	"cc.minki/auth/server/common"
 )
 
 const (

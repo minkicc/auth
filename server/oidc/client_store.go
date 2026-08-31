@@ -9,8 +9,8 @@ import (
 
 	"gorm.io/gorm"
 
-	"example.com/auth/server/config"
-	"example.com/auth/server/secureconfig"
+	"cc.minki/auth/server/config"
+	"cc.minki/auth/server/secureconfig"
 )
 
 const (

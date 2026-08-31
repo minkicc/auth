@@ -15,7 +15,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
-	"example.com/auth/server/config"
+	"cc.minki/auth/server/config"
 )
 
 const (

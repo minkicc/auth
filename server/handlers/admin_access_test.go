@@ -4,9 +4,9 @@ import (
 	"net/http"
 	"testing"
 
-	"example.com/auth/server/admin"
-	"example.com/auth/server/auth"
-	"example.com/auth/server/config"
+	"cc.minki/auth/server/admin"
+	"cc.minki/auth/server/auth"
+	"cc.minki/auth/server/config"
 )
 
 func TestCurrentUserAdminAccessEndpointReflectsConfiguredAdminUserID(t *testing.T) {

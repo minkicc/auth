@@ -12,9 +12,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/go-redis/redis/v8"
-	"example.com/auth/server/common"
-	"example.com/auth/server/config"
-	"example.com/auth/server/iam"
+	"cc.minki/auth/server/common"
+	"cc.minki/auth/server/config"
+	"cc.minki/auth/server/iam"
 )
 
 const pendingRegistrationInvitationTTL = 24 * time.Hour

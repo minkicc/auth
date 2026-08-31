@@ -5,8 +5,8 @@ import (
 	"sort"
 	"strings"
 
-	"example.com/auth/server/config"
-	"example.com/auth/server/iam"
+	"cc.minki/auth/server/config"
+	"cc.minki/auth/server/iam"
 )
 
 const (

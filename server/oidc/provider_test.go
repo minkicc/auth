@@ -10,7 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
-	"example.com/auth/server/config"
+	"cc.minki/auth/server/config"
 )
 
 func TestVerifyPKCE(t *testing.T) {

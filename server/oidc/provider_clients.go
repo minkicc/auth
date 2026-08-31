@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"example.com/auth/server/config"
+	"cc.minki/auth/server/config"
 )
 
 func (p *Provider) Reload() error {

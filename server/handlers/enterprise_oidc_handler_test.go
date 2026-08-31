@@ -10,9 +10,9 @@ import (
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 
-	"example.com/auth/server/config"
-	"example.com/auth/server/iam"
-	"example.com/auth/server/plugins"
+	"cc.minki/auth/server/config"
+	"cc.minki/auth/server/iam"
+	"cc.minki/auth/server/plugins"
 )
 
 func TestSafeEnterpriseOIDCReturnURI(t *testing.T) {

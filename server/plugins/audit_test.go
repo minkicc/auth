@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"example.com/auth/server/config"
+	"cc.minki/auth/server/config"
 )
 
 func TestRuntimeRecordsPluginAudit(t *testing.T) {

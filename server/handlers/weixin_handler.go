@@ -11,9 +11,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"example.com/auth/server/auth"
-	"example.com/auth/server/common"
-	"example.com/auth/server/iam"
+	"cc.minki/auth/server/auth"
+	"cc.minki/auth/server/common"
+	"cc.minki/auth/server/iam"
 )
 
 type weixinOAuthState struct {

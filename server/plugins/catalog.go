@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
-	"example.com/auth/server/config"
+	"cc.minki/auth/server/config"
 )
 
 const (

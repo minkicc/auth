@@ -15,7 +15,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 
-	"example.com/auth/server/common"
+	"cc.minki/auth/server/common"
 )
 
 const (

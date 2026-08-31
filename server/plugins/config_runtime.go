@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"example.com/auth/server/config"
+	"cc.minki/auth/server/config"
 )
 
 type ConfigView struct {

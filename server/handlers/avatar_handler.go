@@ -8,7 +8,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"example.com/auth/server/auth"
+	"cc.minki/auth/server/auth"
 )
 
 type AvatarHandler struct {

@@ -11,7 +11,7 @@ import (
 	"math/big"
 	"time"
 
-	"example.com/auth/server/common"
+	"cc.minki/auth/server/common"
 
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"

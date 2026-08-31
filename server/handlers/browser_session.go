@@ -5,8 +5,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"example.com/auth/server/auth"
-	"example.com/auth/server/common"
+	"cc.minki/auth/server/auth"
+	"cc.minki/auth/server/common"
 )
 
 func setLaxCookie(c *gin.Context, name, value string, maxAge int, path, domain string, secure, httpOnly bool) {

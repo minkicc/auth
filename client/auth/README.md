@@ -10,5 +10,5 @@
 代码导入路径：
 
 ```go
-import "example.com/auth/client/auth"
+import "cc.minki/auth/client/auth"
 ```

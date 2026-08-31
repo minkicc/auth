@@ -10,7 +10,7 @@ import (
 	"strings"
 	"sync"
 
-	"example.com/auth/server/auth"
+	"cc.minki/auth/server/auth"
 )
 
 type HookEvent string

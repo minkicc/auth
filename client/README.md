@@ -19,13 +19,13 @@
 ## 安装
 
 ```bash
-go get example.com/auth/client
+go get cc.minki/auth/client
 ```
 
 代码中导入的包路径为：
 
 ```go
-import "example.com/auth/client/auth"
+import "cc.minki/auth/client/auth"
 ```
 
 ## 创建客户端
@@ -60,7 +60,7 @@ client := auth.NewAuthClient(
 如果你不想从示例里手抄校验逻辑，也可以直接使用：
 
 ```go
-import "example.com/auth/client/oidcresource"
+import "cc.minki/auth/client/oidcresource"
 ```
 
 也就是说，这个 SDK 现在更适合调用 Auth 的管理型 `/api` 接口，而不是承担 OIDC 资源服务器鉴权职责。

@@ -870,7 +870,7 @@ The Go SDK under `client/auth` is now best treated as a helper for Auth manageme
 ### Install
 
 ```bash
-go get example.com/auth/client
+go get cc.minki/auth/client
 ```
 
 ### Protect business APIs

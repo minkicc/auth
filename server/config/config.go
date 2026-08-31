@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
-	"example.com/auth/server/auth/storage"
+	"cc.minki/auth/server/auth/storage"
 )
 
 // Config Main configuration structure

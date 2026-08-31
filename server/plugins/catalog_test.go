@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"example.com/auth/server/config"
+	"cc.minki/auth/server/config"
 )
 
 func TestLoadCatalogEntries(t *testing.T) {

@@ -14,9 +14,9 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
-	"example.com/auth/server/auth"
-	"example.com/auth/server/config"
-	"example.com/auth/server/iam"
+	"cc.minki/auth/server/auth"
+	"cc.minki/auth/server/config"
+	"cc.minki/auth/server/iam"
 )
 
 var scimMemberValueFilterPattern = regexp.MustCompile(`(?i)^members\[value\s+eq\s+"?([^"]+)"?\]$`)

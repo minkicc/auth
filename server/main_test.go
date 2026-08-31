@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"testing"
 
-	"example.com/auth/server/config"
+	"cc.minki/auth/server/config"
 )
 
 func TestCollectAllowedOrigins(t *testing.T) {

@@ -16,7 +16,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
-	"example.com/auth/server/auth"
+	"cc.minki/auth/server/auth"
 )
 
 // Logger middleware

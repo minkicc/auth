@@ -4,7 +4,7 @@ import (
 	"errors"
 	"time"
 
-	"example.com/auth/server/common"
+	"cc.minki/auth/server/common"
 )
 
 const OIDCSessionCookieName = "oidc_session"

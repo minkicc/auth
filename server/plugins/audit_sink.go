@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"example.com/auth/server/iam"
+	"cc.minki/auth/server/iam"
 )
 
 const defaultHTTPAuditSinkTimeout = 3 * time.Second

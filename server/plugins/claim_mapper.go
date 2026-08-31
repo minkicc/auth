@@ -6,7 +6,7 @@ import (
 	"regexp"
 	"strings"
 
-	"example.com/auth/server/iam"
+	"cc.minki/auth/server/iam"
 )
 
 var claimNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_:.~-]{0,127}$`)

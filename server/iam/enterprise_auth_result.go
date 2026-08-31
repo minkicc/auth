@@ -1,6 +1,6 @@
 package iam
 
-import "example.com/auth/server/auth"
+import "cc.minki/auth/server/auth"
 
 // EnterpriseAuthenticationResult captures side effects from enterprise JIT login.
 type EnterpriseAuthenticationResult struct {

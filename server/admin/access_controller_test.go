@@ -22,10 +22,10 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"gorm.io/gorm"
 
-	"example.com/auth/server/auth"
-	"example.com/auth/server/config"
-	"example.com/auth/server/iam"
-	"example.com/auth/server/oidc"
+	"cc.minki/auth/server/auth"
+	"cc.minki/auth/server/config"
+	"cc.minki/auth/server/iam"
+	"cc.minki/auth/server/oidc"
 )
 
 func TestAccessControllerListsAndMutatesAdmins(t *testing.T) {

@@ -8,8 +8,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
-	"example.com/auth/server/auth"
-	"example.com/auth/server/iam"
+	"cc.minki/auth/server/auth"
+	"cc.minki/auth/server/iam"
 )
 
 const organizationAuthorizationContextKey = "organization_authorization"

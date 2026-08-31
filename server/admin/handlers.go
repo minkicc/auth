@@ -16,8 +16,8 @@ import (
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
-	"example.com/auth/server/auth"
-	"example.com/auth/server/plugins"
+	"cc.minki/auth/server/auth"
+	"cc.minki/auth/server/plugins"
 )
 
 const maxPluginPackageSize = 20 << 20

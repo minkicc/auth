@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"example.com/auth/server/common"
+	"cc.minki/auth/server/common"
 )
 
 func (h *AuthHandler) RequireSameOriginForBrowserSession() gin.HandlerFunc {

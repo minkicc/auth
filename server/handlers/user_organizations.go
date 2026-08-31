@@ -12,9 +12,9 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
-	"example.com/auth/server/auth"
-	"example.com/auth/server/iam"
-	"example.com/auth/server/oidc"
+	"cc.minki/auth/server/auth"
+	"cc.minki/auth/server/iam"
+	"cc.minki/auth/server/oidc"
 )
 
 var currentUserOrganizationSlugPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,78}[a-z0-9]$|^[a-z0-9]$`)

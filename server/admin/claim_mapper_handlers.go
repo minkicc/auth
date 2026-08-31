@@ -9,7 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
-	"example.com/auth/server/iam"
+	"cc.minki/auth/server/iam"
 )
 
 const (

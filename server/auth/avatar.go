@@ -20,7 +20,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/nfnt/resize"
 	"github.com/pkg/errors"
-	"example.com/auth/server/auth/storage"
+	"cc.minki/auth/server/auth/storage"
 )
 
 const (

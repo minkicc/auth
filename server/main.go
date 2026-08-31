@@ -30,16 +30,16 @@ import (
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 
-	"example.com/auth/server/admin"
-	"example.com/auth/server/auth"
-	"example.com/auth/server/auth/storage"
-	"example.com/auth/server/config"
-	"example.com/auth/server/handlers"
-	"example.com/auth/server/iam"
-	"example.com/auth/server/middleware"
-	"example.com/auth/server/oidc"
-	"example.com/auth/server/plugins"
-	"example.com/auth/server/secureconfig"
+	"cc.minki/auth/server/admin"
+	"cc.minki/auth/server/auth"
+	"cc.minki/auth/server/auth/storage"
+	"cc.minki/auth/server/config"
+	"cc.minki/auth/server/handlers"
+	"cc.minki/auth/server/iam"
+	"cc.minki/auth/server/middleware"
+	"cc.minki/auth/server/oidc"
+	"cc.minki/auth/server/plugins"
+	"cc.minki/auth/server/secureconfig"
 )
 
 // Global variables - reduce multiple passing of DB

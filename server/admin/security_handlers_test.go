@@ -14,10 +14,10 @@ import (
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 
-	"example.com/auth/server/config"
-	"example.com/auth/server/iam"
-	"example.com/auth/server/oidc"
-	"example.com/auth/server/secureconfig"
+	"cc.minki/auth/server/config"
+	"cc.minki/auth/server/iam"
+	"cc.minki/auth/server/oidc"
+	"cc.minki/auth/server/secureconfig"
 )
 
 func TestSecurityHandlersResealManagedSecrets(t *testing.T) {

@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"example.com/auth/server/config"
+	"cc.minki/auth/server/config"
 )
 
 func TestRequireSameOriginForBrowserSession(t *testing.T) {

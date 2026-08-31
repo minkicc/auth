@@ -11,14 +11,14 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"example.com/auth/server/admin"
-	"example.com/auth/server/auth"
-	"example.com/auth/server/auth/storage"
-	"example.com/auth/server/config"
-	"example.com/auth/server/iam"
-	"example.com/auth/server/middleware"
-	"example.com/auth/server/oidc"
-	"example.com/auth/server/plugins"
+	"cc.minki/auth/server/admin"
+	"cc.minki/auth/server/auth"
+	"cc.minki/auth/server/auth/storage"
+	"cc.minki/auth/server/config"
+	"cc.minki/auth/server/iam"
+	"cc.minki/auth/server/middleware"
+	"cc.minki/auth/server/oidc"
+	"cc.minki/auth/server/plugins"
 )
 
 // AuthHandler Authentication handler

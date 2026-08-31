@@ -17,8 +17,8 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"gorm.io/gorm"
 
-	"example.com/auth/server/auth"
-	"example.com/auth/server/config"
+	"cc.minki/auth/server/auth"
+	"cc.minki/auth/server/config"
 )
 
 func TestEnterpriseOIDCAuthenticateCreatesUserAndExternalIdentity(t *testing.T) {

@@ -9,8 +9,8 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"example.com/auth/server/auth"
-	"example.com/auth/server/iam"
+	"cc.minki/auth/server/auth"
+	"cc.minki/auth/server/iam"
 )
 
 // PhoneRegisterRequest Phone registration request

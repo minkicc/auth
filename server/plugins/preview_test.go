@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"example.com/auth/server/config"
+	"cc.minki/auth/server/config"
 )
 
 func TestRuntimePreviewZipReportsReplaceImpact(t *testing.T) {

@@ -8,8 +8,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"example.com/auth/server/auth"
-	"example.com/auth/server/iam"
+	"cc.minki/auth/server/auth"
+	"cc.minki/auth/server/iam"
 )
 
 func TestCurrentOrganizationAuthorizationEndpointAutoSelectsSingleMembership(t *testing.T) {

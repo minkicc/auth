@@ -13,7 +13,7 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
-	"example.com/auth/server/config"
+	"cc.minki/auth/server/config"
 )
 
 type SignatureEnvelope struct {

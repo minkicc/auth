@@ -8,7 +8,7 @@ import (
 	"fmt"
 
 	"gorm.io/gorm"
-	"example.com/auth/server/auth"
+	"cc.minki/auth/server/auth"
 )
 
 // Service owns the CIAM/IAM foundation tables and helpers.

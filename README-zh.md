@@ -842,7 +842,7 @@ curl -X POST http://localhost:8080/api/logout \
 ### 安装
 
 ```bash
-go get example.com/auth/client
+go get cc.minki/auth/client
 ```
 
 ### 1. 为业务接口加登录保护

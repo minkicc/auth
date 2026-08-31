@@ -8,7 +8,7 @@ import (
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 
-	"example.com/auth/server/auth"
+	"cc.minki/auth/server/auth"
 )
 
 func TestDatabaseClaimMapperHookInjectsClaims(t *testing.T) {

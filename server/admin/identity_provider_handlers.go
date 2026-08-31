@@ -9,9 +9,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"example.com/auth/server/config"
-	"example.com/auth/server/iam"
-	"example.com/auth/server/secureconfig"
+	"cc.minki/auth/server/config"
+	"cc.minki/auth/server/iam"
+	"cc.minki/auth/server/secureconfig"
 )
 
 var defaultAdminOIDCScopes = []string{"openid", "profile", "email"}

@@ -13,7 +13,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"example.com/auth/client/oidcresource"
+	"cc.minki/auth/client/oidcresource"
 )
 
 const (

@@ -14,8 +14,8 @@ import (
 	"sync"
 
 	"gopkg.in/yaml.v3"
-	"example.com/auth/server/config"
-	"example.com/auth/server/iam"
+	"cc.minki/auth/server/config"
+	"cc.minki/auth/server/iam"
 )
 
 type PluginType string

@@ -7,9 +7,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"example.com/auth/server/auth"
-	"example.com/auth/server/common"
-	"example.com/auth/server/iam"
+	"cc.minki/auth/server/auth"
+	"cc.minki/auth/server/common"
+	"cc.minki/auth/server/iam"
 )
 
 const enterpriseSAMLStateTTL = 15 * time.Minute

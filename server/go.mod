@@ -1,4 +1,4 @@
-module example.com/auth/server
+module cc.minki/auth/server
 
 go 1.23.1
 

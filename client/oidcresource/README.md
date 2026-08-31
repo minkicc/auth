@@ -12,7 +12,7 @@
 导入路径：
 
 ```go
-import "example.com/auth/client/oidcresource"
+import "cc.minki/auth/client/oidcresource"
 ```
 
 最小示例：

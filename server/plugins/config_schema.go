@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"example.com/auth/server/config"
+	"cc.minki/auth/server/config"
 )
 
 const (

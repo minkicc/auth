@@ -23,8 +23,8 @@ import (
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 
-	"example.com/auth/server/auth"
-	"example.com/auth/server/config"
+	"cc.minki/auth/server/auth"
+	"cc.minki/auth/server/config"
 )
 
 func TestEnterpriseSAMLManagerLoadsDatabaseProviders(t *testing.T) {

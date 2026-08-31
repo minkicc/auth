@@ -10,8 +10,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
-	"example.com/auth/server/config"
-	"example.com/auth/server/oidc"
+	"cc.minki/auth/server/config"
+	"cc.minki/auth/server/oidc"
 )
 
 type oidcClientPayload struct {
