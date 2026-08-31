@@ -49,7 +49,7 @@
         <input 
           v-model="formData.password" 
           type="password" 
-          :placeholder="$t('common.password')"
+          :placeholder="$t('common.optionalPassword')"
           :class="{ 'error': formErrors.password }"
         >
         <span v-if="formErrors.password" class="error-text">{{ formErrors.password }}</span>
@@ -59,7 +59,7 @@
         <input 
           v-model="formData.confirmPassword" 
           type="password" 
-          :placeholder="$t('common.confirmPassword')"
+          :placeholder="$t('common.optionalPasswordConfirmation')"
           :class="{ 'error': formErrors.confirmPassword }"
         >
         <span v-if="formErrors.confirmPassword" class="error-text">{{ formErrors.confirmPassword }}</span>
@@ -183,12 +183,12 @@ function validateNickname(nickname: string): boolean {
 // 验证密码
 function validatePassword(password: string): boolean {
   if (!password) {
-    formErrors.password = t('validation.required', { field: t('common.password') })
-    return false
+    formErrors.password = ''
+    return true
   }
   
-  if (password.length < 6) {
-    formErrors.password = t('validation.passwordLength', { min: 6 })
+  if (password.length < 8) {
+    formErrors.password = t('validation.passwordLength', { min: 8 })
     return false
   }
   
@@ -198,7 +198,12 @@ function validatePassword(password: string): boolean {
 
 // 验证确认密码
 function validateConfirmPassword(password: string, confirmPassword: string): boolean {
-  if (!confirmPassword) {
+  if (!password && !confirmPassword) {
+    formErrors.confirmPassword = ''
+    return true
+  }
+
+  if (password && !confirmPassword) {
     formErrors.confirmPassword = t('validation.required', { field: t('common.confirmPassword') })
     return false
   }

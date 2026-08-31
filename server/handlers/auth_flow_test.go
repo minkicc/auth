@@ -15,6 +15,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/go-redis/redis/v8"
+	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 
 	"cc.minki/auth/server/auth"
@@ -432,6 +433,61 @@ func requireVerifiedPhoneUser(t *testing.T, env *authTestEnv, phone, password st
 	}
 
 	return normalizedPhone
+}
+
+func TestPhonePreregisterAllowsOptionalPasswordAndCodeLogin(t *testing.T) {
+	env := newAuthTestEnv(t)
+	defer env.Close()
+
+	preregisterResp := performJSONRequest(t, env.router, http.MethodPost, "/api/phone/preregister", map[string]string{
+		"phone":    "13800138000",
+		"nickname": "OTP user",
+	}, nil, nil)
+	if preregisterResp.Code != http.StatusOK {
+		t.Fatalf("expected phone preregister without password status 200, got %d with body %s", preregisterResp.Code, preregisterResp.Body.String())
+	}
+	if len(env.smsService.verificationSMS) != 1 {
+		t.Fatalf("expected one registration SMS, got %d", len(env.smsService.verificationSMS))
+	}
+
+	verifyResp := performJSONRequest(t, env.router, http.MethodPost, "/api/phone/verify-register", map[string]string{
+		"phone": "13800138000",
+		"code":  env.smsService.verificationSMS[0].Code,
+	}, nil, nil)
+	if verifyResp.Code != http.StatusOK {
+		t.Fatalf("expected phone verify-register status 200, got %d with body %s", verifyResp.Code, verifyResp.Body.String())
+	}
+	verifyBody := decodeBodyMap(t, verifyResp)
+	userID, ok := verifyBody["user_id"].(string)
+	if !ok || userID == "" {
+		t.Fatalf("expected registered user_id, got %#v", verifyBody["user_id"])
+	}
+
+	var user auth.User
+	if err := env.db.First(&user, "user_id = ?", userID).Error; err != nil {
+		t.Fatalf("expected phone user to be stored: %v", err)
+	}
+	if user.Password == "" || bcrypt.CompareHashAndPassword([]byte(user.Password), []byte("")) == nil {
+		t.Fatal("expected a generated password hash that cannot authenticate with an empty password")
+	}
+
+	sendCodeResp := performJSONRequest(t, env.router, http.MethodPost, "/api/phone/send-login-code", map[string]string{
+		"phone": "13800138000",
+	}, nil, nil)
+	if sendCodeResp.Code != http.StatusOK {
+		t.Fatalf("expected send login code status 200, got %d with body %s", sendCodeResp.Code, sendCodeResp.Body.String())
+	}
+	if len(env.smsService.verificationSMS) != 2 {
+		t.Fatalf("expected registration and login SMS messages, got %d", len(env.smsService.verificationSMS))
+	}
+
+	loginResp := performJSONRequest(t, env.router, http.MethodPost, "/api/phone/code-login", map[string]string{
+		"phone": "13800138000",
+		"code":  env.smsService.verificationSMS[1].Code,
+	}, nil, nil)
+	if loginResp.Code != http.StatusOK {
+		t.Fatalf("expected phone code login status 200, got %d with body %s", loginResp.Code, loginResp.Body.String())
+	}
 }
 
 func TestAccountRegisterCreatesBrowserSessionAndLogoutRequiresSameOrigin(t *testing.T) {

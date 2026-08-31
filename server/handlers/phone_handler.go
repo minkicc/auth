@@ -8,15 +8,15 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/gin-gonic/gin"
 	"cc.minki/auth/server/auth"
 	"cc.minki/auth/server/iam"
+	"github.com/gin-gonic/gin"
 )
 
 // PhoneRegisterRequest Phone registration request
 type PhoneRegisterRequest struct {
 	Phone          string `json:"phone" binding:"required"`
-	Password       string `json:"password" binding:"required"`
+	Password       string `json:"password"`
 	Nickname       string `json:"nickname"`
 	ClientID       string `json:"client_id"`
 	InvitationCode string `json:"invitation_code"`
@@ -241,7 +241,7 @@ func (h *AuthHandler) PhoneInitiatePasswordReset(c *gin.Context) {
 func (h *AuthHandler) PhonePreregister(c *gin.Context) {
 	var req struct {
 		Phone          string `json:"phone" binding:"required"`
-		Password       string `json:"password" binding:"required"`
+		Password       string `json:"password"`
 		Nickname       string `json:"nickname"`
 		ClientID       string `json:"client_id"`
 		InvitationCode string `json:"invitation_code"`
@@ -281,7 +281,7 @@ func (h *AuthHandler) PhonePreregister(c *gin.Context) {
 		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
 		return
 	}
-	if len(req.Password) < 8 {
+	if req.Password != "" && len(req.Password) < 8 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Password must be at least 8 characters"})
 		return
 	}

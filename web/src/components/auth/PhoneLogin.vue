@@ -4,51 +4,8 @@
 
 <template>
   <div>
-    <!-- 手机登录类型切换 -->
-    <div class="phone-login-tabs">
-      <button 
-        :class="['tab-btn', { active: phoneLoginMethod === 'password' }]" 
-        @click="phoneLoginMethod = 'password'"
-      >
-        {{ $t('auth.passwordLogin') }}
-      </button>
-      <button 
-        :class="['tab-btn', { active: phoneLoginMethod === 'code' }]" 
-        @click="phoneLoginMethod = 'code'"
-      >
-        {{ $t('auth.codeLogin') }}
-      </button>
-    </div>
-
-    <!-- 手机号密码登录表单 -->
-    <form v-if="phoneLoginMethod === 'password'" @submit.prevent="handlePasswordLogin" class="auth-form">
-      <div class="form-item">
-        <input 
-          v-model="passwordForm.phone" 
-          type="text" 
-          :placeholder="$t('common.phoneNumber')"
-          :class="{ 'error': formErrors.phone }"
-        >
-        <span v-if="formErrors.phone" class="error-text">{{ formErrors.phone }}</span>
-      </div>
-      
-      <div class="form-item">
-        <input 
-          v-model="passwordForm.password" 
-          type="password" 
-          :placeholder="$t('common.password')"
-          :class="{ 'error': formErrors.password }"
-        >
-        <span v-if="formErrors.password" class="error-text">{{ formErrors.password }}</span>
-      </div>
-
-      <button type="submit" :disabled="isLoading" class="submit-btn">
-        {{ isLoading ? $t('common.loading') : $t('auth.login') }}
-      </button>
-    </form>
-
     <!-- 手机验证码登录表单 -->
-    <form v-if="phoneLoginMethod === 'code'" @submit.prevent="handleCodeLogin" class="auth-form">
+    <form @submit.prevent="handleCodeLogin" class="auth-form">
       <div class="form-item">
         <input 
           v-model="codeForm.phone" 
@@ -86,7 +43,7 @@
 </template>
 
 <script lang="ts" setup>
-import { onMounted, reactive, ref, defineEmits } from 'vue'
+import { onMounted, onUnmounted, reactive, ref, defineEmits } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { serverApi } from '@/api/serverApi';
 
@@ -95,15 +52,6 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
-
-// 手机登录方式 (密码登录 或 验证码登录)
-const phoneLoginMethod = ref('password')
-
-// 密码登录表单
-const passwordForm = reactive({
-  phone: '',
-  password: ''
-})
 
 // 验证码登录表单
 const codeForm = reactive({
@@ -114,7 +62,6 @@ const codeForm = reactive({
 // 表单错误
 const formErrors = reactive({
   phone: '',
-  password: '',
   code: ''
 })
 
@@ -131,9 +78,7 @@ const isSendingCode = ref(false)
 onMounted(() => {
   const hinted = serverApi.loginHint.replace(/[\s()-]/g, '').replace(/^\+86/, '')
   if (!/^1[3-9]\d{9}$/.test(hinted)) return
-  passwordForm.phone = hinted
   codeForm.phone = hinted
-  phoneLoginMethod.value = 'code'
 })
 
 
@@ -152,22 +97,6 @@ function validatePhone(phone: string): boolean {
   }
   
   formErrors.phone = ''
-  return true
-}
-
-// 验证密码
-function validatePassword(password: string): boolean {
-  if (!password) {
-    formErrors.password = t('validation.required', { field: t('common.password') })
-    return false
-  }
-  
-  if (password.length < 8) {
-    formErrors.password = t('validation.passwordLength', { min: 8 })
-    return false
-  }
-  
-  formErrors.password = ''
   return true
 }
 
@@ -212,28 +141,6 @@ async function sendVerificationCode() {
   }
 }
 
-// 密码登录
-async function handlePasswordLogin() {
-  // 重置表单错误
-  formErrors.phone = ''
-  formErrors.password = ''
-  
-  // 验证表单
-  const isPhoneValid = validatePhone(passwordForm.phone)
-  const isPasswordValid = validatePassword(passwordForm.password)
-  
-  if (!isPhoneValid || !isPasswordValid) return
-  
-  try {
-    isLoading.value = true
-    await serverApi.phoneLogin(passwordForm.phone, passwordForm.password)
-  } catch (error: any) {
-    emit('login-error', error.response?.data?.error || error.message)
-  } finally {
-    isLoading.value = false
-  }
-}
-
 // 验证码登录
 async function handleCodeLogin() {
   // 重置表单错误
@@ -256,29 +163,15 @@ async function handleCodeLogin() {
   }
 }
 
+onUnmounted(() => {
+  if (cooldownTimer) {
+    clearInterval(cooldownTimer)
+  }
+})
+
 </script>
 
 <style scoped>
-.phone-login-tabs {
-  display: flex;
-  margin-bottom: 20px;
-}
-
-.phone-login-tabs .tab-btn {
-  flex: 1;
-  padding: 10px;
-  background-color: #f5f5f5;
-  border: none;
-  cursor: pointer;
-  font-size: 14px;
-  transition: all 0.3s;
-}
-
-.phone-login-tabs .tab-btn.active {
-  background-color: #007bff;
-  color: white;
-}
-
 .verification-code {
   display: flex;
   gap: 10px;
@@ -314,17 +207,6 @@ async function handleCodeLogin() {
   background-color: #bfbfbf;
   cursor: not-allowed;
   opacity: 0.7;
-}
-
-.forget-password {
-  text-align: right;
-  margin-bottom: 15px;
-  font-size: 14px;
-}
-
-.forget-password a {
-  color: #007bff;
-  text-decoration: none;
 }
 
 /* 模态框样式 */

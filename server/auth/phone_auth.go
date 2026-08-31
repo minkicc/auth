@@ -347,15 +347,9 @@ func (a *PhoneAuth) PhonePreregister(phone, password, nickname string) (string, 
 		return "", err
 	}
 
-	// Validate password strength
-	if len(password) < 8 {
-		return "", ErrWeakPassword("Password must be at least 8 characters")
-	}
-
-	// Encrypt password
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	hashedPassword, err := hashPhonePasswordOrRandom(password)
 	if err != nil {
-		return "", fmt.Errorf("failed to encrypt password: %v", err)
+		return "", err
 	}
 
 	// Generate verification code
@@ -367,7 +361,7 @@ func (a *PhoneAuth) PhonePreregister(phone, password, nickname string) (string, 
 	// Create pre-registration information
 	preregInfo := &PhonePreregisterInfo{
 		Phone:     phone,
-		Password:  string(hashedPassword),
+		Password:  hashedPassword,
 		Nickname:  nickname,
 		CreatedAt: time.Now(),
 	}
@@ -389,6 +383,29 @@ func (a *PhoneAuth) PhonePreregister(phone, password, nickname string) (string, 
 	}
 
 	return code, nil
+}
+
+func hashPhonePasswordOrRandom(password string) (string, error) {
+	if password != "" {
+		if len(password) < 8 {
+			return "", ErrWeakPassword("Password must be at least 8 characters")
+		}
+		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+		if err != nil {
+			return "", fmt.Errorf("failed to encrypt password: %w", err)
+		}
+		return string(hashedPassword), nil
+	}
+
+	randomPassword := make([]byte, 32)
+	if _, err := rand.Read(randomPassword); err != nil {
+		return "", fmt.Errorf("failed to generate random password: %w", err)
+	}
+	hashedPassword, err := bcrypt.GenerateFromPassword(randomPassword, bcrypt.DefaultCost)
+	if err != nil {
+		return "", fmt.Errorf("failed to encrypt random password: %w", err)
+	}
+	return string(hashedPassword), nil
 }
 
 // ResendPhoneVerification Resend phone verification code

@@ -672,7 +672,7 @@ class ServerApi {
     async startPhoneRegistration(phone: string, password: string, nickname: string, invitationCode = '') {
         const response = await axios.post('/phone/preregister', {
             phone,
-            password,
+            password: password || undefined,
             nickname,
             client_id: this.clientId,
             invitation_code: invitationCode.trim() || undefined,

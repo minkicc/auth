@@ -28,6 +28,8 @@ export default {
     email: '邮箱',
     password: '密码',
     confirmPassword: '确认密码',
+    optionalPassword: '密码（可选）',
+    optionalPasswordConfirmation: '确认密码（可选）',
     phone: '手机号',
     nickname: '昵称',
     username: '用户名',

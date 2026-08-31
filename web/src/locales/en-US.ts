@@ -28,6 +28,8 @@ export default {
     email: 'Email',
     password: 'Password',
     confirmPassword: 'Confirm Password',
+    optionalPassword: 'Password (optional)',
+    optionalPasswordConfirmation: 'Confirm Password (optional)',
     phone: 'Phone Number',
     nickname: 'Nickname',
     username: 'Username',
