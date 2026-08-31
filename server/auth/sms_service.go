@@ -10,7 +10,9 @@ import (
 	"log"
 	"strings"
 
-	"github.com/aliyun/alibaba-cloud-sdk-go/services/dysmsapi"
+	aliyunsdk "github.com/aliyun/alibaba-cloud-sdk-go/sdk"
+	"github.com/aliyun/alibaba-cloud-sdk-go/sdk/requests"
+	"github.com/aliyun/alibaba-cloud-sdk-go/sdk/responses"
 )
 
 // SMS Configuration
@@ -26,6 +28,30 @@ type SMSConfig struct {
 // Default SMS Service implementation
 type DefaultSMSService struct {
 	config SMSConfig
+}
+
+type aliyunSendSMSRequest struct {
+	*requests.RpcRequest
+	PhoneNumbers  string `position:"Query" name:"PhoneNumbers"`
+	SignName      string `position:"Query" name:"SignName"`
+	TemplateCode  string `position:"Query" name:"TemplateCode"`
+	TemplateParam string `position:"Query" name:"TemplateParam"`
+}
+
+type aliyunSendSMSResponse struct {
+	*responses.BaseResponse
+	BizID     string `json:"BizId" xml:"BizId"`
+	Code      string `json:"Code" xml:"Code"`
+	Message   string `json:"Message" xml:"Message"`
+	RequestID string `json:"RequestId" xml:"RequestId"`
+}
+
+func newAliyunSendSMSRequest() *aliyunSendSMSRequest {
+	request := &aliyunSendSMSRequest{RpcRequest: &requests.RpcRequest{}}
+	request.InitWithApiInfo("Dysmsapi", "2017-05-25", "SendSms", "dysms", "openAPI")
+	request.Method = requests.POST
+	request.Scheme = "https"
+	return request
 }
 
 // Create a new SMS service
@@ -106,7 +132,7 @@ func (s *DefaultSMSService) sendAliyunSMS(phone, content, smsType string) error 
 	if region == "" {
 		region = "cn-hangzhou"
 	}
-	client, err := dysmsapi.NewClientWithAccessKey(region, s.config.AccessKey, s.config.SecretKey)
+	client, err := aliyunsdk.NewClientWithAccessKey(region, s.config.AccessKey, s.config.SecretKey)
 	if err != nil {
 		return fmt.Errorf("initialize aliyun SMS client: %w", err)
 	}
@@ -114,23 +140,20 @@ func (s *DefaultSMSService) sendAliyunSMS(phone, content, smsType string) error 
 	if err != nil {
 		return fmt.Errorf("encode aliyun SMS template params: %w", err)
 	}
-	request := dysmsapi.CreateSendMessageWithTemplateRequest()
-	request.Scheme = "https"
-	request.To = strings.TrimPrefix(strings.TrimSpace(phone), "+86")
+	request := newAliyunSendSMSRequest()
+	request.PhoneNumbers = strings.TrimPrefix(strings.TrimSpace(phone), "+86")
+	request.SignName = s.config.SignName
 	request.TemplateCode = s.config.TemplateID
 	request.TemplateParam = string(params)
-	request.From = s.config.SignName
-	response, err := client.SendMessageWithTemplate(request)
+	response := &aliyunSendSMSResponse{BaseResponse: &responses.BaseResponse{}}
+	err = client.DoAction(request, response)
 	if err != nil {
 		return fmt.Errorf("send aliyun %s SMS: %w", smsType, err)
 	}
-	if response == nil || response.ResponseCode != "OK" {
-		if response == nil {
-			return fmt.Errorf("send aliyun %s SMS: empty response", smsType)
-		}
-		return fmt.Errorf("send aliyun %s SMS failed: code=%s message=%s", smsType, response.ResponseCode, response.ResponseDescription)
+	if response.Code != "OK" {
+		return fmt.Errorf("send aliyun %s SMS failed: code=%s message=%s request_id=%s", smsType, response.Code, response.Message, response.RequestID)
 	}
-	log.Printf("[Aliyun SMS] sent %s SMS to %s, message_id=%s", smsType, phone, response.MessageId)
+	log.Printf("[Aliyun SMS] sent %s SMS to %s, biz_id=%s", smsType, phone, response.BizID)
 	return nil
 }
 

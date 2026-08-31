@@ -261,7 +261,8 @@ async function sendVerificationCode() {
     }, 1000)
     
   } catch (error: any) {
-    emit('register-error', error.response?.data?.error || error.message || t('errors.sendCodeFailed'))
+    console.error('Failed to send phone verification code', error)
+    emit('register-error', t('errors.sendCodeFailed'))
   } finally {
     isSendingCode.value = false
   }

@@ -64,7 +64,8 @@ func (f *fakeEmailService) SendLoginNotificationEmail(email, ip, title, content 
 }
 
 type fakeSMSService struct {
-	verificationSMS []smsVerificationCall
+	verificationSMS     []smsVerificationCall
+	sendVerificationErr error
 }
 
 type smsVerificationCall struct {
@@ -73,11 +74,35 @@ type smsVerificationCall struct {
 }
 
 func (f *fakeSMSService) SendVerificationSMS(phone, code string) error {
+	if f.sendVerificationErr != nil {
+		return f.sendVerificationErr
+	}
 	f.verificationSMS = append(f.verificationSMS, smsVerificationCall{
 		Phone: phone,
 		Code:  code,
 	})
 	return nil
+}
+
+func TestPhonePreregisterDoesNotExposeSMSProviderError(t *testing.T) {
+	env := newAuthTestEnv(t)
+	defer env.Close()
+	env.smsService.sendVerificationErr = errors.New("SDK.ServerError requestId=secret-internal-detail")
+
+	resp := performJSONRequest(t, env.router, http.MethodPost, "/api/phone/preregister", map[string]string{
+		"phone":    "13800138000",
+		"nickname": "demo",
+	}, nil, nil)
+	if resp.Code != http.StatusBadGateway {
+		t.Fatalf("expected SMS gateway failure status %d, got %d with body %s", http.StatusBadGateway, resp.Code, resp.Body.String())
+	}
+	body := decodeBodyMap(t, resp)
+	if body["error"] != "Failed to send verification code, please try again" {
+		t.Fatalf("expected generic SMS error, got %#v", body["error"])
+	}
+	if strings.Contains(resp.Body.String(), "SDK.ServerError") || strings.Contains(resp.Body.String(), "requestId") {
+		t.Fatalf("response leaked SMS provider details: %s", resp.Body.String())
+	}
 }
 
 func (f *fakeSMSService) SendPasswordResetSMS(phone, code string) error {

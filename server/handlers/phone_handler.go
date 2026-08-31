@@ -60,6 +60,13 @@ func phoneAttemptKey(scope, phone string) string {
 	return "phone:" + scope + ":" + phone
 }
 
+func (h *AuthHandler) respondSMSDeliveryError(c *gin.Context, operation, phone string, err error) {
+	if h.logger != nil {
+		h.logger.Printf("SMS delivery failed during %s for %s: %v", operation, phone, err)
+	}
+	c.JSON(http.StatusBadGateway, gin.H{"error": "Failed to send verification code, please try again"})
+}
+
 // PhoneCodeLogin Phone number + verification code login
 func (h *AuthHandler) PhoneCodeLogin(c *gin.Context) {
 	var req PhoneCodeLoginRequest
@@ -301,7 +308,7 @@ func (h *AuthHandler) PhonePreregister(c *gin.Context) {
 	_, err = h.phoneAuth.PhonePreregister(req.Phone, req.Password, req.Nickname)
 	if err != nil {
 		h.cancelRegistrationInvitation(redemption)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		h.respondSMSDeliveryError(c, "phone registration", req.Phone, err)
 		return
 	}
 	if !h.storePendingRegistrationInvitation(c, pendingPhoneInvitationKey(req.Phone), redemption) {
@@ -348,7 +355,7 @@ func (h *AuthHandler) ResendPhoneVerification(c *gin.Context) {
 	_, err = h.phoneAuth.ResendPhoneVerification(req.Phone)
 	_ = h.accountAuth.RecordRateLimitedRequest(attemptKey, clientIP)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		h.respondSMSDeliveryError(c, "phone registration resend", req.Phone, err)
 		return
 	}
 
