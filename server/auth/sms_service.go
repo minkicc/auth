@@ -5,7 +5,12 @@
 package auth
 
 import (
+	"encoding/json"
+	"fmt"
 	"log"
+	"strings"
+
+	"github.com/aliyun/alibaba-cloud-sdk-go/services/dysmsapi"
 )
 
 // SMS Configuration
@@ -91,34 +96,41 @@ func (s *DefaultSMSService) SendLoginNotificationSMS(phone, ip string) error {
 
 // Aliyun SMS API integration example
 func (s *DefaultSMSService) sendAliyunSMS(phone, content, smsType string) error {
-	// In a real project, this should integrate the Aliyun SMS SDK
-	// This is just a placeholder example
-	log.Printf("[Aliyun SMS] Sending %s SMS to %s", smsType, phone)
-
-	// Actual implementation code example:
-	/*
-		client, err := dysmsapi.NewClientWithAccessKey(s.config.Region, s.config.AccessKey, s.config.SecretKey)
-		if err != nil {
-			return err
+	if strings.TrimSpace(s.config.AccessKey) == "" || strings.TrimSpace(s.config.SecretKey) == "" {
+		return fmt.Errorf("aliyun SMS requires access_key and secret_key")
+	}
+	if strings.TrimSpace(s.config.SignName) == "" || strings.TrimSpace(s.config.TemplateID) == "" {
+		return fmt.Errorf("aliyun SMS requires sign_name and template_id")
+	}
+	region := strings.TrimSpace(s.config.Region)
+	if region == "" {
+		region = "cn-hangzhou"
+	}
+	client, err := dysmsapi.NewClientWithAccessKey(region, s.config.AccessKey, s.config.SecretKey)
+	if err != nil {
+		return fmt.Errorf("initialize aliyun SMS client: %w", err)
+	}
+	params, err := json.Marshal(map[string]string{"code": content})
+	if err != nil {
+		return fmt.Errorf("encode aliyun SMS template params: %w", err)
+	}
+	request := dysmsapi.CreateSendMessageWithTemplateRequest()
+	request.Scheme = "https"
+	request.To = strings.TrimPrefix(strings.TrimSpace(phone), "+86")
+	request.TemplateCode = s.config.TemplateID
+	request.TemplateParam = string(params)
+	request.From = s.config.SignName
+	response, err := client.SendMessageWithTemplate(request)
+	if err != nil {
+		return fmt.Errorf("send aliyun %s SMS: %w", smsType, err)
+	}
+	if response == nil || response.ResponseCode != "OK" {
+		if response == nil {
+			return fmt.Errorf("send aliyun %s SMS: empty response", smsType)
 		}
-
-		request := dysmsapi.CreateSendSmsRequest()
-		request.Scheme = "https"
-		request.PhoneNumbers = phone
-		request.SignName = s.config.SignName
-		request.TemplateCode = s.config.TemplateID
-		request.TemplateParam = fmt.Sprintf(`{"code":"%s"}`, content)
-
-		response, err := client.SendSms(request)
-		if err != nil {
-			return err
-		}
-
-		if response.Code != "OK" {
-			return fmt.Errorf("Failed to send SMS: %s", response.Message)
-		}
-	*/
-
+		return fmt.Errorf("send aliyun %s SMS failed: code=%s message=%s", smsType, response.ResponseCode, response.ResponseDescription)
+	}
+	log.Printf("[Aliyun SMS] sent %s SMS to %s, message_id=%s", smsType, phone, response.MessageId)
 	return nil
 }
 

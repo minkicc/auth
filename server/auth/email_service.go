@@ -7,10 +7,12 @@ package auth
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"html/template"
 	"io"
+	"net"
 	"net/http"
 	"net/smtp"
 	"os"
@@ -270,10 +272,46 @@ func (s *EmailServiceImpl) sendEmail(to, subject, tplStr string, data interface{
 	fromEmail, fromHeader := splitDisplayEmail(s.config.From)
 	msg := []byte(buildHTMLMessage(fromHeader, to, subject, body.String()))
 
-	// Send email
-	auth := smtp.PlainAuth("", s.config.Username, s.config.Password, s.config.Host)
 	addr := fmt.Sprintf("%s:%d", s.config.Host, s.config.Port)
+	auth := smtp.PlainAuth("", s.config.Username, s.config.Password, s.config.Host)
+	if s.config.Port == 465 {
+		return sendImplicitTLSSMTP(addr, s.config.Host, auth, fromEmail, to, msg)
+	}
 	return smtp.SendMail(addr, auth, fromEmail, []string{to}, msg)
+}
+
+func sendImplicitTLSSMTP(addr, host string, auth smtp.Auth, from, to string, msg []byte) error {
+	conn, err := tls.DialWithDialer(&net.Dialer{Timeout: 15 * time.Second}, "tcp", addr, &tls.Config{ServerName: host, MinVersion: tls.VersionTLS12})
+	if err != nil {
+		return err
+	}
+	client, err := smtp.NewClient(conn, host)
+	if err != nil {
+		_ = conn.Close()
+		return err
+	}
+	defer client.Close()
+	if err := client.Auth(auth); err != nil {
+		return err
+	}
+	if err := client.Mail(from); err != nil {
+		return err
+	}
+	if err := client.Rcpt(to); err != nil {
+		return err
+	}
+	writer, err := client.Data()
+	if err != nil {
+		return err
+	}
+	if _, err := writer.Write(msg); err != nil {
+		_ = writer.Close()
+		return err
+	}
+	if err := writer.Close(); err != nil {
+		return err
+	}
+	return client.Quit()
 }
 
 func splitDisplayEmail(from string) (string, string) {
