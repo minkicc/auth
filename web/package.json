@@ -17,11 +17,13 @@
   "dependencies": {
     "axios": "^1.6.2",
     "pinia": "^2.1.7",
+    "qrcode": "^1.5.4",
     "vue": "^3.3.4",
     "vue-i18n": "^11.1.2",
     "vue-router": "^4.2.5"
   },
   "devDependencies": {
+    "@types/qrcode": "^1.5.6",
     "@vitejs/plugin-vue": "^4.5.0",
     "@vue/tsconfig": "^0.4.0",
     "typescript": "^5.2.2",

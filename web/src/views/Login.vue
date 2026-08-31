@@ -398,28 +398,6 @@ const hasMultipleRegisterMethods = computed(() => {
   return count > 1
 })
 
-const handleWechatLogin = async () => {
-  try {
-    // 获取微信登录的URL
-    const url = await serverApi.getWechatAuthUrl(invitationCode.value)
-
-    // 获取url中的state
-    const cleanUrl = url.split('#')[0]
-    const state = cleanUrl.split('state=')[1]
-    if (!state) {
-      throw new Error(t('errors.wechatLoginFailed'))
-    }
-    // 使用state存储client_id
-    sessionStorage.setItem(state, serverApi.clientId)
-    // 重定向到微信登录页面
-    // https://open.weixin.qq.com/connect/qrconnect?appid=xxxxx&redirect_uri=https://auth.example.com/wechat/callback&response_type=code&scope=snsapi_login&state=123#wechat_redirect
-    // 上述地址授权完成后，会跳转到 https://auth.example.com/wechat/callback?code=xxx&state=123
-    window.location.href = url
-  } catch (error: any) {
-    console.error(t('errors.wechatLoginFailed'), error)
-  }
-}
-
 const loadEnterpriseOIDCProviders = async () => {
   if (!hasEnterpriseOIDCLogin) {
     enterpriseOIDCProviders.value = []
@@ -611,11 +589,6 @@ onMounted(async () => {
 
     await loadEnterpriseOIDCProviders()
 
-    if (preferredLoginMethod.value === 'weixin' && hasWeixinLogin) {
-      await handleWechatLogin()
-      return
-    }
-
     const loginHint = serverApi.loginHint.trim()
     if (hasEnterpriseOIDCLogin && canUseEnterpriseLoginHint(loginHint)) {
       enterpriseEmail.value = loginHint
@@ -628,11 +601,6 @@ onMounted(async () => {
     }
 
     // 如果只有微信登录
-    if (!hasAccountLogin && !hasEmailLogin && !hasPhoneLogin && !hasGoogleLogin && !hasEnterpriseOIDCLogin && hasWeixinLogin) {
-      handleWechatLogin()
-      return
-    }
-    
     // 如果只有社交/企业 SSO 登录
     if (!hasPrimaryLogin.value) {
       return

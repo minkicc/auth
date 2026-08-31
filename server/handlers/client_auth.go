@@ -147,8 +147,15 @@ func (h *AuthHandler) ClientPhoneSendLoginCode(c *gin.Context) {
 			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to send login verification code"})
 			return
 		}
+		if h.rejectRegistrationIfDisabled(c, "phone") {
+			return
+		}
+		if _, err := h.phoneAuth.PhonePreregister(normalized, "", ""); err != nil {
+			h.respondSMSDeliveryError(c, "trusted phone registration", normalized, err)
+			return
+		}
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "If the phone number is registered, a login verification code has been sent", "expires_in": verifyCodeTTL})
+	c.JSON(http.StatusOK, gin.H{"message": "A verification code has been sent", "expires_in": verifyCodeTTL})
 }
 
 func (h *AuthHandler) ClientPhoneCodeLogin(c *gin.Context) {
@@ -179,13 +186,39 @@ func (h *AuthHandler) ClientPhoneCodeLogin(c *gin.Context) {
 		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
 		return
 	}
-	user, err := h.phoneAuth.PhoneCodeLogin(normalized, strings.TrimSpace(req.Code))
+	user, err := h.phoneAuth.GetUserByPhone(normalized)
+	created := false
+	if err != nil {
+		var appErr *auth.AppError
+		if !errors.As(err, &appErr) || appErr.Code != auth.ErrCodeUserNotFound {
+			_ = h.accountAuth.RecordLoginAttempt(attemptKey, c.ClientIP(), false)
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid phone number or verification code"})
+			return
+		}
+		if h.rejectRegistrationIfDisabled(c, "phone") {
+			return
+		}
+		user, err = h.phoneAuth.VerifyPhoneAndRegister(normalized, strings.TrimSpace(req.Code))
+		created = err == nil
+	} else {
+		user, err = h.phoneAuth.PhoneCodeLogin(normalized, strings.TrimSpace(req.Code))
+	}
 	if err != nil {
 		_ = h.accountAuth.RecordLoginAttempt(attemptKey, c.ClientIP(), false)
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid phone number or verification code"})
 		return
 	}
 	_ = h.accountAuth.RecordLoginAttempt(attemptKey, c.ClientIP(), true)
+	if created {
+		if err := h.runHook(c, iam.HookPostRegister, user, "phone", nil, map[string]string{
+			"identifier":   normalized,
+			"verification": "phone",
+			"client_id":    client.ClientID,
+		}); err != nil {
+			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+			return
+		}
+	}
 	tokens, err := h.oidcProvider.IssueUserTokens(c, user, client, "openid profile email")
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to issue login token"})

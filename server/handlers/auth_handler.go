@@ -145,8 +145,8 @@ func (h *AuthHandler) RegisterRoutes(authGroup *gin.RouterGroup, cfg *config.Con
 	// WeChat login related routes
 	if h.weixinLogin != nil {
 		authGroup.GET("/weixin/url", h.WeixinLoginURL)
-		// authGroup.GET("/weixin/login", h.WeixinLoginHandler)
 		authGroup.GET("/weixin/callback", h.WeixinCallback)
+		authGroup.GET("/weixin/status", h.WeixinLoginStatus)
 	}
 
 	if h.weixinMiniLogin != nil {

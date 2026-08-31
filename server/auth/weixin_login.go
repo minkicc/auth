@@ -85,7 +85,7 @@ func (a *WeixinLogin) AutoMigrate() error {
 // GetAuthURL Get WeChat authorization URL
 func (w *WeixinLogin) GetAuthURL(state string) string {
 	return fmt.Sprintf(
-		"https://open.weixin.qq.com/connect/qrconnect?appid=%s&redirect_uri=%s&response_type=code&scope=snsapi_login&state=%s#wechat_redirect",
+		"https://open.weixin.qq.com/connect/oauth2/authorize?appid=%s&redirect_uri=%s&response_type=code&scope=snsapi_userinfo&state=%s#wechat_redirect",
 		url.QueryEscape(w.Config.AppID),
 		url.QueryEscape(w.Config.RedirectURL),
 		url.QueryEscape(state),

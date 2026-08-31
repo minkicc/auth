@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/golang-jwt/jwt/v5"
 	"cc.minki/auth/server/auth"
 	"cc.minki/auth/server/config"
+	"github.com/golang-jwt/jwt/v5"
 )
 
 const (
@@ -120,6 +120,27 @@ func TestClientPhoneCodeLoginIssuesOnlyAllowedScopes(t *testing.T) {
 	}
 	if len(resp.Result().Cookies()) != 0 {
 		t.Fatalf("client phone login must not create browser cookies")
+	}
+}
+
+func TestClientPhoneCodeLoginRegistersUnregisteredPhone(t *testing.T) {
+	env := newAuthTestEnvWithOIDCProvider(t, clientPhoneTestOIDCConfig([]string{"openid", "profile"}))
+	defer env.Close()
+
+	headers := clientBasicAuth(testPhoneClientID, testPhoneClientSecret)
+	code := sendClientPhoneLoginCode(t, env, headers)
+	resp := performJSONRequest(t, env.router, http.MethodPost, "/api/client/phone/code-login", map[string]string{
+		"phone": testPhoneNumber,
+		"code":  code,
+	}, nil, headers)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected unregistered phone code-login status 200, got %d with body %s", resp.Code, resp.Body.String())
+	}
+	if _, err := env.handler.phoneAuth.GetUserByPhone(testPhoneNumber); err != nil {
+		t.Fatalf("expected phone user to be registered: %v", err)
+	}
+	if len(resp.Result().Cookies()) != 0 {
+		t.Fatalf("trusted phone registration must not create browser cookies")
 	}
 }
 
