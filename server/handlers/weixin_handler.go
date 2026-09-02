@@ -20,8 +20,6 @@ type weixinOAuthState struct {
 	State          string `json:"state"`
 	ClientID       string `json:"client_id,omitempty"`
 	InvitationCode string `json:"invitation_code,omitempty"`
-	Status         string `json:"status"`
-	UserID         string `json:"user_id,omitempty"`
 }
 
 const weixinQRSessionTTL = 10 * time.Minute
@@ -34,12 +32,12 @@ func (h *AuthHandler) WeixinLoginURL(c *gin.Context) {
 	}
 
 	state := uuid.New().String()
-	stateKey := fmt.Sprintf("%s%s", common.RedisKeyWeixinState, state)
+	clientID := uuid.New().String()
+	stateKey := fmt.Sprintf("%s%s", common.RedisKeyWeixinState, clientID)
 	stateData := weixinOAuthState{
 		State:          state,
 		ClientID:       c.Query("client_id"),
 		InvitationCode: c.Query("invitation_code"),
-		Status:         "pending",
 	}
 
 	if err := h.redisStore.Set(stateKey, stateData, weixinQRSessionTTL); err != nil {
@@ -47,10 +45,9 @@ func (h *AuthHandler) WeixinLoginURL(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
 		return
 	}
+	setLaxCookie(c, "weixin_client_id", clientID, int(weixinQRSessionTTL/time.Second), "/", "", h.browserSessionCookieSecure(c), true)
 	c.JSON(http.StatusOK, gin.H{
-		"url":            h.weixinLogin.GetAuthURL(state),
-		"transaction_id": state,
-		"expires_in":     int(weixinQRSessionTTL / time.Second),
+		"url": h.weixinLogin.GetAuthURL(state),
 	})
 }
 
@@ -68,7 +65,13 @@ func (h *AuthHandler) WeixinCallback(c *gin.Context) {
 		return
 	}
 
-	stateKey := fmt.Sprintf("%s%s", common.RedisKeyWeixinState, actualState)
+	clientID, err := c.Cookie("weixin_client_id")
+	if err != nil || clientID == "" {
+		h.logger.Printf("Failed to get WeChat login cookie: %v", err)
+		renderWeixinCallbackPage(c, false, "登录状态无效，请返回登录页重试")
+		return
+	}
+	stateKey := fmt.Sprintf("%s%s", common.RedisKeyWeixinState, clientID)
 	var stateData weixinOAuthState
 	if err := h.redisStore.Get(stateKey, &stateData); err != nil {
 		h.logger.Printf("Failed to get OAuth state from Redis: %v", err)
@@ -81,6 +84,10 @@ func (h *AuthHandler) WeixinCallback(c *gin.Context) {
 		renderWeixinCallbackPage(c, false, "登录状态无效，请返回电脑重新扫码")
 		return
 	}
+	if err := h.redisStore.Delete(stateKey); err != nil {
+		h.logger.Printf("Failed to clear WeChat OAuth state: %v", err)
+	}
+	setLaxCookie(c, "weixin_client_id", "", -1, "/", "", h.browserSessionCookieSecure(c), true)
 
 	// Handle callback
 	code := c.Query("code")
@@ -159,43 +166,6 @@ func (h *AuthHandler) WeixinCallback(c *gin.Context) {
 			renderWeixinCallbackPage(c, false, "当前账号暂时无法登录")
 			return
 		}
-	}
-	stateData.Status = "completed"
-	stateData.UserID = user.UserID
-	if err := h.redisStore.Set(stateKey, stateData, weixinQRSessionTTL); err != nil {
-		h.logger.Printf("Failed to complete WeChat QR session: %v", err)
-		renderWeixinCallbackPage(c, false, "登录结果保存失败，请返回电脑重试")
-		return
-	}
-	renderWeixinCallbackPage(c, true, "登录成功，请返回原浏览器继续")
-}
-
-// WeixinLoginStatus lets the browser that rendered the QR code claim the
-// completed login. The phone that scanned the code never receives its cookie.
-func (h *AuthHandler) WeixinLoginStatus(c *gin.Context) {
-	transactionID := c.Query("transaction_id")
-	if transactionID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid transaction"})
-		return
-	}
-	stateKey := fmt.Sprintf("%s%s", common.RedisKeyWeixinState, transactionID)
-	var stateData weixinOAuthState
-	if err := h.redisStore.Get(stateKey, &stateData); err != nil {
-		c.JSON(http.StatusGone, gin.H{"status": "expired", "error": "二维码已失效，请刷新后重试"})
-		return
-	}
-	if stateData.State != transactionID || stateData.Status != "completed" || stateData.UserID == "" {
-		c.JSON(http.StatusOK, gin.H{"status": "pending"})
-		return
-	}
-	user, err := h.accountAuth.GetUserByID(stateData.UserID)
-	if err != nil {
-		h.logger.Printf("Failed to resolve completed WeChat QR user: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "微信登录暂时不可用"})
-		return
-	}
-	if err := h.redisStore.Delete(stateKey); err != nil {
-		h.logger.Printf("Failed to consume WeChat QR session: %v", err)
 	}
 	h.completeBrowserLoginWithProvider(c, user, "", "weixin")
 }

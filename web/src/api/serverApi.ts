@@ -594,24 +594,14 @@ class ServerApi {
     }
 
     // 微信相关
-    async createWechatQRSession(invitationCode = ''): Promise<{ url: string; transaction_id: string; expires_in: number }> {
+    async getWechatAuthURL(invitationCode = ''): Promise<string> {
         const response = await axios.get('/weixin/url', {
             params: {
                 client_id: this.clientId || undefined,
                 invitation_code: invitationCode.trim() || undefined,
             }
         })
-        return response.data
-    }
-
-    async pollWechatQRSession(transactionId: string): Promise<AuthResponse | { status: 'pending' }> {
-        const response = await axios.get('/weixin/status', {
-            params: { transaction_id: transactionId }
-        })
-        if (response.data?.authenticated) {
-            this.updateUserInfo(response.data)
-        }
-        return response.data
+        return response.data.url
     }
 
     async handleWeixinCallback(code: string, state: string): Promise<AuthResponse> {

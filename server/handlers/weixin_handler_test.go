@@ -10,7 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func TestWeixinLoginURLCreatesPendingQRCodeSession(t *testing.T) {
+func TestWeixinLoginURLCreatesBrowserRedirectSession(t *testing.T) {
 	env := newAuthTestEnv(t)
 	defer env.Close()
 
@@ -31,20 +31,14 @@ func TestWeixinLoginURLCreatesPendingQRCodeSession(t *testing.T) {
 		t.Fatalf("expected QR session status 200, got %d with body %s", response.Code, response.Body.String())
 	}
 	body := decodeBodyMap(t, response)
-	transactionID, _ := body["transaction_id"].(string)
-	if transactionID == "" {
-		t.Fatalf("expected transaction ID, got %#v", body)
-	}
 	loginURL, err := url.Parse(body["url"].(string))
 	if err != nil {
 		t.Fatalf("parse login URL: %v", err)
 	}
-	if loginURL.Path != "/connect/oauth2/authorize" || loginURL.Query().Get("scope") != "snsapi_userinfo" {
-		t.Fatalf("unexpected official account OAuth URL: %s", loginURL.String())
+	if loginURL.Path != "/connect/qrconnect" || loginURL.Query().Get("scope") != "snsapi_login" {
+		t.Fatalf("unexpected website application OAuth URL: %s", loginURL.String())
 	}
-
-	status := performJSONRequest(t, router, http.MethodGet, "/api/weixin/status?transaction_id="+url.QueryEscape(transactionID), nil, nil, nil)
-	if status.Code != http.StatusOK || decodeBodyMap(t, status)["status"] != "pending" {
-		t.Fatalf("expected pending QR session, got %d with body %s", status.Code, status.Body.String())
+	if len(response.Result().Cookies()) != 1 || response.Result().Cookies()[0].Name != "weixin_client_id" {
+		t.Fatalf("expected WeChat browser session cookie, got %#v", response.Result().Cookies())
 	}
 }
