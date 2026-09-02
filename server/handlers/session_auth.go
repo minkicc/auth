@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/gin-gonic/gin"
 	"cc.minki/auth/server/auth"
 	"cc.minki/auth/server/iam"
+	"github.com/gin-gonic/gin"
 )
 
 func (h *AuthHandler) completeBrowserLogin(c *gin.Context, user *auth.User, message string) {
@@ -15,17 +15,12 @@ func (h *AuthHandler) completeBrowserLogin(c *gin.Context, user *auth.User, mess
 }
 
 func (h *AuthHandler) completeBrowserLoginWithProvider(c *gin.Context, user *auth.User, message string, provider string) {
-	session, err := h.createBrowserSessionWithProvider(c, user, provider)
+	session, err := h.establishBrowserLogin(c, user, provider)
 	if err != nil {
 		if appErr, ok := err.(*auth.AppError); ok {
 			c.JSON(appErr.GetHTTPStatus(), gin.H{"error": appErr.Error()})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	if err := h.populateAvatarURL(user); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -45,6 +40,33 @@ func (h *AuthHandler) completeBrowserLoginWithProvider(c *gin.Context, user *aut
 	}
 
 	c.JSON(http.StatusOK, response)
+}
+
+func (h *AuthHandler) completeBrowserLoginWithProviderRedirect(c *gin.Context, user *auth.User, provider, returnURI string) {
+	if _, err := h.establishBrowserLogin(c, user, provider); err != nil {
+		if appErr, ok := err.(*auth.AppError); ok {
+			c.JSON(appErr.GetHTTPStatus(), gin.H{"error": appErr.Error()})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	if returnURI == "" {
+		returnURI = strings.TrimRight(h.publicBaseURL(), "/") + "/profile"
+	}
+	c.Redirect(http.StatusFound, returnURI)
+}
+
+func (h *AuthHandler) establishBrowserLogin(c *gin.Context, user *auth.User, provider string) (*auth.Session, error) {
+	session, err := h.createBrowserSessionWithProvider(c, user, provider)
+	if err != nil {
+		return nil, err
+	}
+	if err := h.populateAvatarURL(user); err != nil {
+		return nil, err
+	}
+	return session, nil
 }
 
 func (h *AuthHandler) createBrowserSession(c *gin.Context, user *auth.User) (*auth.Session, error) {

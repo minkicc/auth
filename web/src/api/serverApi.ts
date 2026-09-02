@@ -598,6 +598,7 @@ class ServerApi {
         const response = await axios.get('/weixin/url', {
             params: {
                 client_id: this.clientId || undefined,
+                redirect_uri: this.redirectUri || undefined,
                 invitation_code: invitationCode.trim() || undefined,
             }
         })

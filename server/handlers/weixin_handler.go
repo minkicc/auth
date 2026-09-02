@@ -7,6 +7,8 @@ package handlers
 import (
 	"fmt"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"cc.minki/auth/server/auth"
@@ -20,6 +22,7 @@ type weixinOAuthState struct {
 	State          string `json:"state"`
 	ClientID       string `json:"client_id,omitempty"`
 	InvitationCode string `json:"invitation_code,omitempty"`
+	ReturnURI      string `json:"return_uri,omitempty"`
 }
 
 const weixinQRSessionTTL = 10 * time.Minute
@@ -38,6 +41,7 @@ func (h *AuthHandler) WeixinLoginURL(c *gin.Context) {
 		State:          state,
 		ClientID:       c.Query("client_id"),
 		InvitationCode: c.Query("invitation_code"),
+		ReturnURI:      h.weixinReturnURI(c.Query("client_id"), c.Query("redirect_uri")),
 	}
 
 	if err := h.redisStore.Set(stateKey, stateData, weixinQRSessionTTL); err != nil {
@@ -167,7 +171,27 @@ func (h *AuthHandler) WeixinCallback(c *gin.Context) {
 			return
 		}
 	}
-	h.completeBrowserLoginWithProvider(c, user, "", "weixin")
+	h.completeBrowserLoginWithProviderRedirect(c, user, "weixin", stateData.ReturnURI)
+}
+
+func (h *AuthHandler) weixinReturnURI(clientID, returnURI string) string {
+	returnURI = strings.TrimSpace(returnURI)
+	if returnURI == "" || clientID == "" || h.publicBaseURL() == "" {
+		return ""
+	}
+
+	parsed, err := url.Parse(returnURI)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return ""
+	}
+	base, err := url.Parse(h.publicBaseURL())
+	if err != nil || parsed.Scheme != base.Scheme || parsed.Host != base.Host {
+		return ""
+	}
+	if strings.TrimRight(parsed.Path, "/") != "/oauth2/authorize" || parsed.Query().Get("client_id") != clientID {
+		return ""
+	}
+	return parsed.String()
 }
 
 func renderWeixinCallbackPage(c *gin.Context, success bool, message string) {
